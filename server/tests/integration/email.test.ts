@@ -237,7 +237,8 @@ describe('a send that fails', () => {
     });
 
     /* Not yet due. */
-    expect((await outbox.drain(system, new Date(failedAt.getTime() + 30_000))).attempted).toEqual([]);
+    const halfAMinuteLater = new Date(failedAt.getTime() + 30_000);
+    expect((await outbox.drain(system, halfAMinuteLater)).attempted).toEqual([]);
 
     await outbox.drain(system, aMinuteLater);
 
