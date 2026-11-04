@@ -89,4 +89,26 @@ GRANT UPDATE (status, attempts, next_attempt_at, last_error, delivered_to, sent_
 
 -- Down Migration
 
--- Nothing. Putting back what grants.sql gave would reopen the hole this closes.
+-- Puts back what grants.sql gave, which is the state production was in before this ran. It
+-- reopens the hole, so it is for going back, never for keeping. On a database built by
+-- migrations alone it leaves more than was there, and that is useful: continuous integration
+-- rolls the last migration back and forward, so it shows on every run that the up section
+-- repairs a database in the state production was found in.
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO lms_app;
+
+REVOKE UPDATE, DELETE ON
+    leave_ledger_entry,
+    audit_log,
+    leave_request_reclassification,
+    leave_request_recalculation
+FROM lms_app;
+
+DO $$
+BEGIN
+    EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public '
+        'GRANT UPDATE, DELETE ON TABLES TO lms_app',
+        current_user);
+END
+$$;
