@@ -347,6 +347,8 @@ export interface ChartPerson {
   lastName: string;
   jobTitle: string | null;
   photoId: string | null;
+  /** As the directory's list names it, so a team lead can be called the lead of theirs. */
+  department: DepartmentInTheDirectory;
   /**
    * The team lead they report to, where the chart draws them beside that lead rather than
    * beneath. Null for everybody drawn under the person they report to.
@@ -395,6 +397,7 @@ export function staffChartFor(
   today: CalendarDate,
   photos: readonly PhotoOnRecord[] = [],
   teamLeads: ReadonlySet<string> = new Set(),
+  departments: readonly Department[] = [],
 ): StaffChart {
   const current = employees.filter((employee) => isCurrentOn(employee, today));
   const byId = new Map(current.map((employee) => [employee.id, employee]));
@@ -413,13 +416,17 @@ export function staffChartFor(
   });
 
   const chart = buildOrgChart(drawn);
-  const photoIds = photoIdsOf(photos);
+  const drawing: Drawing = {
+    photos: photoIdsOf(photos),
+    ledBy,
+    departments: new Map(departments.map((one) => [one.id, one])),
+  };
 
   return {
     today,
     lines: chart.roots.map((root) => ({
       standing: root.standing,
-      top: branchFrom(root.node, photoIds, ledBy),
+      top: branchFrom(root.node, drawing),
     })),
     total: chart.total,
   };
@@ -461,24 +468,29 @@ function drawnUnder(
   return under;
 }
 
+/** What each card is drawn with, beyond the record itself. */
+interface Drawing {
+  /** Photo ids, by employee. */
+  photos: ReadonlyMap<string, string>;
+  /** The team lead each lifted person reports to, by employee. */
+  ledBy: ReadonlyMap<string, Employee>;
+  departments: ReadonlyMap<string, Department>;
+}
+
 /**
  * A branch of HR's chart, carrying only what the directory shows of each person.
  *
  * An explicit stack rather than recursion, for the reason the builder has one.
  */
-function branchFrom(
-  top: OrgChartNode,
-  photos: ReadonlyMap<string, string>,
-  ledBy: ReadonlyMap<string, Employee>,
-): ChartPerson {
-  const root = personOnTheChart(top.employee, photos, ledBy);
+function branchFrom(top: OrgChartNode, drawing: Drawing): ChartPerson {
+  const root = personOnTheChart(top.employee, drawing);
   const pending: [OrgChartNode, ChartPerson][] = [[top, root]];
 
   while (pending.length > 0) {
     const [node, person] = pending.pop() as [OrgChartNode, ChartPerson];
 
     for (const report of node.reports) {
-      const drawn = personOnTheChart(report.employee, photos, ledBy);
+      const drawn = personOnTheChart(report.employee, drawing);
 
       person.reports.push(drawn);
       pending.push([report, drawn]);
@@ -488,19 +500,20 @@ function branchFrom(
   return root;
 }
 
-function personOnTheChart(
-  employee: Employee,
-  photos: ReadonlyMap<string, string>,
-  ledBy: ReadonlyMap<string, Employee>,
-): ChartPerson {
-  const lead = ledBy.get(employee.id);
+function personOnTheChart(employee: Employee, drawing: Drawing): ChartPerson {
+  const lead = drawing.ledBy.get(employee.id);
 
   return {
     employeeId: employee.id,
     firstName: employee.firstName,
     lastName: employee.lastName,
     jobTitle: employee.jobTitle,
-    photoId: photos.get(employee.id) ?? null,
+    photoId: drawing.photos.get(employee.id) ?? null,
+    department: {
+      id: employee.departmentId,
+      /* A NOT NULL foreign key, so always found where the departments were handed in. */
+      name: drawing.departments.get(employee.departmentId)?.name ?? 'Unknown department',
+    },
     ledBy:
       lead === undefined
         ? null

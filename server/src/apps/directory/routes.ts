@@ -666,6 +666,7 @@ function personAsJson(person: ChartPerson): unknown {
     lastName: person.lastName,
     jobTitle: person.jobTitle,
     photo: photoAsJson(person.photoId),
+    department: departmentAsJson(person.department),
     /** The team lead they report to, where they are drawn beside that lead. */
     ledBy: person.ledBy,
     reports: person.reports.map(personAsJson),

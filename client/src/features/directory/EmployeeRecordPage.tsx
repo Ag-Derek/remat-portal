@@ -677,9 +677,10 @@ function Reports({
       <ul className="admin-reports">
         {record.reportsStillHere.map((one) => (
           <li key={one.employeeId}>
-            <label>
+            <label className="admin-check">
               <input
                 type="checkbox"
+                className="admin-tick"
                 checked={chosen.has(one.employeeId)}
                 disabled={moving}
                 onChange={(event) => {
@@ -781,9 +782,11 @@ function TeamLead({
     <section className="admin-panel" aria-labelledby="record-team-lead">
       <h3 id="record-team-lead">On the organisation chart</h3>
 
-      <label className="admin-team-lead">
+      <label className="admin-check">
         <input
           type="checkbox"
+          role="switch"
+          className="switch"
           checked={record.teamLead}
           disabled={saving}
           onChange={(event) => {
@@ -791,12 +794,12 @@ function TeamLead({
           }}
         />
         <span>
-          {record.firstName} is a team lead
+          <strong>{record.firstName} is a team lead</strong>
           <small>
             {record.manager === null
               ? `Has no effect while ${record.firstName} reports to nobody.`
-              : `Their reports are drawn beside them, under ${record.manager.firstName} ` +
-                `${record.manager.lastName}, marked as led by ${record.firstName}.`}{' '}
+              : `Draws ${record.firstName}’s reports beside them, under ` +
+                `${record.manager.firstName} ${record.manager.lastName}.`}{' '}
             They still report to {record.firstName}, who still approves their leave.
           </small>
         </span>

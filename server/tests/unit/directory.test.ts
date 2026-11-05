@@ -316,10 +316,11 @@ describe('the organisation chart', () => {
     expect(staffChartFor([], TODAY)).toEqual({ today: TODAY, lines: [], total: 0 });
   });
 
-  it('carries a name, a job title and a photo of each person, and nothing else from the record', () => {
+  it('carries a name, a job title, a department and a photo of each person, and nothing else from the record', () => {
     const top = staffChartFor(organisation, TODAY, [{ employeeId: 'ama', id: '3' }]).lines[0].top;
 
     expect(Object.keys(top).sort()).toEqual([
+      'department',
       'employeeId',
       'firstName',
       'jobTitle',
@@ -332,6 +333,13 @@ describe('the organisation chart', () => {
     expect(top.reports.every((one) => one.photoId === null)).toBe(true);
     expect(JSON.stringify(top)).not.toContain('RH-');
     expect(JSON.stringify(top)).not.toContain('managerId');
+  });
+
+  it('names each person’s department, as the directory’s list does', () => {
+    const top = staffChartFor(organisation, TODAY, [], new Set(), [OPERATIONS, FINANCE]).lines[0]
+      .top;
+
+    expect(top.department).toEqual({ id: OPERATIONS.id, name: 'Operations' });
   });
 
   describe('a team lead', () => {

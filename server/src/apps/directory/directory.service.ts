@@ -93,15 +93,16 @@ export class DirectoryService {
     this.guard.enforce(directoryPolicy.chart(actor));
 
     const today = this.today();
-    const [employees, teamLeads] = await Promise.all([
+    const [employees, teamLeads, departments] = await Promise.all([
       this.employees.list(),
       this.employees.teamLeadIds(),
+      this.departments.list(),
     ]);
     const photos = await this.photos.photosOf(
       employees.filter((one) => isCurrentOn(one, today)).map((one) => one.id),
     );
 
-    return staffChartFor(employees, today, photos, teamLeads);
+    return staffChartFor(employees, today, photos, teamLeads, departments);
   }
 
   /**
