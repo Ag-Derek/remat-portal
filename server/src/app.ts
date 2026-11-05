@@ -468,65 +468,61 @@ export function buildApp(parts: Application): Express {
   /* The staff directory, every employee's. Who is away comes from leave through the
      directory's own port, so neither app imports the other; only a return date crosses.
 
-     Still being built, so not mounted in production: `/api/directory` answers 404 there
-     until it is finished. The client hides the screen on the same terms. */
-  if (process.env.NODE_ENV !== 'production') {
-    /* #226. Cover is named on leave and shown in the directory, and the colleague named is
-       told by the directory's emails, so it opens with the directory. Same port arrangement as
-       who is away: the directory is handed the service, and neither imports the other. */
-    const cover =
-      parts.covers === undefined
-        ? undefined
-        : new CoverService(
-            parts.guard,
-            parts.covers,
-            parts.requests,
-            parts.employees,
-            parts.directoryEmails,
-          );
-
-    if (cover !== undefined) {
-      app.use('/api', coverRoutes({ cover }));
-    }
-
-    app.use(
-      '/api',
-      directoryRoutes({
-        guard: parts.guard,
-        limits: parts.directoryLimits,
-        directory: new DirectoryService(
+     #226. Cover is named on leave and shown in the directory, and the colleague named is
+     told by the directory's emails, so it is built with the directory. Same port arrangement as
+     who is away: the directory is handed the service, and neither imports the other. */
+  const cover =
+    parts.covers === undefined
+      ? undefined
+      : new CoverService(
           parts.guard,
+          parts.covers,
+          parts.requests,
           parts.employees,
-          parts.departments,
-          parts.photos ?? { photosOf: () => Promise.resolve([]) },
-          parts.patterns === undefined
-            ? undefined
-            : new AwayTodayService(parts.requests, parts.employees, parts.patterns, parts.holidays),
-          undefined,
-          cover,
-        ),
-        photos:
-          parts.photos === undefined
-            ? undefined
-            : new PhotoService(parts.guard, parts.photos, parts.employees, parts.storage),
-        emails: parts.directoryEmails,
-        /* HR's Administration tab. Every route asks `directoryPolicy.administer` itself. */
-        administration:
-          parts.employeeRecords === undefined || parts.patterns === undefined
-            ? undefined
-            : new AdministrationService(
-                parts.guard,
-                parts.employees,
-                parts.employeeRecords,
-                parts.departments,
-                parts.patterns,
-                parts.accounts,
-                parts.roles,
-                parts.audit,
-              ),
-      }),
-    );
+          parts.directoryEmails,
+        );
+
+  if (cover !== undefined) {
+    app.use('/api', coverRoutes({ cover }));
   }
+
+  app.use(
+    '/api',
+    directoryRoutes({
+      guard: parts.guard,
+      limits: parts.directoryLimits,
+      directory: new DirectoryService(
+        parts.guard,
+        parts.employees,
+        parts.departments,
+        parts.photos ?? { photosOf: () => Promise.resolve([]) },
+        parts.patterns === undefined
+          ? undefined
+          : new AwayTodayService(parts.requests, parts.employees, parts.patterns, parts.holidays),
+        undefined,
+        cover,
+      ),
+      photos:
+        parts.photos === undefined
+          ? undefined
+          : new PhotoService(parts.guard, parts.photos, parts.employees, parts.storage),
+      emails: parts.directoryEmails,
+      /* HR's Administration tab. Every route asks `directoryPolicy.administer` itself. */
+      administration:
+        parts.employeeRecords === undefined || parts.patterns === undefined
+          ? undefined
+          : new AdministrationService(
+              parts.guard,
+              parts.employees,
+              parts.employeeRecords,
+              parts.departments,
+              parts.patterns,
+              parts.accounts,
+              parts.roles,
+              parts.audit,
+            ),
+    }),
+  );
 
   /* Who was sent which email and what became of it. An HR Administrator's and a System
      Administrator's, which `outboxPolicy` decides rather than the mounting. */

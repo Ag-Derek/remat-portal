@@ -3,8 +3,7 @@
 Every endpoint the staff directory answers, for somebody writing a client or a test. Who may
 do what, and why, is in [Authorisation and audit](authorisation-and-audit.md).
 
-The routes are in `server/src/apps/directory/routes.ts`. While the directory is being built it
-is not mounted in production, so `/api/directory` answers 404 there.
+The routes are in `server/src/apps/directory/routes.ts`.
 
 ---
 

@@ -316,17 +316,6 @@ a.portal-app:hover {
   box-shadow: var(--shadow);
 }
 
-.portal-app.is-soon {
-  color: var(--ink-soft);
-}
-
-.portal-app small {
-  margin-left: auto;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--ink-faint);
-}
-
 .portal-mark {
   flex: none;
   width: 2.75rem;

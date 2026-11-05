@@ -379,7 +379,7 @@ sends is from "Remat Portal" at the same address.
 | `NEW_COLLEAGUE` | everybody else under that manager | the joiner's start date | yes |
 | `LEAVER_HAS_REPORTS` | everybody in HR | 14 days and 3 days before an exit date, while reports remain | no |
 | `RECORD_CHANGED` | the employee | HR changes their job title, department or manager | no |
-| `COVER_NAMED` | the cover | a colleague names them as cover (#226; not yet called) | yes |
+| `COVER_NAMED` | the cover | a colleague names them as cover (#226) | yes |
 | `DIRECT_MESSAGE` | a colleague, and a copy to the writer | somebody uses **Send a message** on a profile; 10 an hour each | no |
 
 A profile shows the work address as text rather than a `mailto:` link, which on a machine
@@ -390,8 +390,7 @@ never to yourself.
 People turn the optional ones off on their own profile. The list of optional emails is
 `OPTIONAL_EMAILS` in `apps/directory/email.ts` and, again, the
 `email_opt_out_only_optional_emails` constraint, so a mandatory email cannot be
-silenced on any connection. While the directory is not mounted in production, neither
-are its emails sent there.
+silenced on any connection.
 
 To see them locally, run `npm run mail`, give somebody in the seed a start date of
 today, and wait for the hourly job (or restart the API after 08:00 UTC). Open Mailpit

@@ -4,13 +4,10 @@ import type { Me } from '../../api';
 export function PortalHome({
   me,
   initials,
-  directoryOpen,
   onSignOut,
 }: {
   me: Me;
   initials: string;
-  /** False until the directory is finished, so its card is shown but not a link. */
-  directoryOpen: boolean;
   onSignOut: () => void;
 }) {
   return (
@@ -47,19 +44,10 @@ export function PortalHome({
             </a>
           </li>
           <li>
-            {directoryOpen ? (
-              <a className="portal-app" href="#/directory">
-                <DirectoryMark />
-                Directory
-              </a>
-            ) : (
-              /* Not finished yet, so shown but not a link. */
-              <div className="portal-app is-soon" aria-disabled="true">
-                <DirectoryMark />
-                Directory
-                <small>Coming soon</small>
-              </div>
-            )}
+            <a className="portal-app" href="#/directory">
+              <DirectoryMark />
+              Directory
+            </a>
           </li>
         </ul>
       </main>

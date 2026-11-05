@@ -17,7 +17,7 @@ import { days, inDays, period, sentenceCase } from '../../format';
 import { Icon, iconForLeaveType } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { Evidence } from './Attachments';
-import { COVER_OPEN, CoverFields, type CoverDraft, NO_COVER, partsOf } from '../cover/CoverFields';
+import { CoverFields, type CoverDraft, NO_COVER, partsOf } from '../cover/CoverFields';
 
 /**
  * How long a reason may be.
@@ -207,7 +207,7 @@ export function NewRequestPage({ onSignedOut }: { onSignedOut: () => void }) {
            take the request back: it is in, and the cover can be named from My requests. */
         const parts = partsOf(cover, next.from, next.to);
 
-        if (COVER_OPEN && parts.length > 0) {
+        if (parts.length > 0) {
           setCoverOutcome(
             await nameCover(next.requestId, parts).then(
               () => 'NAMED' as const,
@@ -431,19 +431,17 @@ export function NewRequestPage({ onSignedOut }: { onSignedOut: () => void }) {
 
             {/* #226. Optional. Shown in the directory while the leave is agreed and under way,
                 and whoever is named is emailed. */}
-            {COVER_OPEN ? (
-              <fieldset className="cover-section">
-                <legend>Who covers while you are away (optional)</legend>
-                <CoverFields
-                  from={from}
-                  to={to}
-                  draft={cover}
-                  disabled={asking}
-                  onChange={setCover}
-                  onSignedOut={onSignedOut}
-                />
-              </fieldset>
-            ) : null}
+            <fieldset className="cover-section">
+              <legend>Who covers while you are away (optional)</legend>
+              <CoverFields
+                from={from}
+                to={to}
+                draft={cover}
+                disabled={asking}
+                onChange={setCover}
+                onSignedOut={onSignedOut}
+              />
+            </fieldset>
 
             {/* FR 17. On the left, because it is something to decide rather than
                 something the system is saying. Shown exactly when the server warns. */}
