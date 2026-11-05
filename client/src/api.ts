@@ -2243,6 +2243,8 @@ export interface ChartPerson {
   lastName: string;
   jobTitle: string | null;
   photo: PhotoLinks | null;
+  /** The team lead they report to, where they are drawn beside that lead rather than beneath. */
+  ledBy: { employeeId: string; firstName: string; lastName: string } | null;
   /** By surname. */
   reports: ChartPerson[];
 }
@@ -2343,6 +2345,8 @@ export interface AdministrationRecord extends StaffRecord {
   workPatternName: string;
   /** The people still here who report to them, by surname. */
   reportsStillHere: PersonNamed[];
+  /** Whether the chart draws their reports beside them, under their own manager. */
+  teamLead: boolean;
   /** Newest first. */
   history: RecordChange[];
 }
@@ -2429,6 +2433,18 @@ export async function reassignReports(
     'POST',
     `/api/directory/admin/people/${encodeURIComponent(employeeId)}/reports`,
     { toManagerId, employeeIds },
+  );
+}
+
+/** Marks somebody a team lead on the chart, or not. Changes nothing but the drawing. */
+export async function setTeamLead(
+  employeeId: string,
+  teamLead: boolean,
+): Promise<AdministrationRecord> {
+  return request<AdministrationRecord>(
+    'PUT',
+    `/api/directory/admin/people/${encodeURIComponent(employeeId)}/team-lead`,
+    { teamLead },
   );
 }
 

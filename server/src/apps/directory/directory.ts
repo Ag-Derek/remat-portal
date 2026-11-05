@@ -347,6 +347,11 @@ export interface ChartPerson {
   lastName: string;
   jobTitle: string | null;
   photoId: string | null;
+  /**
+   * The team lead they report to, where the chart draws them beside that lead rather than
+   * beneath. Null for everybody drawn under the person they report to.
+   */
+  ledBy: { employeeId: string; firstName: string; lastName: string } | null;
   reports: ChartPerson[];
 }
 
@@ -378,23 +383,82 @@ export interface StaffChart {
   total: number;
 }
 
-/** The chart, from the manager relationships of the people who are current. */
+/**
+ * The chart, from the manager relationships of the people who are current.
+ *
+ * `teamLeads` are drawn with their reports beside them, under their own manager, and each of
+ * those reports carries who leads them. The records are not changed: whoever a person reports
+ * to still approves their leave. It is only where the card goes.
+ */
 export function staffChartFor(
   employees: readonly Employee[],
   today: CalendarDate,
   photos: readonly PhotoOnRecord[] = [],
+  teamLeads: ReadonlySet<string> = new Set(),
 ): StaffChart {
-  const chart = buildOrgChart(employees.filter((employee) => isCurrentOn(employee, today)));
+  const current = employees.filter((employee) => isCurrentOn(employee, today));
+  const byId = new Map(current.map((employee) => [employee.id, employee]));
+  const ledBy = new Map<string, Employee>();
+
+  const drawn = current.map((employee) => {
+    const under = drawnUnder(employee, byId, teamLeads);
+
+    if (under === employee.managerId) {
+      return employee;
+    }
+
+    ledBy.set(employee.id, byId.get(employee.managerId!)!);
+
+    return { ...employee, managerId: under };
+  });
+
+  const chart = buildOrgChart(drawn);
   const photoIds = photoIdsOf(photos);
 
   return {
     today,
     lines: chart.roots.map((root) => ({
       standing: root.standing,
-      top: branchFrom(root.node, photoIds),
+      top: branchFrom(root.node, photoIds, ledBy),
     })),
     total: chart.total,
   };
+}
+
+/**
+ * Whose card this person's hangs from: their manager, or, while that manager is a team lead,
+ * the lead's own manager, and so on up.
+ *
+ * Lifted only to somebody on the chart, so a lead whose manager is not current keeps their
+ * team beneath them and the fault stays where HR will see it. A reporting line that goes round
+ * in a circle stops the climb rather than following it, and leaves the line as the record has
+ * it for the builder to flag.
+ */
+function drawnUnder(
+  employee: Employee,
+  byId: ReadonlyMap<string, Employee>,
+  teamLeads: ReadonlySet<string>,
+): string | null {
+  const walked = new Set<string>([employee.id]);
+  let under = employee.managerId;
+
+  while (under !== null && teamLeads.has(under)) {
+    const lead = byId.get(under);
+
+    if (
+      lead === undefined ||
+      lead.managerId === null ||
+      !byId.has(lead.managerId) ||
+      walked.has(lead.managerId)
+    ) {
+      break;
+    }
+
+    walked.add(under);
+    under = lead.managerId;
+  }
+
+  return under;
 }
 
 /**
@@ -402,15 +466,19 @@ export function staffChartFor(
  *
  * An explicit stack rather than recursion, for the reason the builder has one.
  */
-function branchFrom(top: OrgChartNode, photos: ReadonlyMap<string, string>): ChartPerson {
-  const root = personOnTheChart(top.employee, photos);
+function branchFrom(
+  top: OrgChartNode,
+  photos: ReadonlyMap<string, string>,
+  ledBy: ReadonlyMap<string, Employee>,
+): ChartPerson {
+  const root = personOnTheChart(top.employee, photos, ledBy);
   const pending: [OrgChartNode, ChartPerson][] = [[top, root]];
 
   while (pending.length > 0) {
     const [node, person] = pending.pop() as [OrgChartNode, ChartPerson];
 
     for (const report of node.reports) {
-      const drawn = personOnTheChart(report.employee, photos);
+      const drawn = personOnTheChart(report.employee, photos, ledBy);
 
       person.reports.push(drawn);
       pending.push([report, drawn]);
@@ -420,13 +488,23 @@ function branchFrom(top: OrgChartNode, photos: ReadonlyMap<string, string>): Cha
   return root;
 }
 
-function personOnTheChart(employee: Employee, photos: ReadonlyMap<string, string>): ChartPerson {
+function personOnTheChart(
+  employee: Employee,
+  photos: ReadonlyMap<string, string>,
+  ledBy: ReadonlyMap<string, Employee>,
+): ChartPerson {
+  const lead = ledBy.get(employee.id);
+
   return {
     employeeId: employee.id,
     firstName: employee.firstName,
     lastName: employee.lastName,
     jobTitle: employee.jobTitle,
     photoId: photos.get(employee.id) ?? null,
+    ledBy:
+      lead === undefined
+        ? null
+        : { employeeId: lead.id, firstName: lead.firstName, lastName: lead.lastName },
     reports: [],
   };
 }

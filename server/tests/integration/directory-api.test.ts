@@ -566,6 +566,7 @@ describe('the organisation chart', () => {
       'firstName',
       'jobTitle',
       'lastName',
+      'ledBy',
       'photo',
       'reports',
     ]);

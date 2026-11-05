@@ -324,6 +324,7 @@ describe('the organisation chart', () => {
       'firstName',
       'jobTitle',
       'lastName',
+      'ledBy',
       'photoId',
       'reports',
     ]);
@@ -331,6 +332,91 @@ describe('the organisation chart', () => {
     expect(top.reports.every((one) => one.photoId === null)).toBe(true);
     expect(JSON.stringify(top)).not.toContain('RH-');
     expect(JSON.stringify(top)).not.toContain('managerId');
+  });
+
+  describe('a team lead', () => {
+    it('has their reports drawn beside them, under their own manager, saying who leads them', () => {
+      const chart = staffChartFor(organisation, TODAY, [], new Set(['efua']));
+      const ama = chart.lines[0].top;
+
+      expect(shape(ama)).toEqual({ ama: { yaw: {}, efua: {}, kofi: {}, akosua: {} } });
+      expect(ama.reports.find((one) => one.employeeId === 'kofi')?.ledBy).toEqual({
+        employeeId: 'efua',
+        firstName: 'Efua',
+        lastName: 'Darko',
+      });
+      expect(ama.reports.find((one) => one.employeeId === 'efua')?.ledBy).toBeNull();
+      expect(ama.reports.find((one) => one.employeeId === 'yaw')?.ledBy).toBeNull();
+      expect(chart.total).toBe(5);
+    });
+
+    it('is drawn as before for everybody when nobody is one', () => {
+      expect(staffChartFor(organisation, TODAY, [], new Set())).toEqual(
+        staffChartFor(organisation, TODAY),
+      );
+    });
+
+    it('under another team lead lifts their own team as far as the first person who is not one', () => {
+      const chart = staffChartFor(
+        [...organisation, person({ id: 'nana', firstName: 'Nana', managerId: 'kofi' })],
+        TODAY,
+        [],
+        new Set(['efua', 'kofi']),
+      );
+      const ama = chart.lines[0].top;
+
+      expect(shape(ama)).toEqual({
+        ama: { yaw: {}, efua: {}, kofi: {}, akosua: {}, nana: {} },
+      });
+      /* Led by whoever they report to, not by the lead at the top of the climb. */
+      expect(ama.reports.find((one) => one.employeeId === 'nana')?.ledBy?.employeeId).toBe('kofi');
+    });
+
+    it('at the head of the organisation keeps their team beneath them, having nobody above', () => {
+      const chart = staffChartFor(organisation, TODAY, [], new Set(['ama']));
+
+      expect(shape(chart.lines[0].top)).toEqual({
+        ama: { yaw: {}, efua: { kofi: {}, akosua: {} } },
+      });
+    });
+
+    it('whose manager has left keeps their team beneath them, so the fault stays in view', () => {
+      const chart = staffChartFor(
+        organisation.map((one) =>
+          one.id === 'ama'
+            ? { ...one, employmentStatus: 'TERMINATED' as const, exitDate: '2026-07-31' }
+            : one,
+        ),
+        TODAY,
+        [],
+        new Set(['efua']),
+      );
+      const efua = chart.lines.find((line) => line.top.employeeId === 'efua');
+
+      expect(efua?.standing).toBe('MANAGER_NOT_ON_THE_CHART');
+      expect(shape(efua!.top)).toEqual({ efua: { kofi: {}, akosua: {} } });
+    });
+
+    it('in a reporting line that goes round in a circle stops the climb rather than following it', () => {
+      const chart = staffChartFor(
+        [
+          ...organisation,
+          person({ id: 'nii', firstName: 'Nii', lastName: 'Lartey', managerId: 'adwoa' }),
+          person({ id: 'adwoa', firstName: 'Adwoa', lastName: 'Tetteh', managerId: 'nii' }),
+          person({ id: 'esi', firstName: 'Esi', lastName: 'Mensah', managerId: 'nii' }),
+        ],
+        TODAY,
+        [],
+        new Set(['nii', 'adwoa']),
+      );
+
+      expect(chart.lines.map((line) => line.standing)).toEqual([
+        'HEAD_OF_THE_ORGANISATION',
+        'REPORTING_LINE_LOOPS',
+      ]);
+      expect(chart.total).toBe(8);
+      expect(JSON.stringify(chart.lines[1])).toContain('"esi"');
+    });
   });
 
   /** A branch as nested ids, so a whole shape reads as one line. */

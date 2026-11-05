@@ -89,7 +89,14 @@ Who reports to whom, among everybody here today. Any employee.
 { "today": "2026-10-30", "lines": [ { "standing": "…", "top": { "…": "a person" } } ], "total": 12 }
 ```
 
-A person is `{ employeeId, firstName, lastName, jobTitle, photo, reports: [...] }`, nested down.
+A person is `{ employeeId, firstName, lastName, jobTitle, photo, ledBy, reports: [...] }`, nested
+down.
+
+A **team lead**'s reports are drawn beside them, under the lead's own manager, rather than beneath
+them. Each of those carries `ledBy`, `{ employeeId, firstName, lastName }` of the lead they report
+to; everybody else has `null`. Only the drawing moves: the records still say they report to the
+lead, so the lead still approves their leave. A lead with nobody above them on the chart keeps
+their team beneath them.
 
 ### `GET /api/directory/people/:employeeId`
 
@@ -188,11 +195,13 @@ id, before anybody is looked up. There is no `DELETE`: a record is never removed
 | `GET /api/directory/admin/people/:employeeId` | One record, with its history |
 | `PATCH /api/directory/admin/people/:employeeId` | Changes only the fields sent |
 | `POST /api/directory/admin/people/:employeeId/reports` | Moves their reports |
+| `PUT /api/directory/admin/people/:employeeId/team-lead` | `{ "teamLead": true }` marks them a team lead on the chart, and `false` takes it off. Answers with the record |
 
 A record's fields, each a string or `null`: `employeeNumber`, `firstName`, `lastName`, `workEmail`,
 `jobTitle`, `departmentId`, `managerId`, `workPatternId`, `startDate`, `exitDate`, `employmentType`,
 `employmentStatus`, `gender`. `workMobile`, `description` and `photo` are the person's own, and
-sending one is a `400`.
+sending one is a `400`. One record also carries `teamLead`, which is set by its own route rather
+than by `PATCH`.
 
 Moving reports takes `{ "toManagerId": "12", "employeeIds": ["31", "32"] }`, with `employeeIds`
 left out or `null` for all of them still here. It answers `{ moved, to }`.
