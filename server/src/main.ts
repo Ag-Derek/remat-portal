@@ -179,12 +179,6 @@ const outbox = new EmailOutbox(new EmailOutboxRepository(db), mailer, guard, und
 });
 
 /**
- * The directory is still being built and is not mounted in production (see app.ts), so its
- * emails, which link to it, are not sent there either until it is.
- */
-const DIRECTORY_IS_OPEN = process.env.NODE_ENV !== 'production';
-
-/**
  * The one place a balance moves. §5.7, FR 37.
  *
  * Built once and handed to both doors below it, so an adjustment posted from the HR screen
@@ -283,9 +277,7 @@ const directoryEmails = new DirectoryEmailService(
   roles,
   new EmailPreferenceRepository(db),
   outbox,
-  /* Asked only where the emails are sent, so a production without APP_URL still starts while
-     the directory is closed there. */
-  portalLinks(DIRECTORY_IS_OPEN ? appUrlFrom(process.env) : (process.env.APP_URL ?? '')),
+  portalLinks(appUrlFrom(process.env)),
 );
 
 /**
@@ -300,7 +292,7 @@ const employeeRecords = new EmployeeService(
   guard,
   leaveRequests,
   {
-    subscribers: DIRECTORY_IS_OPEN ? [directoryEmails] : [],
+    subscribers: [directoryEmails],
   },
 );
 
@@ -541,7 +533,7 @@ const deliveryTimer = every(MINUTE_MS, () =>
    skip a day, and not before the working day starts; nobody is sent the same one twice. */
 const directoryEmailTimer = every(HOUR_MS, () =>
   runJob('directory-emails', async () => {
-    if (!DIRECTORY_IS_OPEN || new Date().getUTCHours() < REMIND_FROM_HOUR_UTC) {
+    if (new Date().getUTCHours() < REMIND_FROM_HOUR_UTC) {
       return undefined;
     }
 

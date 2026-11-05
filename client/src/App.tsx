@@ -102,13 +102,6 @@ const YEAR_SCOPED = new Set<Screen>(['balances', 'calendar']);
 /** Where signing in lands, and where an unknown address falls back to. */
 const DEFAULT_SCREEN: Screen = 'home';
 
-/**
- * The directory is still being built: it opens under `npm run web` and nowhere else. In a
- * build its card says "Coming soon" and its address falls back to the portal. The server
- * leaves its route unmounted in production for the same reason.
- */
-const DIRECTORY_OPEN = import.meta.env.DEV;
-
 /** Rota's first screen, which the portal's Rota card opens. */
 const ROTA_HOME: Screen = 'balances';
 
@@ -254,7 +247,6 @@ export function App() {
       <PortalHome
         me={me}
         initials={initialsOf(me)}
-        directoryOpen={DIRECTORY_OPEN}
         onSignOut={() => {
           void signOut().finally(forget);
         }}
@@ -465,7 +457,7 @@ function screenInTheAddress(): Screen {
   const named = window.location.hash.replace(/^#\/?/, '').split('?')[0] ?? '';
 
   // The directory carries the person after a slash; which one is the page's to read.
-  if (DIRECTORY_OPEN && (named === 'directory' || named.startsWith('directory/'))) {
+  if (named === 'directory' || named.startsWith('directory/')) {
     return 'directory';
   }
 
