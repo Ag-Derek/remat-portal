@@ -47,7 +47,7 @@ import { SignInService } from '../../src/core/identity/sign-in/sign-in.service.j
 import { DirectoryService } from '../../src/apps/directory/directory.service.js';
 import { PhotoRepository } from '../../src/apps/directory/photo.db.js';
 import { EmployeeService } from '../../src/core/organisation/employee/employee.service.js';
-import { dayAfter, dayBefore } from '../../src/core/calendar/time.js';
+import { currentDate, dayAfter, dayBefore } from '../../src/core/calendar/time.js';
 import { recordingMailer } from '../support/recording-mailer.js';
 import { recordingDenials } from '../support/recording-denials.js';
 import { seed } from '../../seeds/seed.mjs';
@@ -77,7 +77,7 @@ const SECRET = 'a-test-signing-secret-of-at-least-32-chars';
 const DOMAINS = ['rematholdings.com'];
 
 /** The day the server judges by, which these tests cannot choose. */
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = currentDate();
 
 let db: Kysely<Database>;
 let admin: Client;

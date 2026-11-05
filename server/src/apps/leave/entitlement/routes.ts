@@ -25,7 +25,7 @@ import {
   fixedReason,
 } from './entitlement-words.js';
 import { earliestOpenDayOf } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import { actorOf } from '../../../core/http/identify.js';
 
 export interface EntitlementRuleRoutes {
@@ -93,7 +93,7 @@ export function entitlementRuleRoutes(parts: EntitlementRuleRoutes): Router {
         ]);
 
         const names = namesFrom(types, employees, departments);
-        const today = calendarDateIn(new Date(), 'UTC');
+        const today = currentDate();
         const earliestOpenDay = earliestOpenDayOf(years);
 
         response.json({
@@ -213,11 +213,7 @@ async function withNames(
     parts.departments.list(),
   ]);
 
-  return ruleAsJson(
-    rule,
-    namesFrom(types, employees, departments)(rule),
-    calendarDateIn(new Date(), 'UTC'),
-  );
+  return ruleAsJson(rule, namesFrom(types, employees, departments)(rule), currentDate());
 }
 
 /** A lookup from the three tables a rule points at, built once per answer. */

@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { databaseForThisFile } from '../setup/test-database.js';
 import type { Kysely } from 'kysely';
 import { Guard } from '../../src/core/auth/policy.js';
+import { pinCurrentDate } from '../../src/core/calendar/time.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
 import { BalanceRepository } from '../../src/apps/leave/balance/balance.db.js';
@@ -81,6 +82,10 @@ let admin: Client;
 let server: Server;
 let origin: string;
 let people: Record<string, string>;
+
+/* The trigger reads the database's current_date, which no pin reaches, so the service here
+   reads the real day too. ../setup/pinned-date.ts. */
+pinCurrentDate(null);
 
 /** Dates read off the clock, so nothing here expires when the year turns. */
 const TODAY = new Date().toISOString().slice(0, 10);

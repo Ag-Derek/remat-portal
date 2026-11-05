@@ -17,7 +17,7 @@ import {
 import { type Employee, EmployeeNotFound } from '../../../core/organisation/employee/employee.js';
 import { byStartDate, type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
 import { READS_EVERY_RECORD } from '../../../core/identity/role/roles.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { DepartmentRepository } from '../../../core/organisation/department/department.db.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { LeaveRequestRepository } from '../leave-request/leave-request.db.js';
@@ -189,6 +189,6 @@ export class TeamCalendarService {
 
   /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }

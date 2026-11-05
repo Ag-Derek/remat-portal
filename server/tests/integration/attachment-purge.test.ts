@@ -6,7 +6,7 @@ import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { calendarDateIn, dayBefore } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate, dayBefore } from '../../src/core/calendar/time.js';
 import {
   AttachmentFileDeleted,
   fileDeletedOn,
@@ -159,7 +159,7 @@ async function clear(): Promise<void> {
 const LEAVE_ENDS_ON = daysFromToday(25);
 
 function daysFromToday(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + offset);
 

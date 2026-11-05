@@ -111,6 +111,11 @@ async function outboxRows(kind?: string): Promise<Record<string, unknown>[]> {
   return rows;
 }
 
+/** When a drain runs, for a row queued just now. Whole seconds, so it reads back unchanged. */
+function anHourFromNow(): Date {
+  return new Date(Math.ceil(Date.now() / 1000) * 1000 + 60 * 60_000);
+}
+
 const ONE: NewOutboxEmail = {
   kind: 'WELCOME',
   recipientEmployeeId: null,
@@ -213,7 +218,9 @@ describe('the queue', () => {
 describe('a send that fails', () => {
   it('is retried a minute later, and the failure is logged', async () => {
     await outbox.queue(ONE);
-    const failedAt = new Date('2026-11-02T09:00:00Z');
+    /* After the queueing, which stamps the row due now. A fixed date stops being after it. */
+    const failedAt = anHourFromNow();
+    const aMinuteLater = new Date(failedAt.getTime() + 60_000);
 
     mailer.failNext(new Error('SMTP is not answering.'));
     await outbox.drain(system, failedAt);
@@ -224,20 +231,22 @@ describe('a send that fails', () => {
         kind: 'WELCOME',
         attempt: 1,
         because: 'SMTP is not answering.',
-        tryingAgainAt: new Date('2026-11-02T09:01:00Z'),
+        tryingAgainAt: aMinuteLater,
       }),
     ]);
     expect((await outboxRows())[0]).toMatchObject({
       status: 'QUEUED',
       attempts: 1,
       last_error: 'SMTP is not answering.',
-      next_attempt_at: new Date('2026-11-02T09:01:00Z'),
+      next_attempt_at: aMinuteLater,
     });
 
     /* Not yet due. */
-    expect((await outbox.drain(system, new Date('2026-11-02T09:00:30Z'))).attempted).toEqual([]);
+    expect((await outbox.drain(system, new Date(failedAt.getTime() + 30_000))).attempted).toEqual(
+      [],
+    );
 
-    await outbox.drain(system, new Date('2026-11-02T09:01:00Z'));
+    await outbox.drain(system, aMinuteLater);
 
     expect(mailer.sent).toHaveLength(1);
     expect((await outboxRows())[0]).toMatchObject({ status: 'SENT', attempts: 2 });
@@ -253,8 +262,9 @@ describe('a send that fails', () => {
     await failing.queue(ONE);
 
     /* A day apart, so each is due whatever its backoff. */
+    const first = anHourFromNow();
     for (let day = 0; day < 8; day += 1) {
-      await failing.drain(system, new Date(Date.UTC(2026, 10, 2 + day, 9)));
+      await failing.drain(system, new Date(first.getTime() + day * 24 * 60 * 60_000));
     }
 
     const [row] = await outboxRows();

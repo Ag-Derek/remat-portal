@@ -4,7 +4,7 @@ import type { Actor } from '../../../core/auth/actor.js';
 import type { Guard } from '../../../core/auth/policy.js';
 import {
   type CalendarDate,
-  calendarDateIn,
+  currentDate,
   formatDay,
   isCalendarDate,
 } from '../../../core/calendar/time.js';
@@ -101,7 +101,7 @@ export class CoverService {
     /** Absent, nobody is told: a test app, or a deployment where the directory is closed. */
     private readonly notifier?: CoverNotifier,
     /** Today, in UTC, the day every other "today" on the server is. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   /** The cover on one request. The person, their manager, and HR. */

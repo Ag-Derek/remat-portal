@@ -331,6 +331,31 @@ export function calendarDateIn(instant: Date, zone: string): CalendarDate {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+let pinned: CalendarDate | null = null;
+
+/**
+ * Today, in UTC, which is the day the database's `current_date` is having.
+ *
+ * The one "today" on the server, so that notice, whether leave has started, and which year
+ * it is are measured against the same day everywhere. Accra is UTC+0 all year, so it is
+ * also the day the person at the screen is having. NFR DAT 03.
+ *
+ * A day, not an instant: timestamps are still `new Date()`, and only the calendar is pinned.
+ */
+export function currentDate(): CalendarDate {
+  return pinned ?? calendarDateIn(new Date(), 'UTC');
+}
+
+/**
+ * Holds {@link currentDate} on one day, or lets it go with `null`. For the integration suite.
+ *
+ * Its fixtures are written against dates in 2026, and a suite that reads the real day passes
+ * on the afternoon it was written and fails a week later, when the week it books has started.
+ */
+export function pinCurrentDate(day: CalendarDate | null): void {
+  pinned = day;
+}
+
 /**
  * An instant, for somebody to read, in the zone they read leave in.
  *

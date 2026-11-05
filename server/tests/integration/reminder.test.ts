@@ -35,7 +35,7 @@ import { recordingMailer, type RecordingMailer } from '../support/recording-mail
 import { recordingNotices } from '../support/recording-notices.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
-import { calendarDateIn, dayAfter } from '../../src/core/calendar/time.js';
+import { calendarDateIn, dayAfter, pinCurrentDate } from '../../src/core/calendar/time.js';
 
 /**
  * The approver is chased every day until they decide. FR 50, FR 60, §7.1.
@@ -87,8 +87,10 @@ const TO = '2026-03-10';
  *
  * Real days rather than fixture ones: a notice is stamped `now()` by the table, so the day
  * a run is *for* has to be the day its reminders are actually written on for "already
- * reminded today" to mean anything.
+ * reminded today" to mean anything. So this file lets go of the pinned day. ../setup/pinned-date.ts.
  */
+pinCurrentDate(null);
+
 const TODAY = calendarDateIn(new Date(), 'UTC');
 const TOMORROW = dayAfter(TODAY);
 

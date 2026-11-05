@@ -48,6 +48,7 @@ import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { holidayRecalculationService } from '../support/holiday-recalculations.js';
 import { delegationService } from '../support/delegations.js';
+import { currentDate } from '../../src/core/calendar/time.js';
 
 /**
  * The approver queue over HTTP. FR 20, FR 40, FR 48.
@@ -749,7 +750,7 @@ function aRequestStartingTomorrow(): Promise<string> {
 
 /** A calendar date this many days either side of today, in UTC. */
 function daysFromToday(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + offset);
 

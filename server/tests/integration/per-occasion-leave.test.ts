@@ -6,7 +6,7 @@ import { type Actor, signedInAs, theSystem } from '../../src/core/auth/actor.js'
 import { Guard } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { calendarDateIn } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate } from '../../src/core/calendar/time.js';
 import { AttachmentRepository } from '../../src/apps/leave/leave-request/attachment.db.js';
 import { ReclassificationRepository } from '../../src/apps/leave/leave-request/reclassification.db.js';
 import { BalanceRepository } from '../../src/apps/leave/balance/balance.db.js';
@@ -118,7 +118,7 @@ async function clear(): Promise<void> {
 
 /** A Monday a few weeks out, so a period is working days whatever today is. */
 function aMonday(weeksOut: number, plusDays = 0): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + 7 * weeksOut + ((8 - day.getUTCDay()) % 7) + plusDays);
 

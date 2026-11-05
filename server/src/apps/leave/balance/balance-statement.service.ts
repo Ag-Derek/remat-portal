@@ -15,7 +15,7 @@ import {
 } from './balance-statement.js';
 import { type Employee, EmployeeNotFound } from '../../../core/organisation/employee/employee.js';
 import { type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { BalanceRepository } from './balance.db.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { LeaveTypeRepository } from '../leave-type/leave-type.db.js';
@@ -119,7 +119,7 @@ export class BalanceStatementService {
 
   /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

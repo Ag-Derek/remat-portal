@@ -48,6 +48,7 @@ import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { holidayRecalculationService } from '../support/holiday-recalculations.js';
 import { delegationService } from '../support/delegations.js';
+import { currentDate } from '../../src/core/calendar/time.js';
 
 /**
  * The request form over HTTP. FR 10, FR 11, FR 13, FR 32f.
@@ -854,7 +855,7 @@ interface JsonSubmitted {
 
 /** A calendar date this many days either side of today, in UTC. FR 18. */
 function daysFromToday(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + offset);
 

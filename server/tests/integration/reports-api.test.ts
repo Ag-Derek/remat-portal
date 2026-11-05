@@ -48,6 +48,7 @@ import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { holidayRecalculationService } from '../support/holiday-recalculations.js';
 import { delegationService } from '../support/delegations.js';
+import { currentDate } from '../../src/core/calendar/time.js';
 
 /** HR reporting over HTTP, against a real ledger. FR 63. */
 
@@ -457,14 +458,21 @@ async function approvedLeaveFor(employeeId: string): Promise<void> {
   await leaveRequests.approve(asTheHeadOfHr(), id);
 }
 
-/** Ages a request. `submitted_at` is frozen, so its guard is lifted for the one update. */
+/**
+ * Ages a request. `submitted_at` is frozen, so its guard is lifted for the one update.
+ *
+ * Counted back from the day the service judges by rather than the database's `now()`, which
+ * is the real day and not the pinned one. ../setup/pinned-date.ts.
+ */
 async function submittedDaysAgo(id: string, days: number): Promise<void> {
   await admin.query('ALTER TABLE leave_request DISABLE TRIGGER leave_request_says_what_it_said');
 
   try {
     await admin.query(
-      `UPDATE leave_request SET submitted_at = now() - make_interval(days => $2) WHERE id = $1`,
-      [id, days],
+      `UPDATE leave_request
+          SET submitted_at = ($3::date - $2::int)::timestamp AT TIME ZONE 'UTC'
+        WHERE id = $1`,
+      [id, days, currentDate()],
     );
   } finally {
     await admin.query('ALTER TABLE leave_request ENABLE TRIGGER leave_request_says_what_it_said');

@@ -4,8 +4,8 @@ import { type Actor, holdsAny, isSelf } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
 import {
   type CalendarDate,
-  calendarDateIn,
   calendarDaysBetween,
+  currentDate,
   dayAfter,
 } from '../../core/calendar/time.js';
 import type { NewOutboxEmail } from '../../core/notification/outbox.js';
@@ -97,7 +97,7 @@ export class DirectoryEmailService implements EmployeeChangeSubscriber {
     private readonly outbox: EmailOutbox,
     private readonly links: PortalLinks,
     /** Today, in UTC, the day every other "today" on the server is. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   /** The emails the reader can be sent, and whether each comes to them. */

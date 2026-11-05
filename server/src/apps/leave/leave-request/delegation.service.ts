@@ -17,7 +17,7 @@ import type { ApprovalDelegationRepository } from './delegation.db.js';
 import { type Employee, EmployeeNotFound } from '../../../core/organisation/employee/employee.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { RoleRepository } from '../../../core/identity/role/role.db.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 
 export class ApprovalDelegationService {
   constructor(
@@ -165,7 +165,7 @@ export class ApprovalDelegationService {
 
   /** The same clock the rest of this feature reads. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

@@ -42,6 +42,7 @@ import { LeaveYearService } from '../../src/apps/leave/leave-year/leave-year.ser
 import { NotificationService } from '../../src/apps/leave/notification/notification.service.js';
 import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
+import { currentDate } from '../../src/core/calendar/time.js';
 
 /**
  * An approver hands their approvals to a colleague while away. FR 49, §8.6a.
@@ -613,7 +614,7 @@ describe('a delegation over the delegator’s own leave', () => {
 
 /** A day either side of today, written the way every date in this system is. NFR DAT 03. */
 function dayFromToday(days: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + days);
 

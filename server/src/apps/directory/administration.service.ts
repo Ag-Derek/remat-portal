@@ -3,7 +3,7 @@
 import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
 import type { AuditRepository } from '../../core/audit/audit.db.js';
-import { type CalendarDate, calendarDateIn } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import type { WorkPatternRepository } from '../../core/calendar/work-pattern/work-pattern.db.js';
 import type { RoleRepository } from '../../core/identity/role/role.db.js';
 import type { SignInAccountRepository } from '../../core/identity/sign-in/sign-in-account.db.js';
@@ -101,7 +101,7 @@ export class AdministrationService {
     private readonly roles: RoleRepository,
     private readonly audit: AuditRepository,
     /** Today, in UTC, the day every other "today" on the server is. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   /** Everybody with a record, with where they stand and whether they can sign in. */

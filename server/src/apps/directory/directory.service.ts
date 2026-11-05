@@ -2,7 +2,7 @@
 
 import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
-import { type CalendarDate, calendarDateIn } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import type { DepartmentRepository } from '../../core/organisation/department/department.db.js';
 import { EmployeeNotFound } from '../../core/organisation/employee/employee.js';
 import type { EmployeeRepository } from '../../core/organisation/employee/employee.db.js';
@@ -40,7 +40,7 @@ export class DirectoryService {
     /** Who is on agreed leave. Absent, nobody is marked away. */
     private readonly away?: WhoIsAway,
     /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
     /** Who covers for whom, from leave. Absent, nobody names cover. #226. */
     private readonly covering?: WhoIsCovering,
   ) {}

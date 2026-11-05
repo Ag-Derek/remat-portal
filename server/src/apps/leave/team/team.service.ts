@@ -10,7 +10,7 @@ import { NoLeaveYearForTheTeam, type TeamView, teamViewFor } from './team.js';
 import { theYearToOpenOn } from '../balance/balance-statement.js';
 import { type Employee, EmployeeNotFound } from '../../../core/organisation/employee/employee.js';
 import { byStartDate, type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { BalanceRepository } from '../balance/balance.db.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { LeaveRequestRepository } from '../leave-request/leave-request.db.js';
@@ -122,7 +122,7 @@ export class TeamService {
 
   /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

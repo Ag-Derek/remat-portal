@@ -1,7 +1,7 @@
 /** Deletes stored certificates once the retention period has passed. NFR SEC 06. */
 
 import type { Storage } from '../../../core/storage/index.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { OrganisationRepository } from '../../../core/organisation/settings/organisation.db.js';
 import { UNCONFIGURED } from '../../../core/organisation/settings/organisation.js';
 import type { AttachmentRepository } from './attachment.db.js';
@@ -37,7 +37,7 @@ export class AttachmentPurge {
    *
    * Bytes first, then the row, so a run that fails part way is finished by the next.
    */
-  async run(asAt: CalendarDate = calendarDateIn(new Date(), 'UTC')): Promise<AttachmentPurgeRun> {
+  async run(asAt: CalendarDate = currentDate()): Promise<AttachmentPurgeRun> {
     const ranAt = new Date();
     const retentionMonths = await this.retentionMonths();
     const deleted: FileDeleted[] = [];

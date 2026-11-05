@@ -17,7 +17,7 @@ import {
 } from './leave-event.js';
 import { hasRunningBalance, isEligible, LeaveTypeNotFound } from '../leave-type/leave-type.js';
 import { LeaveYearNotFound } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { LeaveEventListOptions, LeaveEventRepository } from './leave-event.db.js';
 import type { LeaveTypeRepository } from '../leave-type/leave-type.db.js';
@@ -243,7 +243,7 @@ export class LeaveEventService {
    * year, so it is also the day the person at the screen is having. NFR DAT 03.
    */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

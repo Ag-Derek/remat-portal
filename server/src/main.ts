@@ -53,7 +53,7 @@ import {
 } from './apps/leave/entitlement/entitlement-expiry.job.js';
 import { theSystem } from './core/auth/actor.js';
 import { EntitlementRuleService } from './apps/leave/entitlement/entitlement-rule.service.js';
-import { calendarDateIn } from './core/calendar/time.js';
+import { currentDate } from './core/calendar/time.js';
 import { LeaveYearService } from './apps/leave/leave-year/leave-year.service.js';
 import { AnnualGrant } from './apps/leave/entitlement/annual-grant.job.js';
 import { summaryOf as summaryOfGrant } from './apps/leave/entitlement/annual-grant.js';
@@ -462,7 +462,7 @@ function every(intervalMs: number, work: () => Promise<void>): NodeJS.Timeout {
 /** FR 36, §11. Every open year that has ended, oldest first, closed from the day after. */
 async function rollOverFinishedYears(): Promise<string | undefined> {
   const actor = theSystem('the year rollover');
-  const today = calendarDateIn(new Date(), 'UTC');
+  const today = currentDate();
   const finished = (await years.list({ openOnly: true })).filter((year) => year.endDate < today);
   const summaries: string[] = [];
 

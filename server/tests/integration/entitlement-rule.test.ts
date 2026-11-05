@@ -29,6 +29,7 @@ import { LeaveTypeService } from '../../src/apps/leave/leave-type/leave-type.ser
 import { seed } from '../../seeds/seed.mjs';
 import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard, NotAuthorised } from '../../src/core/auth/policy.js';
+import { pinCurrentDate } from '../../src/core/calendar/time.js';
 
 /**
  * Entitlement rules against a real database. FR 31, §5.5.
@@ -67,6 +68,10 @@ let rules: EntitlementRuleService;
 let types: LeaveTypeService;
 let employees: EmployeeService;
 let people: Record<string, string>;
+
+/* The trigger reads the database's current_date, which no pin reaches, so the service here
+   reads the real day too. ../setup/pinned-date.ts. */
+pinCurrentDate(null);
 
 /** Today, on the same clock the service and the trigger both read. */
 const TODAY = new Date().toISOString().slice(0, 10);
