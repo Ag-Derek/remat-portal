@@ -12,6 +12,7 @@ import {
   reassignReports,
   type RecordChange,
   type RecordFields,
+  setTeamLead,
 } from '../../api';
 import { moment } from '../../format';
 import { Icon } from '../../Icon';
@@ -183,6 +184,13 @@ export function EmployeeRecordPage({
               }}
               onSignedOut={onSignedOut}
             />
+          )}
+
+          {/* Offered to anybody with a team to draw, and to anybody already marked, so it can
+              be taken off again after their reports have moved. */}
+          {record === undefined ||
+          (record.reportsStillHere.length === 0 && !record.teamLead) ? null : (
+            <TeamLead record={record} onChanged={setRecord} onSignedOut={onSignedOut} />
           )}
 
           {record === undefined ? null : <History history={record.history} />}
@@ -732,6 +740,73 @@ function Reports({
   );
 }
 
+/**
+ * Whether the chart draws somebody's reports beside them, under their own manager.
+ *
+ * Saved as soon as it is ticked, as moving reports is, because it is not part of the record's
+ * form: it changes the drawing and nothing else.
+ */
+function TeamLead({
+  record,
+  onChanged,
+  onSignedOut,
+}: {
+  record: AdministrationRecord;
+  onChanged: (record: AdministrationRecord) => void;
+  onSignedOut: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<Problem | undefined>(undefined);
+
+  const change = (teamLead: boolean) => {
+    setSaving(true);
+    setProblem(undefined);
+
+    setTeamLead(record.employeeId, teamLead)
+      .then(onChanged)
+      .catch((error: unknown) => {
+        if (isNotSignedIn(error)) {
+          onSignedOut();
+          return;
+        }
+
+        setProblem(problemFrom(error));
+      })
+      .finally(() => {
+        setSaving(false);
+      });
+  };
+
+  return (
+    <section className="admin-panel" aria-labelledby="record-team-lead">
+      <h3 id="record-team-lead">On the organisation chart</h3>
+
+      <label className="admin-team-lead">
+        <input
+          type="checkbox"
+          checked={record.teamLead}
+          disabled={saving}
+          onChange={(event) => {
+            change(event.target.checked);
+          }}
+        />
+        <span>
+          {record.firstName} is a team lead
+          <small>
+            {record.manager === null
+              ? `Has no effect while ${record.firstName} reports to nobody.`
+              : `Their reports are drawn beside them, under ${record.manager.firstName} ` +
+                `${record.manager.lastName}, marked as led by ${record.firstName}.`}{' '}
+            They still report to {record.firstName}, who still approves their leave.
+          </small>
+        </span>
+      </label>
+
+      {problem === undefined ? null : <Notice problem={problem} />}
+    </section>
+  );
+}
+
 /** Every change to the record: the old value, the new one, who and when. */
 function History({ history }: { history: RecordChange[] }) {
   return (
@@ -770,6 +845,10 @@ function History({ history }: { history: RecordChange[] }) {
 function shownValue(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return 'none';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no';
   }
 
   return typeof value === 'string' ? value : JSON.stringify(value);

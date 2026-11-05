@@ -284,6 +284,19 @@ function administrationRoutes(
         .catch(next);
     },
   );
+
+  /** `{ "teamLead": true }`: their reports are drawn beside them on the chart. Nothing else. */
+  routes.put(
+    '/directory/admin/people/:employeeId/team-lead',
+    (request: Request<{ employeeId: string }>, response: Response, next) => {
+      void administration
+        .setTeamLead(actorOf(response), request.params.employeeId, request.body)
+        .then((record) => {
+          response.json(administrationRecordAsJson(record));
+        })
+        .catch(next);
+    },
+  );
 }
 
 function namedAsJson(person: PersonNamed): unknown {
@@ -336,6 +349,7 @@ function administrationRecordAsJson(record: AdministrationRecord): unknown {
     today: record.today,
     workPatternName: record.workPatternName,
     reportsStillHere: record.reportsStillHere.map(namedAsJson),
+    teamLead: record.teamLead,
     history: record.history.map(changeAsJson),
   };
 }
@@ -652,6 +666,8 @@ function personAsJson(person: ChartPerson): unknown {
     lastName: person.lastName,
     jobTitle: person.jobTitle,
     photo: photoAsJson(person.photoId),
+    /** The team lead they report to, where they are drawn beside that lead. */
+    ledBy: person.ledBy,
     reports: person.reports.map(personAsJson),
   };
 }

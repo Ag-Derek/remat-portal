@@ -495,6 +495,12 @@ function Branch({
           <span>
             <strong>{name}</strong>
             {person.jobTitle === null ? null : <small>{person.jobTitle}</small>}
+            {/* Drawn beside their team lead rather than beneath, so the line says who it is. */}
+            {person.ledBy === null ? null : (
+              <small className="org-led-by">
+                Led by {person.ledBy.firstName} {person.ledBy.lastName}
+              </small>
+            )}
           </span>
         </a>
 

@@ -25,6 +25,8 @@ export interface EmployeeTable {
   /** Kept by the person themselves; everything above is HR's. */
   work_mobile: Generated<string | null>;
   description: Generated<string | null>;
+  /** HR's. Their reports are drawn beside them on the chart, under their own manager. */
+  team_lead: Generated<boolean>;
   created_at: Timestamp;
   updated_at: Timestamp;
 }

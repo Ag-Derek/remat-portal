@@ -86,18 +86,22 @@ export class DirectoryService {
    * Who reports to whom, among the people at the company today.
    *
    * Built afresh on every read from the manager on each record, which is the field leave
-   * requests are routed by, so the chart cannot disagree with where a request goes.
+   * requests are routed by, so the chart cannot disagree with where a request goes. A team
+   * lead's reports are drawn beside them, and say whom they report to.
    */
   async chart(actor: Actor): Promise<StaffChart> {
     this.guard.enforce(directoryPolicy.chart(actor));
 
     const today = this.today();
-    const employees = await this.employees.list();
+    const [employees, teamLeads] = await Promise.all([
+      this.employees.list(),
+      this.employees.teamLeadIds(),
+    ]);
     const photos = await this.photos.photosOf(
       employees.filter((one) => isCurrentOn(one, today)).map((one) => one.id),
     );
 
-    return staffChartFor(employees, today, photos);
+    return staffChartFor(employees, today, photos, teamLeads);
   }
 
   /**
