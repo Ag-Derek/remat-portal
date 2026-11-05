@@ -77,6 +77,7 @@ function item(columns: Record<string, unknown> = {}): [string, unknown[]] {
     backup_id: ops,
     currency: 'GHS',
     reminder_days_before: [90, 60, 30],
+    reminder_in_working_days: false,
     reminder_cadence: 'WEEKLY',
     ...columns,
   };
@@ -95,7 +96,8 @@ const PAYE = {
   cycle: 'MONTHLY',
   due_day: 15,
   reminder_days_before: [5],
-  reminder_cadence: 'DAILY',
+  reminder_in_working_days: true,
+  reminder_cadence: 'NONE',
 };
 
 async function anItem(columns: Record<string, unknown> = {}): Promise<string> {
