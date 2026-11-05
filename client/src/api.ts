@@ -2243,6 +2243,7 @@ export interface ChartPerson {
   lastName: string;
   jobTitle: string | null;
   photo: PhotoLinks | null;
+  department: DirectoryDepartment;
   /** The team lead they report to, where they are drawn beside that lead rather than beneath. */
   ledBy: { employeeId: string; firstName: string; lastName: string } | null;
   /** By surname. */

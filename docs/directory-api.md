@@ -89,8 +89,8 @@ Who reports to whom, among everybody here today. Any employee.
 { "today": "2026-10-30", "lines": [ { "standing": "…", "top": { "…": "a person" } } ], "total": 12 }
 ```
 
-A person is `{ employeeId, firstName, lastName, jobTitle, photo, ledBy, reports: [...] }`, nested
-down.
+A person is `{ employeeId, firstName, lastName, jobTitle, photo, department, ledBy, reports: [...] }`,
+nested down. `department` is `{ id, name }`, as on an entry.
 
 A **team lead**'s reports are drawn beside them, under the lead's own manager, rather than beneath
 them. Each of those carries `ledBy`, `{ employeeId, firstName, lastName }` of the lead they report

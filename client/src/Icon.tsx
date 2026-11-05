@@ -25,6 +25,7 @@ export type IconName =
   /* On the cards and in the controls. */
   | 'info'
   | 'people'
+  | 'lead'
   | 'stage'
   | 'tick'
   | 'cross'
@@ -84,6 +85,8 @@ const PATHS: Record<IconName, string> = {
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5.5M12 7.75v.5',
   people:
     'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2 20a7 7 0 0 1 14 0M17 4.5a3.5 3.5 0 0 1 0 7M18 20a6.5 6.5 0 0 0-2-4.7',
+  /** A team lead on the organisation chart, filled on the lead and outlined on their team. */
+  lead: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
   /** The chain a request walks up. FR 38a. */
   stage:
     'M12 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM12 8v3M12 11H7a2 2 0 0 0-2 2v2M12 11h5a2 2 0 0 1 2 2v2M5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM19 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',

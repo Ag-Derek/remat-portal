@@ -123,6 +123,17 @@ interface Index {
 function Chart({ chart, focusId }: { chart: StaffChart; focusId: string | undefined }) {
   const index = useMemo(() => indexOf(chart), [chart]);
 
+  /* The team leads with a team drawn beside them, which is whoever somebody is led by. */
+  const leads = useMemo(
+    () =>
+      new Set(
+        index.people.flatMap(({ person }) =>
+          person.ledBy === null ? [] : [person.ledBy.employeeId],
+        ),
+      ),
+    [index],
+  );
+
   /* Those whose reports are folded away. Everybody else's are drawn. */
   const [folded, setFolded] = useState<ReadonlySet<string>>(() =>
     openTo(firstFolded(index, chart.total), index, focusId),
@@ -456,12 +467,36 @@ function Chart({ chart, focusId }: { chart: StaffChart; focusId: string | undefi
                 <p className="notice org-flag">{flagFor(line)}</p>
               )}
               <ul className="org-tree">
-                <Branch person={line.top} folded={folded} found={found} onToggle={toggle} />
+                <Branch
+                  person={line.top}
+                  leads={leads}
+                  folded={folded}
+                  found={found}
+                  onToggle={toggle}
+                />
               </ul>
             </section>
           ))}
         </div>
       </div>
+
+      {/* Under the chart, and only while there is a team lead on it to explain. */}
+      {leads.size === 0 ? null : (
+        <ul className="org-legend" aria-label="What the stars mean">
+          <li>
+            <span className="org-star is-lead" aria-hidden="true">
+              <Icon name="lead" />
+            </span>
+            Team lead
+          </li>
+          <li>
+            <span className="org-star is-led" aria-hidden="true">
+              <Icon name="lead" />
+            </span>
+            Team member
+          </li>
+        </ul>
+      )}
     </>
   );
 }
@@ -469,11 +504,14 @@ function Chart({ chart, focusId }: { chart: StaffChart; focusId: string | undefi
 /** One person, and under them everybody whose reports are not folded away. */
 function Branch({
   person,
+  leads,
   folded,
   found,
   onToggle,
 }: {
   person: ChartPerson;
+  /** Team leads with a team drawn beside them, who get the filled mark. */
+  leads: ReadonlySet<string>;
   folded: ReadonlySet<string>;
   found: string | undefined;
   onToggle: (employeeId: string) => void;
@@ -481,12 +519,21 @@ function Branch({
   const name = `${person.firstName} ${person.lastName}`;
   const count = person.reports.length;
   const open = count > 0 && !folded.has(person.employeeId);
+  /* The star in the corner, and what it says when pointed at: the lead's department, or the
+     lead somebody is drawn beside. Also read out, since a screen reader cannot point. */
+  const star = leads.has(person.employeeId)
+    ? { kind: 'is-lead', says: `${person.department.name} team lead` }
+    : person.ledBy === null
+      ? undefined
+      : { kind: 'is-led', says: `Led by ${person.ledBy.firstName} ${person.ledBy.lastName}` };
 
   return (
     <li>
       <div className="org-node">
         <a
-          className={`org-card${found === person.employeeId ? ' is-found' : ''}`}
+          className={`org-card${found === person.employeeId ? ' is-found' : ''}${
+            star === undefined ? '' : ` ${star.kind}`
+          }`}
           href={profileAddress(person)}
           data-employee-id={person.employeeId}
           draggable={false}
@@ -495,13 +542,13 @@ function Branch({
           <span>
             <strong>{name}</strong>
             {person.jobTitle === null ? null : <small>{person.jobTitle}</small>}
-            {/* Drawn beside their team lead rather than beneath, so the line says who it is. */}
-            {person.ledBy === null ? null : (
-              <small className="org-led-by">
-                Led by {person.ledBy.firstName} {person.ledBy.lastName}
-              </small>
-            )}
+            {star === undefined ? null : <span className="visually-hidden">{star.says}</span>}
           </span>
+          {star === undefined ? null : (
+            <span className={`org-star ${star.kind}`} data-says={star.says} aria-hidden="true">
+              <Icon name="lead" />
+            </span>
+          )}
         </a>
 
         {count === 0 ? null : (
@@ -527,6 +574,7 @@ function Branch({
             <Branch
               key={report.employeeId}
               person={report}
+              leads={leads}
               folded={folded}
               found={found}
               onToggle={onToggle}

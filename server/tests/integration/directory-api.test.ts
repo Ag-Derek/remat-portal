@@ -562,6 +562,7 @@ describe('the organisation chart', () => {
     const chart = await chartAs(people.officer);
 
     expect(Object.keys(chart.lines[0].top).sort()).toEqual([
+      'department',
       'employeeId',
       'firstName',
       'jobTitle',
