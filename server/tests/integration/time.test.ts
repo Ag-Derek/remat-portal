@@ -185,8 +185,13 @@ describe('the columns', () => {
 
      The one on a recalculation is the gazetted day a credit was given for, kept beside the
      credit rather than read back through the holiday — a zone here would credit somebody
-     for the day before the country stopped working. FR 25. */
-  it('the twenty-two dates there are today are the ones expected', async () => {
+     for the day before the country stopped working. FR 25.
+
+     The eight in compliance are the days a filing or a licence is about: a period, the date
+     the rule gives and the date it is due, the day it was done and the day the renewal runs
+     to, the day an item was retired, and the day a reminder was for. A permit expires on the
+     day printed on it, and a zone would move that day for whoever read it. Compliance TDD 6. */
+  it('the thirty dates there are today are the ones expected', async () => {
     const dates = (await temporalColumns())
       .filter((column) => column.data_type === 'date')
       .map((column) => `${column.table_name}.${column.column_name}`);
@@ -195,6 +200,15 @@ describe('the columns', () => {
       /** FR 49. The days a delegate answers for somebody. */
       'approval_delegation.ends_on',
       'approval_delegation.starts_on',
+      /** #245. */
+      'compliance_completion.completed_on',
+      'compliance_completion.new_expiry_on',
+      'compliance_item.retired_on',
+      'compliance_obligation.due_on',
+      'compliance_obligation.nominal_due_on',
+      'compliance_obligation.period_end',
+      'compliance_obligation.period_start',
+      'compliance_reminder_sent.sent_for_date',
       'employee.exit_date',
       'employee.start_date',
       'holiday.holiday_date',
