@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 
 /**
  * An actor is derived, never accepted. NFR SEC 02.
@@ -139,5 +140,44 @@ describe('an actor is derived, never accepted', () => {
       expect(code.indexOf(router)).toBeGreaterThan(-1);
       expect(theLine).toBeLessThan(code.indexOf(router));
     }
+  });
+
+  /**
+   * And compliance knows a System Administrator by `isSysAdmin`, not by Rota's roles. #241.
+   *
+   * Only a portal System Administrator grants compliance roles, and the role codes are Rota's
+   * vocabulary, which compliance may not import. The import is refused by
+   * .dependency-cruiser.cjs; this is the part no import shows — `actor.roles` read off an
+   * actor compliance was handed, `holdsAny` from ../../src/core/auth/actor.ts, or a code
+   * typed out as a string.
+   *
+   * Empty until compliance is written, which is when a rule like this is cheapest to have.
+   */
+  it("and nothing in compliance reads Rota's roles", () => {
+    const reading = sources.filter(
+      ({ file, code }) =>
+        file.startsWith('apps/compliance/') &&
+        /\.roles\b|\bholdsAny\b|\bRoleCode\b|\b(HR_OFFICER|HR_ADMIN|SYS_ADMIN)\b/.test(code),
+    );
+
+    expect(reading.map(({ file }) => file)).toEqual([]);
+  });
+});
+
+describe('a System Administrator is one by the portal session', () => {
+  it('is somebody who signed in holding SYS_ADMIN', () => {
+    expect(signedInAs('ama', { roles: ['EMPLOYEE', 'SYS_ADMIN'], isManager: false })).toMatchObject(
+      { isSysAdmin: true },
+    );
+  });
+
+  it('and nobody else, however much else they hold', () => {
+    expect(
+      signedInAs('yaw', { roles: ['EMPLOYEE', 'HR_OFFICER', 'HR_ADMIN'], isManager: true }),
+    ).toMatchObject({ isSysAdmin: false });
+  });
+
+  it('and the system, because it holds every role', () => {
+    expect(theSystem('a fixture').isSysAdmin).toBe(true);
   });
 });

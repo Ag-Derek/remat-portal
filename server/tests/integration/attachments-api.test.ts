@@ -219,7 +219,13 @@ function daysFromToday(offset: number): string {
 
 async function aRequest(): Promise<string> {
   const submitted = await requests.submit(
-    { employeeId: people.officer, roles: ['EMPLOYEE'], isManager: false, description: 'fixture' },
+    {
+      employeeId: people.officer,
+      roles: ['EMPLOYEE'],
+      isManager: false,
+      isSysAdmin: false,
+      description: 'fixture',
+    },
     {
       employeeId: people.officer,
       leaveTypeId: annualId,
