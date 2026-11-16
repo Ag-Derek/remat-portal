@@ -44,7 +44,9 @@ interface DealJson {
   statedInterest: string | null;
   createdAt: string;
   /** What the person who asked may do to it. */
-  may: { change: boolean };
+  may: { change: boolean; move: boolean; decidePoc: boolean };
+  /** Where they could move it: every stage where they may move it at all. */
+  moves: { stage: string; open: boolean; why: string | null; needsNote: boolean }[];
 }
 
 beforeAll(async () => {
@@ -151,14 +153,51 @@ describe('opening a deal', () => {
     expect(deal.owner.id).toBe(people.commercialDirector);
   });
 
-  /* Moving a deal is a BD manager's, later, and not a field on opening one (CLI 92). */
-  it('is owned by whoever opens it, whoever the request names', async () => {
-    const deal = await opened(associate, {
+  /* #278. A BD manager may open a deal for somebody else with a role, as they could move it to
+     them a moment later (CLI 92). */
+  it('may be opened by a BD manager for somebody else with a role, who owns it', async () => {
+    const deal = await opened(bdManager, {
+      clientId: adb,
+      productId: products.CreditStudio,
+      ownerId: people.officer,
+    });
+
+    expect(deal.owner).toEqual({ id: people.officer, name: await nameOf(people.officer) });
+  });
+
+  it('is not opened for somebody without a role, nor for nobody in particular', async () => {
+    for (const ownerId of [people.engineer, 'nonsense']) {
+      const response = await open(bdManager, {
+        clientId: adb,
+        productId: products.CreditStudio,
+        ownerId,
+      });
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { field: string }).field).toBe('ownerId');
+    }
+    expect(await dealCount()).toBe(0);
+  });
+
+  /* CLI 12, CLI 92. An associate owns what they open, and may name only themselves. */
+  it('is opened by an associate for themselves alone', async () => {
+    const refused = await open(associate, {
       clientId: adb,
       productId: products.CreditStudio,
       ownerId: people.commercialDirector,
     });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: 'NotAuthorised',
+      message: 'Only a BD manager can open a deal for somebody else. Open it for yourself instead.',
+    });
+    expect(await dealCount()).toBe(0);
 
+    const deal = await opened(associate, {
+      clientId: adb,
+      productId: products.CreditStudio,
+      ownerId: people.officer,
+    });
     expect(deal.owner.id).toBe(people.officer);
   });
 
@@ -187,7 +226,10 @@ describe('opening a deal', () => {
 
   it('is on its client page, open deals first', async () => {
     const first = await opened(associate, { clientId: adb, productId: products.CreditStudio });
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [first.id]);
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      [first.id],
+    );
     const second = await opened(bdManager, { clientId: adb, productId: products.Cloud9 });
 
     const page = (await (
@@ -201,7 +243,11 @@ describe('opening a deal', () => {
       ['CreditStudio', 'LOST'],
     ]);
     /* The associate reads it, and may not change the BD manager's deal. */
-    expect(page.opportunities[0]).toEqual({ ...second, may: { change: false } });
+    expect(page.opportunities[0]).toEqual({
+      ...second,
+      may: { change: false, move: false, decidePoc: false },
+      moves: [],
+    });
   });
 
   /* NFR CLI AUD 01. */
@@ -241,7 +287,10 @@ describe('a second open deal for the same client and product', () => {
 
   it('is allowed once the first has ended', async () => {
     const first = await opened(associate, { clientId: adb, productId: products.CreditStudio });
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [first.id]);
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      [first.id],
+    );
 
     expect(
       (await open(associate, { clientId: adb, productId: products.CreditStudio })).status,
@@ -389,7 +438,10 @@ describe('editing a deal', () => {
 
   /* CLI 55, CLI 56. */
   it('is refused once the deal has ended, to its owner and a BD manager alike', async () => {
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [deal.id]);
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      [deal.id],
+    );
 
     for (const as of [associate, bdManager]) {
       const response = await edit(as, { probability: 90 });
@@ -402,7 +454,13 @@ describe('editing a deal', () => {
           'it up again.',
       });
     }
-    expect(await asItIs()).toEqual({ ...deal, outcome: 'LOST', may: { change: false } });
+    expect(await asItIs()).toEqual({
+      ...deal,
+      outcome: 'LOST',
+      endedOn: expect.any(String),
+      may: { change: false, move: false, decidePoc: false },
+      moves: [],
+    });
   });
 
   /* NFR CLI AUD 01. */
@@ -628,7 +686,10 @@ describe("a deal's value history", () => {
     expect((await edit({ employeeId: people.opsDirector }, { probability: 90 })).status).toBe(403);
     expect((await edit(associate, { probability: 101 })).status).toBe(400);
 
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [deal.id]);
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      [deal.id],
+    );
     expect((await edit(associate, { probability: 90 })).status).toBe(409);
 
     expect(await historyOf()).toHaveLength(1);
@@ -637,7 +698,10 @@ describe("a deal's value history", () => {
   /* CLI 55: an ended deal stays on the client's history, its past values with it. */
   it('can still be read once the deal has ended, by anybody with a role', async () => {
     await edit(associate, { probability: 50 });
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [deal.id]);
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      [deal.id],
+    );
 
     expect(await historyOf(bdManager)).toHaveLength(2);
   });

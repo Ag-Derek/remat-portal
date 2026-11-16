@@ -14,12 +14,14 @@ import { ClientsContactRepository } from '../../src/apps/clients/contact.db.js';
 import { ClientsProductInUseRepository } from '../../src/apps/clients/product-in-use.db.js';
 import { clientsDoor } from '../../src/apps/clients/door.js';
 import { ClientsOpportunityRepository } from '../../src/apps/clients/opportunity.db.js';
+import { ClientsNoteRepository } from '../../src/apps/clients/note.db.js';
 import { OpportunityService } from '../../src/apps/clients/opportunity.service.js';
 import { ClientsProductRepository } from '../../src/apps/clients/product.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { RoleService } from '../../src/apps/clients/role.service.js';
 import { clientsRoutes } from '../../src/apps/clients/routes.js';
 import { SetupService } from '../../src/apps/clients/setup.service.js';
+import { StageService } from '../../src/apps/clients/stage.service.js';
 import { clientsVisibility } from '../../src/apps/clients/visibility.js';
 import type { RecordingDenialLog } from './recording-denials.js';
 
@@ -84,6 +86,7 @@ export async function startClientsApp(
       new ClientsContactRepository(db),
       productsInUse,
       opportunities,
+      new ClientsNoteRepository(db),
     ),
     opportunities: new OpportunityService(
       guard,
@@ -92,6 +95,7 @@ export async function startClientsApp(
       productsInUse,
       opportunities,
     ),
+    stages: new StageService(guard, grants, opportunities),
   });
 
   app.use('/api', router);

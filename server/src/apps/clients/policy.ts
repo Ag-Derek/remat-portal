@@ -89,6 +89,12 @@ export interface NextStepSubject {
   owner: Named;
 }
 
+/** A note on a client, as changing it needs it. */
+export interface NoteSubject {
+  id: string;
+  writtenBy: Named;
+}
+
 /** A meeting report, as reading and writing it need it. */
 export interface MeetingReportSubject {
   id: string;
@@ -110,7 +116,9 @@ export type Contribution =
   | 'createDeal'
   | 'logActivity'
   | 'addNextStep'
-  | 'addDocument';
+  | 'addDocument'
+  /** #278. A note on a client, with a heading. */
+  | 'addNote';
 
 /** What may be moved to another person, which is a BD manager's alone (CLI 92). */
 export type Reassignable = 'client' | 'deal' | 'poc';
@@ -270,6 +278,23 @@ export const clientsPolicy = {
         );
   },
 
+  /** Changing, archiving and bringing back a note on a client: its writer's or a BD manager's. */
+  changeNote(actor: Actor, access: ClientsAccess, note: NoteSubject): Decision {
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'changeNote', note.id);
+    }
+
+    return isBdManager(access) || isSelfNamed(actor, note.writtenBy)
+      ? about.allow(actor, 'changeNote', note.id)
+      : about.refuseOpenly(
+          actor,
+          'changeNote',
+          note.id,
+          'did not write it, and not a BD manager',
+          `Only ${whose(note.writtenBy, 'whoever wrote it')} or a BD manager can change this note.`,
+        );
+  },
+
   /** Closing a next step: its owner's or a BD manager's (CLI 64). */
   closeNextStep(actor: Actor, access: ClientsAccess, step: NextStepSubject): Decision {
     return ownerOrBdManager(actor, access, 'closeNextStep', step.id, step.owner, 'next step');
@@ -281,6 +306,20 @@ export const clientsPolicy = {
    */
   reassign(actor: Actor, access: ClientsAccess, what: Reassignable, id: string): Decision {
     return bdManagersAlone(actor, access, 'reassign', id, `Only a BD manager can move a ${what}.`);
+  },
+
+  /**
+   * Opening a deal owned by somebody else from the start: a BD manager's, as moving one later is
+   * (CLI 92, #278). Anybody else who opens a deal owns it (CLI 12).
+   */
+  openDealFor(actor: Actor, access: ClientsAccess): Decision {
+    return bdManagersAlone(
+      actor,
+      access,
+      'openDealFor',
+      null,
+      'Only a BD manager can open a deal for somebody else. Open it for yourself instead.',
+    );
   },
 
   /** Products, lines, checklists and the lost and exit reasons: a BD manager's (CLI 8, 40, 54). */

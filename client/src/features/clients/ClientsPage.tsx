@@ -62,20 +62,23 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
   return (
     <div className="portal">
       <main className="portal-page clients">
-        <header className="directory-head">
-          <a className="back" href="#/" aria-label="Back to Remat Portal">
-            <Icon name="back" />
-          </a>
+        {/* Not on one client's page either: its "All clients" link is the way back, and the
+            client's name is its heading. */}
+        {showing === 'client' ? null : (
+          <header className="directory-head">
+            <a className="back" href="#/" aria-label="Back to Remat Portal">
+              <Icon name="back" />
+            </a>
 
-          <h1>Clients</h1>
-        </header>
+            <h1>Clients</h1>
+          </header>
+        )}
 
-        {views?.setUp === true || views?.manageRoles === true ? (
+        {/* Not on one client's page, which has its own way back to every client and needs the
+            room for the client. */}
+        {showing !== 'client' && (views?.setUp === true || views?.manageRoles === true) ? (
           <nav className="directory-views" aria-label="Clients views">
-            <a
-              href="#/clients"
-              aria-current={showing === 'pipeline' || showing === 'client' ? 'page' : undefined}
-            >
+            <a href="#/clients" aria-current={showing === 'pipeline' ? 'page' : undefined}>
               Clients
             </a>
             {views.setUp ? (

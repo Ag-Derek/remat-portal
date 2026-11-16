@@ -21,12 +21,14 @@ import { accessOf, viewsOf } from './access.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
 import type { Contact } from './contact.js';
+import type { ClientNote } from './note.js';
 import type { Opportunity } from './opportunity.js';
 import type { OpportunityService } from './opportunity.service.js';
 import type { Grant } from './role.js';
 import type { ClientsRoleRepository } from './role.db.js';
 import type { RoleService, RolesScreen } from './role.service.js';
 import type { SetupService } from './setup.service.js';
+import type { StageService } from './stage.service.js';
 
 export interface ClientsRoutes {
   /**
@@ -44,6 +46,8 @@ export interface ClientsRoutes {
   clients?: ClientService;
   /** Deals. #277. Optional, for the same reason. */
   opportunities?: OpportunityService;
+  /** Moving deals up the ladder. #278. Optional, for the same reason. */
+  stages?: StageService;
 }
 
 export function clientsRoutes({
@@ -53,6 +57,7 @@ export function clientsRoutes({
   setup,
   clients,
   opportunities,
+  stages,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -81,6 +86,10 @@ export function clientsRoutes({
 
   if (opportunities !== undefined) {
     opportunityRoutes(routes, opportunities);
+  }
+
+  if (stages !== undefined) {
+    stageRoutes(routes, stages);
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -246,6 +255,20 @@ function clientRoutes(routes: Router, clients: ClientService): void {
     }),
   );
 
+  /**
+   * Everything that has happened to the client's deals, newest first: stage changes and changes
+   * to value or chance of closing, each naming its deal. #278, CLI 99.
+   */
+  routes.get(
+    '/clients/clients/:id/activity',
+    answer(async (request, response) => ({
+      activity: (await clients.activity(actorOf(response), idOf(request))).map((entry) => ({
+        ...entry,
+        at: entry.at.toISOString(),
+      })),
+    })),
+  );
+
   /** The products that may be added to a client: neither retired nor in a retired line. */
   routes.get(
     '/clients/products',
@@ -298,6 +321,41 @@ function clientRoutes(routes: Router, clients: ClientService): void {
   routes.post(
     '/clients/contacts/:id/restore',
     answer((request, response) => clients.restoreContact(actorOf(response), idOf(request))),
+  );
+
+  /* Notes on a client, each with a heading. #278. */
+
+  /** `{ heading, body }`. Anybody with a role's. */
+  routes.post(
+    '/clients/clients/:id/notes',
+    answer(
+      async (request, response) =>
+        noteAsJson(await clients.addNote(actorOf(response), idOf(request), request.body)),
+      201,
+    ),
+  );
+
+  /** `{ heading?, body? }`: only what is present changes. Its writer's or a BD manager's. */
+  routes.patch(
+    '/clients/notes/:id',
+    answer(async (request, response) =>
+      noteAsJson(await clients.changeNote(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+
+  /** Folded away, and kept. */
+  routes.post(
+    '/clients/notes/:id/archive',
+    answer(async (request, response) =>
+      noteAsJson(await clients.archiveNote(actorOf(response), idOf(request), true)),
+    ),
+  );
+
+  routes.post(
+    '/clients/notes/:id/restore',
+    answer(async (request, response) =>
+      noteAsJson(await clients.archiveNote(actorOf(response), idOf(request), false)),
+    ),
   );
 
   /** `{ productId, sinceOn }`: a product the client already uses, from that day. CLI 04. */
@@ -373,6 +431,33 @@ function opportunityRoutes(routes: Router, opportunities: OpportunityService): v
   );
 }
 
+/**
+ * A deal's stage, under `/clients/opportunities/:id`. #278, Clients SRS CLI 18 to CLI 26, TDD 11.
+ */
+function stageRoutes(routes: Router, stages: StageService): void {
+  /**
+   * `{ toStage, note? }`: moves the deal, forward by one stage or more, or back with a note
+   * before its contract is signed. Its owner's or a BD manager's, while it is open. Live wins it.
+   */
+  routes.post(
+    '/clients/opportunities/:id/stage',
+    answer(async (request, response) =>
+      opportunityAsJson(await stages.move(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+
+  /** Every stage it has been at, newest first, with who moved it, when, and any note. */
+  routes.get(
+    '/clients/opportunities/:id/stages',
+    answer(async (request, response) => ({
+      stages: (await stages.stages(actorOf(response), idOf(request))).map((change) => ({
+        ...change,
+        changedAt: change.changedAt.toISOString(),
+      })),
+    })),
+  );
+}
+
 /** Answers with the result, or with nothing where there is nothing to say. */
 function answer(work: (request: Request, response: Response) => Promise<unknown>, status = 200) {
   return (request: Request, response: Response, next: NextFunction) => {
@@ -399,12 +484,22 @@ function clientAsJson(client: Client): unknown {
     createdAt: client.createdAt.toISOString(),
     contacts: client.contacts.map(contactAsJson),
     opportunities: client.opportunities.map(opportunityAsJson),
+    notes: client.notes.map(noteAsJson),
   };
 }
 
 /** Every field present, a missing one as null, so the screen shows it as missing (CLI 06). */
 function opportunityAsJson(opportunity: Opportunity): unknown {
   return { ...opportunity, createdAt: opportunity.createdAt.toISOString() };
+}
+
+function noteAsJson(note: ClientNote): unknown {
+  return {
+    ...note,
+    writtenAt: note.writtenAt.toISOString(),
+    editedAt: note.editedAt?.toISOString() ?? null,
+    archivedAt: note.archivedAt?.toISOString() ?? null,
+  };
 }
 
 function contactAsJson(contact: Contact): unknown {

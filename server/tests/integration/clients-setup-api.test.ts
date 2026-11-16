@@ -47,7 +47,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   /* Whatever lines a migration seeded, these tests start from none. */
   await admin.query(
-    'TRUNCATE clients_client_product, clients_value_change, clients_opportunity, clients_product, ' +
+    'TRUNCATE clients_client_product, clients_stage_change, clients_value_change, clients_opportunity, clients_product, ' +
       'clients_product_line RESTART IDENTITY',
   );
   people = (await seed(admin)) as Record<string, string>;

@@ -13,6 +13,7 @@
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Person } from './client.js';
 import { isAnId } from './product.js';
+import type { Stage, StageOption } from './stage.js';
 
 /** Ghana cedis and US dollars, the two the department prices in (CLI 74). */
 export const CURRENCIES = ['GHS', 'USD'] as const;
@@ -49,7 +50,8 @@ export interface WaitingOn {
   note: string | null;
 }
 
-/** Open until won, lost or exited, which the stage service decides (#278, #279). */
+/** Open until won, lost or exited, which the stage service decides (#278, #279). Separate from
+    the stage, which says how far it came (TDD 1, principle 2). */
 export type Outcome = 'OPEN' | 'WON' | 'LOST' | 'EXITED';
 
 export interface Opportunity {
@@ -59,7 +61,13 @@ export interface Opportunity {
   product: { id: string; name: string; lineName: string };
   /** Who works it. */
   owner: Person;
+  /** How far it has come (CLI 18). Where it ended, once it has. */
+  stage: Stage;
   outcome: Outcome;
+  /** Whether it will have a POC: null until somebody says, fixed once signed (CLI 19). */
+  hasPoc: boolean | null;
+  /** The day it was won, lost or exited; null while it is open (CLI 25). */
+  endedOn: CalendarDate | null;
   /** Null while nobody knows what it is worth. */
   value: Money | null;
   /** A whole percentage, or null while nobody has said (CLI 14). */
@@ -100,10 +108,17 @@ export interface ValueChange {
 export interface DealPermissions {
   /** Its figures and words: its owner's or a BD manager's, while it is open (CLI 13). */
   change: boolean;
+  /** Moving its stage by hand: the same people, while it is open and not in its POC (#278). */
+  move: boolean;
+  /** Answering whether it will have a POC: the same people, until its contract is signed. */
+  decidePoc: boolean;
 }
 
-/** A deal, with what the person reading it may do to it. */
-export type DealView = Opportunity & { may: DealPermissions };
+/**
+ * A deal, with what the person reading it may do to it, and where they could move it: every
+ * stage, open or not and why, where they may move it at all, and none where they may not (#278).
+ */
+export type DealView = Opportunity & { may: DealPermissions; moves: StageOption[] };
 
 /** What a new deal is made of, read from the request. Its owner is whoever asks (CLI 12). */
 export interface NewOpportunity {
@@ -114,6 +129,10 @@ export interface NewOpportunity {
   expectedClose: HalfYear | null;
   waitingOn: WaitingOn | null;
   statedInterest: string | null;
+  /** Whether it will have a POC, where somebody already knows (CLI 19). */
+  hasPoc: boolean | null;
+  /** Who is to own it, where somebody other than whoever opens it is named (#278). */
+  ownerId: string | null;
 }
 
 /** The longest texts the columns hold. */
@@ -167,6 +186,8 @@ export interface OpportunityChange {
   expectedClose?: HalfYear | null;
   waitingOn?: WaitingOn | null;
   statedInterest?: string | null;
+  /** Whether it will have a POC; null where nobody knows after all. Fixed once signed (CLI 19). */
+  hasPoc?: boolean | null;
 }
 
 /** An edit to a deal, from a request body. Fields left out are left as they are. */
@@ -186,6 +207,7 @@ export function readOpportunityChange(body: unknown): OpportunityChange {
       MAX_STATED_INTEREST_LENGTH,
     );
   }
+  if ('hasPoc' in fields) change.hasPoc = readHasPoc(fields.hasPoc);
 
   return change;
 }
@@ -235,7 +257,24 @@ export function readNewOpportunity(body: unknown): NewOpportunity {
       'what the client said they want',
       MAX_STATED_INTEREST_LENGTH,
     ),
+    hasPoc: readHasPoc(fields.hasPoc),
+    ownerId:
+      fields.ownerId === undefined || fields.ownerId === null
+        ? null
+        : readId(fields.ownerId, 'ownerId', 'Choose who is to own the deal.'),
   };
+}
+
+/** Yes, no, or null where nobody knows yet (CLI 19). */
+export function readHasPoc(value: unknown): boolean | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== 'boolean') {
+    throw new InvalidOpportunity('hasPoc', 'Say whether there will be a POC: yes or no.');
+  }
+
+  return value;
 }
 
 /**

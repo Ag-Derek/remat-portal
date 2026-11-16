@@ -205,6 +205,8 @@ describe('the columns', () => {
       'clients_client_product.since_on',
       /** #276. The day a client type stopped being offered for new clients. */
       'clients_client_type.retired_on',
+      /** #278. The day a deal was won, lost or exited. */
+      'clients_opportunity.ended_on',
       /** #293. The day a product or a line stopped taking new deals. */
       'clients_product.retired_on',
       'clients_product_line.retired_on',

@@ -149,7 +149,6 @@ function NewClientDialog({
   const [types, setTypes] = useState<ClientType[] | undefined>(undefined);
   const [name, setName] = useState('');
   const [typeId, setTypeId] = useState('');
-  const [note, setNote] = useState('');
   const [loadProblem, setLoadProblem] = useState<Problem | undefined>(undefined);
   const sending = useSending(onClose, onSignedOut);
 
@@ -179,8 +178,8 @@ function NewClientDialog({
         onSubmit={(event) => {
           event.preventDefault();
           sending.send(async () => {
-            const id = await createClient({ name, typeId, note });
-            /* Straight to its page, where its contacts and products are added. */
+            const id = await createClient({ name, typeId });
+            /* Straight to its page, where its contacts, products and notes are added. */
             window.location.hash = `#/clients/client/${id}`;
           });
         }}
@@ -227,25 +226,9 @@ function NewClientDialog({
           )}
         </Field>
 
-        <Field label="Note" hint="Optional." error={sending.errorFor('note')}>
-          {({ id, describedBy }) => (
-            <textarea
-              id={id}
-              value={note}
-              rows={3}
-              maxLength={2000}
-              aria-describedby={describedBy}
-              disabled={sending.busy}
-              onChange={(event) => {
-                setNote(event.target.value);
-              }}
-            />
-          )}
-        </Field>
-
         {loadProblem === undefined ? null : <Notice problem={loadProblem} />}
         {(() => {
-          const other = sending.other(['name', 'typeId', 'note']);
+          const other = sending.other(['name', 'typeId']);
           return other === undefined ? null : <Notice problem={other} />;
         })()}
 

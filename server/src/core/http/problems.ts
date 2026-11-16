@@ -486,6 +486,32 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   OpportunityAlreadyOpen: 409,
   /** #277, CLI 55, CLI 56. An ended deal is kept as it ended; a new deal is the fix. */
   OpportunityEnded: 409,
+
+  /**
+   * #278, CLI 19 to CLI 24. A deal's stage, each refused by where the deal stands rather than
+   * what was typed: 409, where TDD 11 says 422, for the reason this table gives above. The
+   * sentence names what to do instead. Its TDD code is beside each.
+   */
+  /** Nothing to do. */
+  AlreadyAtStage: 409,
+  /** NO_BACKWARD. Ending the deal is the fix. */
+  ContractSignedIsFinal: 409,
+  /** HAS_POC_REQUIRED. Answering the POC question first is the fix. */
+  PocDecisionRequired: 409,
+  /** HAS_POC_FIXED. */
+  PocDecisionFixed: 409,
+  /** POC_STARTS_IT. Starting the POC is the fix. */
+  PocStartsIt: 409,
+  /** POC_DECIDES. Its POC converting is the fix. */
+  PocDecides: 409,
+  /** Moving it to Contract signed first is the fix. */
+  LiveAfterSigning: 409,
+  /** Looking again is the fix. */
+  StageMovedMeanwhile: 409,
+  /** #278. A note is archived; bringing it back is the fix. */
+  NoteArchived: 409,
+  /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
+  MovingBackNeedsANote: 400,
 };
 
 /**

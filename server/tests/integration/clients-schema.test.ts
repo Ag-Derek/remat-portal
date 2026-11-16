@@ -27,6 +27,8 @@ const TABLES = [
   'clients_client_product',
   'clients_opportunity',
   'clients_value_change',
+  'clients_stage_change',
+  'clients_client_note',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -443,8 +445,8 @@ describe('a client type', () => {
 });
 
 describe('a client', () => {
-  const CLIENT = `INSERT INTO clients_client (name, type_id, owner_id, note)
-                  VALUES ($1, $2, $3, $4) RETURNING id`;
+  const CLIENT = `INSERT INTO clients_client (name, type_id, owner_id)
+                  VALUES ($1, $2, $3) RETURNING id`;
 
   let bank: string;
 
@@ -454,26 +456,22 @@ describe('a client', () => {
     ).rows[0].id;
   });
 
-  it('records its name, type, owner and note, and when it was created', async () => {
+  /* Its notes are a table of their own since #278: see "a note on a client". */
+  it('records its name, type and owner, and when it was created', async () => {
     const { rows } = await admin.query(
-      `INSERT INTO clients_client (name, type_id, owner_id, note)
-       VALUES ('Testbank', $1, $2, 'Met at the fintech summit')
-       RETURNING name, type_id, owner_id, note, created_at`,
+      `INSERT INTO clients_client (name, type_id, owner_id)
+       VALUES ('Testbank', $1, $2)
+       RETURNING name, type_id, owner_id, created_at`,
       [bank, ama],
     );
 
-    expect(rows[0]).toMatchObject({
-      name: 'Testbank',
-      type_id: bank,
-      owner_id: ama,
-      note: 'Met at the fintech summit',
-    });
+    expect(rows[0]).toMatchObject({ name: 'Testbank', type_id: bank, owner_id: ama });
     expect(rows[0].created_at).toBeInstanceOf(Date);
   });
 
   it('is of a type that exists', async () => {
-    expect(await refusedBy(CLIENT, ['Testbank', null, ama, null])).toMatch(/type_id/);
-    expect(await refusedBy(CLIENT, ['Testbank', '987654321', ama, null])).toBe(
+    expect(await refusedBy(CLIENT, ['Testbank', null, ama])).toMatch(/type_id/);
+    expect(await refusedBy(CLIENT, ['Testbank', '987654321', ama])).toBe(
       'clients_client_type_id_fkey',
     );
   });
@@ -485,12 +483,12 @@ describe('a client', () => {
       )
     ).rows[0].id;
 
-    expect(await refusedBy(CLIENT, ['Testinsurer', insurer, ama, null])).toBeNull();
+    expect(await refusedBy(CLIENT, ['Testinsurer', insurer, ama])).toBeNull();
   });
 
   /* CLI 02. Done when: creating a duplicate client name is refused. */
   it('is recorded once, whatever the case or spacing of its name', async () => {
-    expect(await refusedBy(CLIENT, ['Agricultural Development Bank', bank, ama, null])).toBeNull();
+    expect(await refusedBy(CLIENT, ['Agricultural Development Bank', bank, ama])).toBeNull();
 
     for (const same of [
       'agricultural development bank',
@@ -498,18 +496,16 @@ describe('a client', () => {
       'Agricultural  Development   Bank',
       'Agricultural\tDevelopment\nBank',
     ]) {
-      expect(await refusedBy(CLIENT, [same, bank, kofi, null])).toBe('uq_clients_client_name');
+      expect(await refusedBy(CLIENT, [same, bank, kofi])).toBe('uq_clients_client_name');
     }
 
     /* Another name altogether, which merely contains the first, is another client. */
-    expect(
-      await refusedBy(CLIENT, ['Agricultural Development Bank Ghana', bank, ama, null]),
-    ).toBeNull();
+    expect(await refusedBy(CLIENT, ['Agricultural Development Bank Ghana', bank, ama])).toBeNull();
   });
 
   it('is refused the name of another client when renamed into it', async () => {
-    await admin.query(CLIENT, ['ADB', bank, ama, null]);
-    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Ecobank', bank, ama, null]);
+    await admin.query(CLIENT, ['ADB', bank, ama]);
+    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Ecobank', bank, ama]);
 
     expect(
       await refusedBy(`UPDATE clients_client SET name = ' adb' WHERE id = $1`, [rows[0].id]),
@@ -529,20 +525,12 @@ describe('a client', () => {
   });
 
   it('is named, and owned by somebody who exists', async () => {
-    expect(await refusedBy(CLIENT, ['  ', bank, ama, null])).toBe('clients_client_named');
-    expect(await refusedBy(CLIENT, ['\t\n', bank, ama, null])).toBe('clients_client_named');
-    expect(await refusedBy(CLIENT, ['Testbank', bank, null, null])).toMatch(/owner_id/);
-    expect(await refusedBy(CLIENT, ['Testbank', bank, '987654321', null])).toBe(
+    expect(await refusedBy(CLIENT, ['  ', bank, ama])).toBe('clients_client_named');
+    expect(await refusedBy(CLIENT, ['\t\n', bank, ama])).toBe('clients_client_named');
+    expect(await refusedBy(CLIENT, ['Testbank', bank, null])).toMatch(/owner_id/);
+    expect(await refusedBy(CLIENT, ['Testbank', bank, '987654321'])).toBe(
       'clients_client_owner_id_fkey',
     );
-  });
-
-  /* Missing is null, never an empty string, so the screen can say it is missing. */
-  it('has no note rather than a blank one', async () => {
-    expect(await refusedBy(CLIENT, ['Testbank', bank, ama, '  '])).toBe(
-      'clients_client_note_not_blank',
-    );
-    expect(await refusedBy(CLIENT, ['Testbank', bank, ama, null])).toBeNull();
   });
 
   it('is written to the audit log by the database, with who did it', async () => {
@@ -551,7 +539,7 @@ describe('a client', () => {
               set_config('lms.audit.actor_employee_id', $1, true)`,
       [ama],
     );
-    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Testbank', bank, ama, null]);
+    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Testbank', bank, ama]);
     await admin.query('UPDATE clients_client SET owner_id = $2 WHERE id = $1', [rows[0].id, kofi]);
 
     const log = await admin.query(
@@ -793,7 +781,8 @@ describe('an opportunity', () => {
 
     if (refused === null) {
       await admin.query(
-        `UPDATE clients_opportunity SET outcome = 'LOST' WHERE client_id = $1 AND outcome = 'OPEN'`,
+        `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE
+          WHERE client_id = $1 AND outcome = 'OPEN'`,
         [adb],
       );
     }
@@ -809,6 +798,27 @@ describe('an opportunity', () => {
       )
     ).rows[0].id;
   });
+
+  /** Ends a deal as `outcome` says, by the shortest way the ladder allows (#278). */
+  async function endAs(id: string, outcome: string): Promise<string | null> {
+    if (outcome === 'WON') {
+      await admin.query(
+        `UPDATE clients_opportunity SET has_poc = false, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
+        [id],
+      );
+
+      return refusedBy(
+        `UPDATE clients_opportunity SET stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE
+          WHERE id = $1`,
+        [id],
+      );
+    }
+
+    return refusedBy(
+      'UPDATE clients_opportunity SET outcome = $2, ended_on = CURRENT_DATE WHERE id = $1',
+      [id, outcome],
+    );
+  }
 
   /* CLI 10. */
   it('records a client, product, owner, value and currency, probability, expected close, waiting on and stated interest', async () => {
@@ -907,19 +917,15 @@ describe('an opportunity', () => {
       );
       expect(rows[0].outcome).toBe('OPEN');
 
-      expect(
-        await refusedBy('UPDATE clients_opportunity SET outcome = $2 WHERE id = $1', [
-          rows[0].id,
-          outcome,
-        ]),
-      ).toBeNull();
+      expect(await endAs(rows[0].id, outcome)).toBeNull();
     }
 
     const { rows } = await admin.query<{ id: string }>(DEAL, aDeal());
     expect(
-      await refusedBy(`UPDATE clients_opportunity SET outcome = 'PAUSED' WHERE id = $1`, [
-        rows[0].id,
-      ]),
+      await refusedBy(
+        `UPDATE clients_opportunity SET outcome = 'PAUSED', ended_on = CURRENT_DATE WHERE id = $1`,
+        [rows[0].id],
+      ),
     ).toBe('clients_opportunity_outcome_known');
   });
 
@@ -951,10 +957,7 @@ describe('an opportunity', () => {
   it('may be opened again once the last one has ended, however it ended', async () => {
     for (const outcome of ['WON', 'LOST', 'EXITED']) {
       const { rows } = await admin.query<{ id: string }>(DEAL, aDeal());
-      await admin.query('UPDATE clients_opportunity SET outcome = $2 WHERE id = $1', [
-        rows[0].id,
-        outcome,
-      ]);
+      expect(await endAs(rows[0].id, outcome)).toBeNull();
     }
 
     expect(await refusedBy(DEAL, aDeal())).toBeNull();
@@ -970,13 +973,12 @@ describe('an opportunity', () => {
      row: the stage service and the import included. */
   it('is kept as it ended: never reopened, and nothing about it changed', async () => {
     const { rows } = await admin.query<{ id: string }>(DEAL, aDeal());
-    await admin.query(`UPDATE clients_opportunity SET outcome = 'LOST' WHERE id = $1`, [
-      rows[0].id,
-    ]);
+    expect(await endAs(rows[0].id, 'LOST')).toBeNull();
 
     for (const change of [
-      `outcome = 'OPEN'`,
-      `outcome = 'WON'`,
+      `outcome = 'OPEN', ended_on = NULL`,
+      `stage = 'QUALIFICATION'`,
+      'has_poc = true',
       'probability = 90',
       'value_minor = NULL, currency = NULL',
       `waiting_on = 'SIGNATURE', waiting_note = NULL`,
@@ -1053,6 +1055,8 @@ describe('an opportunity', () => {
     expect(rows.map((row) => row.indexdef)).toEqual([
       expect.stringMatching(/USING btree \(client_id\)$/),
       expect.stringMatching(/USING btree \(owner_id\) WHERE \(\(outcome\)::text = 'OPEN'/),
+      /* #278. Open deals at each stage, which the pipeline counts. */
+      expect.stringMatching(/USING btree \(stage\) WHERE \(\(outcome\)::text = 'OPEN'/),
     ]);
   });
 });
@@ -1198,6 +1202,395 @@ describe("a deal's value history", () => {
   });
 });
 
+/* ------------------------------------------------------ a deal's stage, #278 */
+
+/* The ladder, held by the database whoever writes (TDD 4.2, "the constraints are the ladder").
+   Every refusal here is written to the row directly, as the issue's last task asks: the service
+   says no first, and these say no to whatever gets past it. */
+describe('a deal on the ladder', () => {
+  let deal: string;
+
+  /** Sets columns on the deal, and says what refused it, or null. */
+  function set(assignments: string): Promise<string | null> {
+    return refusedBy(`UPDATE clients_opportunity SET ${assignments} WHERE id = $1`, [deal]);
+  }
+
+  /** The deal's stage, outcome, POC answer and end, as they now stand. */
+  async function standing() {
+    const { rows } = await admin.query<{
+      stage: string;
+      outcome: string;
+      has_poc: boolean | null;
+      ended_on: string | null;
+    }>('SELECT stage, outcome, has_poc, ended_on::text FROM clients_opportunity WHERE id = $1', [
+      deal,
+    ]);
+
+    return rows[0];
+  }
+
+  beforeEach(async () => {
+    const client = await aClient(ama);
+    deal = (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+        [client, ama],
+      )
+    ).rows[0].id;
+  });
+
+  /* CLI 12, CLI 19. */
+  it('starts at Discovery, open, with the POC question unanswered', async () => {
+    expect(await standing()).toEqual({
+      stage: 'DISCOVERY',
+      outcome: 'OPEN',
+      has_poc: null,
+      ended_on: null,
+    });
+  });
+
+  /* CLI 12. Whoever writes, the import included: it opens each deal and then moves it. */
+  it('cannot be opened anywhere but Discovery, open', async () => {
+    const OPEN_AT = `INSERT INTO clients_opportunity (client_id, product_id, owner_id, stage, has_poc)
+                     SELECT $1, id, $2, $3, false FROM clients_product WHERE name = 'Cloud9'`;
+    const client = await aClient(kofi, 'Ecobank');
+
+    expect(await refusedBy(OPEN_AT, [client, kofi, 'PROPOSAL'])).toBe(
+      'clients_opportunity_starts_at_discovery',
+    );
+    expect(
+      await refusedBy(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id, outcome, ended_on)
+         SELECT $1, id, $2, 'LOST', CURRENT_DATE FROM clients_product WHERE name = 'Cloud9'`,
+        [client, kofi],
+      ),
+    ).toBe('clients_opportunity_starts_at_discovery');
+    expect(await refusedBy(OPEN_AT, [client, kofi, 'DISCOVERY'])).toBeNull();
+  });
+
+  /* CLI 18. Fixed, and not data. */
+  it('is at one of the seven stages', async () => {
+    expect(await set(`stage = 'PILOT', has_poc = false`)).toBe('clients_opportunity_stage_known');
+  });
+
+  /* CLI 20, CLI 21. Forward by one or several; back before Contract signed. The note a move back
+     needs is the stage history's to hold, below. */
+  it('moves forward one stage or several, and back before Contract signed', async () => {
+    expect(await set(`stage = 'QUALIFICATION'`)).toBeNull();
+    expect(await set(`stage = 'NEGOTIATION'`)).toBeNull();
+    expect(await set(`stage = 'PROPOSAL'`)).toBeNull();
+    expect(await set(`stage = 'DISCOVERY'`)).toBeNull();
+    expect((await standing()).stage).toBe('DISCOVERY');
+  });
+
+  /* CLI 19, TDD's opp_poc_decided, HAS_POC_REQUIRED. */
+  it('needs the POC question answered before Contract signed', async () => {
+    expect(await set(`stage = 'CONTRACT_SIGNED'`)).toBe('clients_opportunity_poc_decided');
+    expect(await set(`stage = 'CONTRACT_SIGNED', has_poc = false`)).toBeNull();
+  });
+
+  /* CLI 19, HAS_POC_FIXED. Changed as often as it needs to be until then, unanswered again
+     included. */
+  it('settles the POC question once the contract is signed', async () => {
+    for (const answer of ['true', 'false', 'NULL', 'true']) {
+      expect(await set(`has_poc = ${answer}`)).toBeNull();
+    }
+    expect(await set(`stage = 'CONTRACT_SIGNED'`)).toBeNull();
+
+    expect(await set('has_poc = false')).toBe('clients_opportunity_poc_decision_fixed');
+    expect(await set('has_poc = NULL')).toBe('clients_opportunity_poc_decision_fixed');
+    /* Setting it to what it is already is no change. */
+    expect(await set('has_poc = true')).toBeNull();
+  });
+
+  /* CLI 21, NO_BACKWARD, AC L06. */
+  it('never moves back from Contract signed onward', async () => {
+    expect(await set(`stage = 'CONTRACT_SIGNED', has_poc = true`)).toBeNull();
+
+    for (const back of ['NEGOTIATION', 'PROPOSAL', 'DISCOVERY']) {
+      expect(await set(`stage = '${back}'`)).toBe('clients_opportunity_no_way_back');
+    }
+
+    expect(await set(`stage = 'POC'`)).toBeNull();
+    expect(await set(`stage = 'CONTRACT_SIGNED'`)).toBe('clients_opportunity_no_way_back');
+  });
+
+  /* CLI 24, CLI 25, AC L04. Done when: a deal without a POC goes from Discovery to Live and
+     shows as won. */
+  it('with no POC, goes from Contract signed to Live, and is won on the day', async () => {
+    expect(await set(`stage = 'CONTRACT_SIGNED', has_poc = false`)).toBeNull();
+    expect(await set(`stage = 'LIVE', outcome = 'WON', ended_on = '2026-11-11'`)).toBeNull();
+
+    expect(await standing()).toEqual({
+      stage: 'LIVE',
+      outcome: 'WON',
+      has_poc: false,
+      ended_on: '2026-11-11',
+    });
+  });
+
+  /* CLI 25, TDD's opp_won_is_live. A signed contract is not a win. */
+  it('is won at Live and nowhere else, and Live is always won', async () => {
+    expect(await set(`stage = 'CONTRACT_SIGNED', has_poc = false`)).toBeNull();
+
+    expect(await set(`outcome = 'WON', ended_on = CURRENT_DATE`)).toBe(
+      'clients_opportunity_won_is_live',
+    );
+    expect(await set(`stage = 'LIVE'`)).toBe('clients_opportunity_won_is_live');
+    expect(await set(`stage = 'LIVE', outcome = 'LOST', ended_on = CURRENT_DATE`)).toBe(
+      'clients_opportunity_won_is_live',
+    );
+  });
+
+  /* CLI 24. Live comes after the contract is signed, never before it. */
+  it('never goes live from before Contract signed', async () => {
+    expect(await set(`stage = 'NEGOTIATION', has_poc = false`)).toBeNull();
+
+    expect(await set(`stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE`)).toBe(
+      'clients_opportunity_live_after_signing',
+    );
+  });
+
+  /* CLI 24, AC L05, POC_DECIDES. Done when: moving a POC deal to Live by hand is refused. A deal
+     with a POC never skips it. */
+  it('with a POC, goes live only from its POC', async () => {
+    expect(await set(`stage = 'CONTRACT_SIGNED', has_poc = true`)).toBeNull();
+
+    expect(await set(`stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE`)).toBe(
+      'clients_opportunity_live_after_signing',
+    );
+
+    expect(await set(`stage = 'POC'`)).toBeNull();
+    expect(await set(`stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE`)).toBeNull();
+  });
+
+  /* TDD 5, step 5, and half of TDD's opp_poc_stage. Only a deal with a POC is ever in one, and it
+     enters it from Contract signed. */
+  it('enters POC from Contract signed, and only with a POC', async () => {
+    expect(await set(`stage = 'NEGOTIATION', has_poc = true`)).toBeNull();
+    expect(await set(`stage = 'POC'`)).toBe('clients_opportunity_poc_after_signing');
+
+    expect(await set(`has_poc = false, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await set(`stage = 'POC'`)).toBe('clients_opportunity_poc_stage_has_poc');
+  });
+
+  /* CLI 25, TDD's opp_ended_shape. */
+  it('says when it ended, and an open one has not', async () => {
+    expect(await set(`outcome = 'LOST'`)).toBe('clients_opportunity_ended_shape');
+    expect(await set('ended_on = CURRENT_DATE')).toBe('clients_opportunity_ended_shape');
+    expect(await set(`outcome = 'LOST', ended_on = CURRENT_DATE`)).toBeNull();
+  });
+});
+
+describe("a deal's stage history", () => {
+  const CHANGE = `INSERT INTO clients_stage_change
+                    (opportunity_id, from_stage, to_stage, to_outcome, note, changed_by)
+                  VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`;
+
+  let deal: string;
+
+  /** The parameters for a move from Discovery to Proposal, open, by the deal's owner. */
+  function aMove(change: Partial<Record<string, unknown>> = {}): unknown[] {
+    const row = {
+      deal,
+      from: 'DISCOVERY',
+      to: 'PROPOSAL',
+      outcome: 'OPEN',
+      note: null,
+      by: ama,
+      ...change,
+    };
+
+    return [row.deal, row.from, row.to, row.outcome, row.note, row.by];
+  }
+
+  beforeEach(async () => {
+    const client = await aClient(ama);
+    deal = (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+        [client, ama],
+      )
+    ).rows[0].id;
+  });
+
+  /* CLI 26. */
+  it('records where a deal moved from and to, its outcome after, the note, who and when', async () => {
+    const { rows } = await admin.query(
+      `${CHANGE.replace('RETURNING id', '')}
+       RETURNING opportunity_id, from_stage, to_stage, to_outcome, note, changed_by, changed_at`,
+      aMove({ from: 'NEGOTIATION', to: 'QUALIFICATION', note: 'Their CFO left; starting over' }),
+    );
+
+    expect(rows[0]).toMatchObject({
+      opportunity_id: deal,
+      from_stage: 'NEGOTIATION',
+      to_stage: 'QUALIFICATION',
+      to_outcome: 'OPEN',
+      note: 'Their CFO left; starting over',
+      changed_by: ama,
+    });
+    expect(rows[0].changed_at).toBeInstanceOf(Date);
+  });
+
+  it('is of a deal that exists, moved by somebody who does', async () => {
+    expect(await refusedBy(CHANGE, aMove({ deal: '987654321' }))).toBe(
+      'clients_stage_change_opportunity_id_fkey',
+    );
+    expect(await refusedBy(CHANGE, aMove({ by: null }))).toMatch(/changed_by/);
+  });
+
+  /* CLI 12. */
+  it('starts with the deal opened at Discovery, open', async () => {
+    expect(await refusedBy(CHANGE, aMove({ from: null, to: 'DISCOVERY' }))).toBeNull();
+    expect(await refusedBy(CHANGE, aMove({ from: null, to: 'PROPOSAL' }))).toBe(
+      'clients_stage_change_opens_at_discovery',
+    );
+  });
+
+  /* CLI 21, NOTE_REQUIRED, AC L07. A move back says why; a move forward may. */
+  it('holds the note a move back needs', async () => {
+    const back = { from: 'PROPOSAL', to: 'QUALIFICATION' };
+
+    expect(await refusedBy(CHANGE, aMove(back))).toBe('clients_stage_change_back_has_a_note');
+    expect(await refusedBy(CHANGE, aMove({ ...back, note: '  ' }))).toBe(
+      'clients_stage_change_note_not_blank',
+    );
+    expect(await refusedBy(CHANGE, aMove({ ...back, note: 'Scope changed' }))).toBeNull();
+    expect(await refusedBy(CHANGE, aMove({ note: 'Proposal sent today' }))).toBeNull();
+    expect(await refusedBy(CHANGE, aMove())).toBeNull();
+  });
+
+  it('holds no more than the deal itself could have', async () => {
+    expect(await refusedBy(CHANGE, aMove({ to: 'PILOT' }))).toBe(
+      'clients_stage_change_stages_known',
+    );
+    expect(await refusedBy(CHANGE, aMove({ from: 'PILOT' }))).toBe(
+      'clients_stage_change_stages_known',
+    );
+    expect(await refusedBy(CHANGE, aMove({ outcome: 'PAUSED' }))).toBe(
+      'clients_stage_change_outcome_known',
+    );
+    expect(await refusedBy(CHANGE, aMove({ outcome: 'WON' }))).toBe(
+      'clients_stage_change_won_is_live',
+    );
+    expect(
+      await refusedBy(CHANGE, aMove({ from: 'CONTRACT_SIGNED', to: 'LIVE', outcome: 'WON' })),
+    ).toBeNull();
+  });
+
+  /* NFR CLI REC 01. Whoever writes: these run as the owner, which privileges alone would let. */
+  it('is never changed or deleted once written', async () => {
+    const { rows } = await admin.query<{ id: string }>(CHANGE, aMove());
+
+    for (const statement of [
+      `UPDATE clients_stage_change SET to_stage = 'LIVE' WHERE id = $1`,
+      'DELETE FROM clients_stage_change WHERE id = $1',
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement, [rows[0].id])).rejects.toThrow(
+        /clients_stage_change are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
+  });
+
+  /* NFR CLI AUD 02. */
+  it('is not written to the audit log', async () => {
+    await admin.query(CHANGE, aMove());
+
+    const { rows } = await admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM audit_log WHERE entity = 'clients_stage_change'`,
+    );
+    expect(rows[0].n).toBe(0);
+  });
+
+  it('is found by deal, in the order it happened', async () => {
+    const { rows } = await admin.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_clients_stage_change_deal'`,
+    );
+
+    expect(rows[0]?.indexdef).toMatch(/USING btree \(opportunity_id, changed_at\)/);
+  });
+});
+
+/* --------------------------------------------------- notes on a client, #278 */
+
+describe('a note on a client', () => {
+  const NOTE = `INSERT INTO clients_client_note (client_id, heading, body, written_by)
+                VALUES ($1, $2, $3, $4) RETURNING id`;
+
+  let client: string;
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+  });
+
+  it('records its client, heading, words, writer, and when it was written', async () => {
+    const { rows } = await admin.query(
+      `${NOTE.replace('RETURNING id', '')}
+       RETURNING client_id, heading, body, written_by, written_at, edited_at, archived_at`,
+      [client, 'How they buy', 'Through a tender, every March.', ama],
+    );
+
+    expect(rows[0]).toMatchObject({
+      client_id: client,
+      heading: 'How they buy',
+      body: 'Through a tender, every March.',
+      written_by: ama,
+      edited_at: null,
+      archived_at: null,
+    });
+    expect(rows[0].written_at).toBeInstanceOf(Date);
+  });
+
+  it('is on a client that exists, by somebody who does', async () => {
+    expect(await refusedBy(NOTE, ['987654321', 'A', 'B', ama])).toBe(
+      'clients_client_note_client_id_fkey',
+    );
+    expect(await refusedBy(NOTE, [client, 'A', 'B', null])).toMatch(/written_by/);
+  });
+
+  it('has a heading and words, never blank ones', async () => {
+    expect(await refusedBy(NOTE, [client, '  ', 'B', ama])).toBe(
+      'clients_client_note_heading_not_blank',
+    );
+    expect(await refusedBy(NOTE, [client, 'A', '   ', ama])).toBe(
+      'clients_client_note_body_not_blank',
+    );
+    expect(await refusedBy(NOTE, [client, null, 'B', ama])).toMatch(/heading/);
+  });
+
+  it('may be one of many on the same client', async () => {
+    for (const heading of ['How they buy', 'Who signs off', 'How they buy']) {
+      expect(await refusedBy(NOTE, [client, heading, 'Something', ama])).toBeNull();
+    }
+  });
+
+  it('is written to the audit log by the database, with who did it', async () => {
+    await admin.query(
+      `SELECT set_config('lms.audit.actor', 'employee 7', true),
+              set_config('lms.audit.actor_employee_id', $1, true)`,
+      [ama],
+    );
+    const { rows } = await admin.query<{ id: string }>(NOTE, [client, 'A', 'B', ama]);
+    await admin.query('UPDATE clients_client_note SET archived_at = now() WHERE id = $1', [
+      rows[0].id,
+    ]);
+
+    const log = await admin.query(
+      `SELECT action, entity_id FROM audit_log
+        WHERE entity = 'clients_client_note' ORDER BY id`,
+    );
+    expect(log.rows).toEqual([
+      { action: 'CREATE', entity_id: rows[0].id },
+      { action: 'UPDATE', entity_id: rows[0].id },
+    ]);
+  });
+});
+
 /* ---------------------------------------------------------- what lms_app may do */
 
 describe('the application role', () => {
@@ -1241,11 +1634,17 @@ describe('the application role', () => {
     );
     expect(columns.rows).toEqual([
       { table_name: 'clients_client', column_name: 'name' },
-      { table_name: 'clients_client', column_name: 'note' },
       { table_name: 'clients_client', column_name: 'owner_id' },
       { table_name: 'clients_client', column_name: 'type_id' },
+      /* #278. A note's words, and its archiving; never its client, writer or when. */
+      { table_name: 'clients_client_note', column_name: 'archived_at' },
+      { table_name: 'clients_client_note', column_name: 'body' },
+      { table_name: 'clients_client_note', column_name: 'edited_at' },
+      { table_name: 'clients_client_note', column_name: 'heading' },
       { table_name: 'clients_client_product', column_name: 'ended_on' },
       { table_name: 'clients_client_product', column_name: 'since_on' },
+      /* #278, CLI 25. A won deal starts again a product the client had stopped. */
+      { table_name: 'clients_client_product', column_name: 'won_by' },
       { table_name: 'clients_client_type', column_name: 'name' },
       { table_name: 'clients_client_type', column_name: 'retired_on' },
       { table_name: 'clients_contact', column_name: 'email' },
@@ -1257,7 +1656,13 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'close_half' },
       { table_name: 'clients_opportunity', column_name: 'close_year' },
       { table_name: 'clients_opportunity', column_name: 'currency' },
+      /* #278. Its stage, its outcome and the day it ended, moved by the stage service, and
+         whether it will have a POC. */
+      { table_name: 'clients_opportunity', column_name: 'ended_on' },
+      { table_name: 'clients_opportunity', column_name: 'has_poc' },
+      { table_name: 'clients_opportunity', column_name: 'outcome' },
       { table_name: 'clients_opportunity', column_name: 'probability' },
+      { table_name: 'clients_opportunity', column_name: 'stage' },
       { table_name: 'clients_opportunity', column_name: 'stated_interest' },
       { table_name: 'clients_opportunity', column_name: 'value_minor' },
       { table_name: 'clients_opportunity', column_name: 'waiting_note' },

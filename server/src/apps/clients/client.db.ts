@@ -56,7 +56,7 @@ export class ClientsClientRepository {
    */
   async find(
     id: string,
-  ): Promise<Omit<Client, 'contacts' | 'products' | 'opportunities'> | undefined> {
+  ): Promise<Omit<Client, 'contacts' | 'products' | 'opportunities' | 'notes'> | undefined> {
     const row = await this.db
       .selectFrom('clients_client as c')
       .innerJoin('clients_client_type as t', 't.id', 'c.type_id')
@@ -64,7 +64,6 @@ export class ClientsClientRepository {
       .select([
         'c.id',
         'c.name',
-        'c.note',
         'c.created_at',
         't.id as type_id',
         't.name as type_name',
@@ -81,7 +80,6 @@ export class ClientsClientRepository {
           name: row.name,
           type: { id: row.type_id, name: row.type_name },
           owner: { id: row.owner_id, name: row.owner_name },
-          note: row.note,
           createdAt: row.created_at,
         };
   }
@@ -99,7 +97,6 @@ export class ClientsClientRepository {
             name: client.name,
             type_id: client.typeId,
             owner_id: ownerId,
-            note: client.note,
           })
           .returning('id')
           .executeTakeFirstOrThrow();
@@ -120,7 +117,6 @@ export class ClientsClientRepository {
       ...(change.name === undefined ? {} : { name: change.name }),
       ...(change.typeId === undefined ? {} : { type_id: change.typeId }),
       ...(change.ownerId === undefined ? {} : { owner_id: change.ownerId }),
-      ...(change.note === undefined ? {} : { note: change.note }),
     };
 
     if (Object.keys(values).length === 0) {
