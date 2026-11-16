@@ -2168,21 +2168,96 @@ a.portal-app:hover {
   overflow-wrap: anywhere;
 }
 
-.clients-client-lede {
-  margin: 0;
+/* At the right of the heading, level with the name: who owns the client, changing that, and its
+   contacts, as pills. Under the name, from the left, when there is no room beside it. */
+.clients-client-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  align-self: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 40rem) {
+  .clients-client-pills {
+    justify-content: flex-start;
+  }
+}
+
+.clients-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
   color: var(--ink-soft);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* The owner: the company blue, with their initials in a circle. */
+.clients-pill.is-person {
+  padding-left: 0.25rem;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--card));
+  background: color-mix(in srgb, var(--accent) 16%, var(--card));
+  color: var(--agreed);
+  font-weight: 600;
+}
+
+.clients-pill-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Nobody to talk to there yet: amber, as every gap to fill is (CLI 06). */
+.clients-pill.is-missing {
+  border-color: color-mix(in srgb, var(--away) 45%, var(--card));
+  background: color-mix(in srgb, var(--away) 12%, var(--card));
+  color: var(--away-ink);
+}
+
+button.clients-pill.is-missing {
+  cursor: pointer;
+}
+
+button.clients-pill.is-missing:hover {
+  background: color-mix(in srgb, var(--away) 22%, var(--card));
+}
+
+/* The pencil that changes the owner, tucked against the owner's pill. */
+.clients-client-pills .is-person + .action-icon {
+  margin-left: -0.25rem;
+}
+
+.clients-pill-divider {
+  width: 1px;
+  height: 1.25rem;
+  margin: 0 0.25rem;
+  background: var(--line-strong);
 }
 
 /* The figures: a strip across the page, each tile a small capital label over the figure. The
    chance of closing is one short percentage, so its tile is only as wide as its label, and the
    count and the values share the rest. */
+/* Three cards of their own, with space between. The count is a small number, so its card is the
+   narrowest; the value has the most room, since cedis and dollars may sit side by side. */
 .clients-figures {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(9rem, 0.8fr) minmax(0, 2.2fr) minmax(0, 1.2fr);
+  gap: var(--gap);
   margin: 0 0 var(--gap-lg);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
 }
 
 .clients-figures > div {
@@ -2191,10 +2266,9 @@ a.portal-app:hover {
   gap: 0.4rem;
   min-width: 0;
   padding: 1rem 1.25rem;
-}
-
-.clients-figures > div + div {
-  border-left: 1px solid var(--line);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 
 .clients-figures dt,
@@ -2213,11 +2287,16 @@ a.portal-app:hover {
   margin: 0;
 }
 
-/* Cedis and dollars side by side, never one sum (CLI 75). */
+/* Cedis and dollars side by side, never one sum (CLI 75), with a line between them. */
 .clients-figure-group {
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem 1rem;
+}
+
+.clients-figure-group > .clients-figure + .clients-figure {
+  padding-left: 1rem;
+  border-left: 1px solid var(--line-strong);
 }
 
 .clients-figure {
@@ -2300,9 +2379,86 @@ a.portal-app:hover {
   margin: 0;
 }
 
-.clients-client-side .muted,
-.clients-client-side .clients-note {
+.clients-client-side .muted {
   margin: 0;
+}
+
+/* A client's notes, #278: a list of headings, each opening its note on a click. */
+.clients-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-notes > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.clients-notes summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.1rem 0.5rem;
+  padding: 0.6rem 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.clients-notes summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A small chevron at the right, turned down once the note is open. */
+.clients-notes summary::after {
+  content: '';
+  grid-row: 1;
+  grid-column: 2;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-top: 0.35rem;
+  border-right: 1.5px solid var(--ink-faint);
+  border-bottom: 1.5px solid var(--ink-faint);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.clients-notes details[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+.clients-note-heading {
+  grid-column: 1;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.clients-notes summary small {
+  grid-column: 1;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+.clients-notes summary:hover .clients-note-heading {
+  color: var(--accent);
+}
+
+.clients-note-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0 0 0.75rem;
+}
+
+.clients-note-body {
+  margin: 0;
+  color: var(--ink-soft);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* Archiving a note sits at the start of the dialog's foot, away from Save. */
+.clients-dialog-foot .clients-note-archive {
+  margin-right: auto;
 }
 
 .clients-side-list {
@@ -2359,14 +2515,19 @@ a.portal-app:hover {
   text-decoration: underline;
 }
 
-/* The opportunities table. */
+/* The opportunities table. Its panel is measured, so the table becomes cards when the panel is
+   too narrow for its columns, whatever the window is (below). */
+.clients-client-main > .clients-panel {
+  container-type: inline-size;
+}
+
 .clients-deals {
   width: 100%;
   border-collapse: collapse;
 }
 
 .clients-deals th {
-  padding: 0.6rem 1.25rem;
+  padding: 0.6rem 0.75rem;
   background: color-mix(in srgb, var(--ink) 2%, var(--card));
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -2380,10 +2541,27 @@ a.portal-app:hover {
 }
 
 .clients-deals td {
-  padding: 0.85rem 1.25rem;
+  padding: 0.85rem 0.75rem;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
   overflow-wrap: anywhere;
+}
+
+/* The card's own edge: the first and last columns keep the panel's padding. */
+.clients-deals th:first-child,
+.clients-deals td:first-child {
+  padding-left: 1.25rem;
+}
+
+.clients-deals th:last-child,
+.clients-deals td:last-child {
+  padding-right: 1rem;
+}
+
+/* The product is what a row is about: never squeezed to nothing by the figures beside it. */
+.clients-deals td[data-label='Product'] {
+  min-width: 9rem;
+  overflow-wrap: normal;
 }
 
 .clients-deals tbody tr:last-child td {
@@ -2453,42 +2631,131 @@ a.portal-app:hover {
   background: var(--accent-soft);
 }
 
-/* Its past values, newest first: the figures, then who and when. What moved is the darker. */
-.clients-history {
-  display: grid;
-  gap: 0;
-  margin: 0 0 var(--gap);
+/* The client's activity, #278: two small dropdowns in its heading to narrow it by deal and by
+   kind, then a timeline, newest first, a dot on a line for each entry. */
+.clients-activity .clients-panel-head {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.clients-activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* A dropdown that sits quietly in a heading: no box until it is pointed at, a small chevron. */
+.clients-select-quiet {
+  width: auto;
+  max-width: 14rem;
+  padding: 0.35rem 1.9rem 0.35rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  appearance: none;
+  background-color: color-mix(in srgb, var(--ink) 3%, var(--card));
+  /* A small chevron, grey enough to read on light and dark alike. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%238a8f98' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 0.65rem center;
+  background-repeat: no-repeat;
+  background-size: 0.75rem;
+  color: var(--ink-soft);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.clients-select-quiet:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+/* Smaller where nothing zooms in on a field under 16px: not on a phone (see the input rules). */
+@media (min-width: 40rem) {
+  .clients-select-quiet {
+    font-size: 0.875rem;
+  }
+}
+
+.clients-activity-empty {
+  margin: 0;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+/* One row per entry, as on the mockup: an icon on a tint of its colour, a bold headline with
+   its date, a line of what came of it, and who. Rows divided by a line, no timeline. */
+.clients-activity-list {
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.clients-history > li {
+.clients-activity-list > li {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.75rem 0;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0.9rem;
+  padding: 1rem 1.25rem;
 }
 
-.clients-history > li + li {
+.clients-activity-list > li + li {
   border-top: 1px solid var(--line);
 }
 
-.clients-history-figures {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 1rem;
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
+.clients-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-small);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
-.clients-history-figures .is-moved {
-  color: var(--ink);
-  font-weight: 600;
+.clients-activity-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
-.clients-history small {
+.clients-activity-icon.is-value {
+  background: color-mix(in srgb, var(--go) 12%, var(--card));
+  color: var(--go-ink);
+}
+
+.clients-activity-icon.is-won {
+  background: var(--go);
+  color: var(--brand-white);
+}
+
+.clients-activity-icon.is-back {
+  background: color-mix(in srgb, var(--away) 16%, var(--card));
+  color: var(--away-ink);
+}
+
+.clients-activity-icon.is-ended {
+  background: color-mix(in srgb, var(--ink) 7%, var(--card));
   color: var(--ink-soft);
+}
+
+.clients-activity-list p {
+  margin: 0;
+}
+
+.clients-activity-head > span {
+  color: var(--ink-faint);
+}
+
+.clients-activity-body {
+  margin-top: 0.15rem;
+  color: var(--ink);
+}
+
+.clients-activity-list small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--ink-faint);
   font-size: 0.8125rem;
+}
+
+.clients-activity-more {
+  padding: 0 1.25rem 1rem;
 }
 
 /* A deal's stage, #278: seven short steps filled up to where it stands. Green once won; grey
@@ -2519,113 +2786,177 @@ a.portal-app:hover {
   background: var(--ink-faint);
 }
 
-/* The history's two lists, stages and values, each under its own small heading. */
-.clients-history-head {
-  margin: 0.5rem 0 0;
-  color: var(--ink-faint);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.clients-history-note {
-  margin: 0;
-  color: var(--ink);
-}
-
-/* Moving a deal: the POC question, then every stage, the ones it cannot go to greyed with why. */
-.clients-poc-question,
-.clients-stage-choice {
-  min-width: 0;
-  margin: 0 0 1.1rem;
-  padding: 0;
-  border: 0;
-}
-
-.clients-poc-question legend,
-.clients-stage-choice legend {
-  margin-bottom: 0.45rem;
-  padding: 0;
-  font-weight: 600;
-}
-
+/* A choice of two or three, each its own button with space between: whether a deal will have a
+   POC. The one chosen is filled blue. */
 .clients-choice {
-  display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-small);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .clients-choice > button {
-  padding: 0.45rem 1.2rem;
-  border: 0;
-  border-radius: 0;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
   background: var(--card);
 }
 
-.clients-choice > button + button {
-  border-left: 1px solid var(--line-strong);
-}
-
 .clients-choice > button[aria-pressed='true'] {
+  border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
 }
 
-.clients-poc-question .clients-field-hint {
-  margin: 0.4rem 0 0;
+/* Moving a deal, next step first: where it stands, the POC answer, one big button, and the rest
+   folded away. */
+.clients-move-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 1rem;
+  color: var(--ink-soft);
 }
 
-.clients-stage-choice ol {
-  margin: 0;
-  padding: 0;
+.clients-move-where .clients-ladder {
+  margin-top: 0;
+}
+
+.clients-move-poc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0.65rem 0.8rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
-  list-style: none;
 }
 
-.clients-stage-choice li {
-  padding: 0.55rem 0.8rem;
+.clients-move-poc > span:first-child {
+  font-weight: 600;
 }
 
-.clients-stage-choice li + li {
-  border-top: 1px solid var(--line);
-}
-
-.clients-stage-choice li.is-here {
-  background: var(--accent-soft);
-}
-
-.clients-stage-choice label {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  cursor: pointer;
-}
-
-.clients-stage-choice li.is-closed label {
-  color: var(--ink-faint);
-  cursor: not-allowed;
-}
-
-.clients-stage-choice .tag {
-  margin-left: 0.5rem;
-}
-
-.clients-stage-choice li > small {
+.clients-move-go {
   display: block;
-  margin: 0.15rem 0 0 1.6rem;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.clients-move-go.is-win {
+  border-color: var(--go);
+  background: var(--go);
+}
+
+.clients-move-sub {
+  margin: 0.4rem 0 0;
   color: var(--ink-faint);
   font-size: 0.8125rem;
+  text-align: center;
 }
 
-.clients-stage-win {
-  margin: 0 0 1.1rem;
-  padding: 0.6rem 0.8rem;
+/* Where it cannot go forward by hand: the one thing in the way, said once. */
+.clients-move-blocked {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
   border-radius: var(--radius-small);
-  background: color-mix(in srgb, var(--go) 10%, var(--card));
-  color: var(--go-ink);
+  background: var(--accent-soft);
+  color: var(--ink-soft);
+}
+
+.clients-move-blocked svg {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+  color: var(--accent);
+}
+
+.clients-move-others {
+  margin-top: 0.75rem;
+}
+
+.clients-move-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.clients-move-chips > button {
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+}
+
+.clients-move-chips > button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.clients-move-add-note {
+  margin-top: 0.25rem;
+}
+
+.clients-move-others + .clients-field,
+.clients-move-go + .clients-field,
+.clients-move-sub + .clients-field {
+  margin-top: 1rem;
+}
+
+/* The deal form: two fields side by side where they belong together, stacked on a phone. */
+.clients-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 0.75rem;
+}
+
+.clients-field-row.is-money {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+}
+
+/* A heading over a pair of labelled pickers, such as the half and the year a deal may close. */
+.clients-field-group {
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+}
+
+.clients-field-group + .clients-field-row .clients-field label {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+/* A label for something that is not one input, such as a choice of buttons. */
+.clients-field-label {
+  font-weight: 600;
+}
+
+.clients-field-static {
+  margin: 0;
+}
+
+.clients-deal-percent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clients-deal-percent > span {
+  color: var(--ink-soft);
+}
+
+@media (max-width: 30rem) {
+  .clients-field-row,
+  .clients-field-row.is-money {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Nobody has said: amber, and in words, so it reads as a gap to fill (CLI 06). */
@@ -2666,17 +2997,17 @@ a.portal-app:hover {
   }
 }
 
-/* A phone: the tiles stack, and each opportunity becomes a card of labelled lines. */
+/* A phone: the tiles stack. */
 @media (max-width: 40rem) {
   .clients-figures {
     grid-template-columns: minmax(0, 1fr);
+    gap: 0.6rem;
   }
+}
 
-  .clients-figures > div + div {
-    border-top: 1px solid var(--line);
-    border-left: 0;
-  }
-
+/* A panel too narrow for the table's columns, on a phone or beside the side column on a small
+   laptop: each opportunity becomes a card of labelled lines rather than spilling out. */
+@container (max-width: 40rem) {
   .clients-deals thead {
     display: none;
   }
@@ -2721,8 +3052,9 @@ a.portal-app:hover {
     width: auto;
   }
 
+  /* Room for the buttons in the corner: history, move and edit. */
   .clients-deals td[data-label='Product'] {
-    padding-right: 3rem;
+    padding-right: 7.5rem;
   }
 }
 

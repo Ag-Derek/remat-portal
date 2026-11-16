@@ -46,9 +46,10 @@ export class OpportunityService {
   ) {}
 
   /**
-   * Opens a deal for a client and a product, owned by whoever opens it (CLI 12). Anybody with a
-   * clients role may, at any client: an associate owns what they open, as a BD manager does. An
-   * owner named in the request is not read; moving a deal is a BD manager's, later (CLI 92).
+   * Opens a deal for a client and a product (CLI 12). Anybody with a clients role may, at any
+   * client, and owns what they open. A BD manager may instead name somebody else holding a role
+   * to own it from the start (#278), as they could move it to them a moment later (CLI 92); an
+   * associate who names anybody but themselves is told only a BD manager can.
    *
    * A client has one open deal per product (CLI 11), and a retired product takes none (CLI 08).
    * The database holds both; this turns its refusal into a sentence that names what is in the way.
@@ -58,12 +59,23 @@ export class OpportunityService {
     this.guard.enforce(clientsPolicy.contribute(actor, access, 'createDeal'));
 
     /* The policy allows only somebody holding a role, who is always a person. */
-    const ownerId = actor.employeeId;
-    if (ownerId === null) {
+    if (actor.employeeId === null) {
       throw new Error('A deal was opened by nobody.');
     }
 
     const deal = readNewOpportunity(body);
+    const ownerId = deal.ownerId ?? actor.employeeId;
+
+    if (ownerId !== actor.employeeId) {
+      this.guard.enforce(clientsPolicy.openDealFor(actor, access));
+
+      if ((await this.grants.rolesOf(ownerId)).length === 0) {
+        throw new InvalidOpportunity(
+          'ownerId',
+          'Whoever owns a deal needs a role in clients. Choose somebody who has one.',
+        );
+      }
+    }
     const [client, product] = await Promise.all([
       this.clients.find(deal.clientId),
       this.products.product(deal.productId),

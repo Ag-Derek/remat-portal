@@ -28,6 +28,7 @@ const TABLES = [
   'clients_opportunity',
   'clients_value_change',
   'clients_stage_change',
+  'clients_client_note',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -444,8 +445,8 @@ describe('a client type', () => {
 });
 
 describe('a client', () => {
-  const CLIENT = `INSERT INTO clients_client (name, type_id, owner_id, note)
-                  VALUES ($1, $2, $3, $4) RETURNING id`;
+  const CLIENT = `INSERT INTO clients_client (name, type_id, owner_id)
+                  VALUES ($1, $2, $3) RETURNING id`;
 
   let bank: string;
 
@@ -455,26 +456,22 @@ describe('a client', () => {
     ).rows[0].id;
   });
 
-  it('records its name, type, owner and note, and when it was created', async () => {
+  /* Its notes are a table of their own since #278: see "a note on a client". */
+  it('records its name, type and owner, and when it was created', async () => {
     const { rows } = await admin.query(
-      `INSERT INTO clients_client (name, type_id, owner_id, note)
-       VALUES ('Testbank', $1, $2, 'Met at the fintech summit')
-       RETURNING name, type_id, owner_id, note, created_at`,
+      `INSERT INTO clients_client (name, type_id, owner_id)
+       VALUES ('Testbank', $1, $2)
+       RETURNING name, type_id, owner_id, created_at`,
       [bank, ama],
     );
 
-    expect(rows[0]).toMatchObject({
-      name: 'Testbank',
-      type_id: bank,
-      owner_id: ama,
-      note: 'Met at the fintech summit',
-    });
+    expect(rows[0]).toMatchObject({ name: 'Testbank', type_id: bank, owner_id: ama });
     expect(rows[0].created_at).toBeInstanceOf(Date);
   });
 
   it('is of a type that exists', async () => {
-    expect(await refusedBy(CLIENT, ['Testbank', null, ama, null])).toMatch(/type_id/);
-    expect(await refusedBy(CLIENT, ['Testbank', '987654321', ama, null])).toBe(
+    expect(await refusedBy(CLIENT, ['Testbank', null, ama])).toMatch(/type_id/);
+    expect(await refusedBy(CLIENT, ['Testbank', '987654321', ama])).toBe(
       'clients_client_type_id_fkey',
     );
   });
@@ -486,12 +483,12 @@ describe('a client', () => {
       )
     ).rows[0].id;
 
-    expect(await refusedBy(CLIENT, ['Testinsurer', insurer, ama, null])).toBeNull();
+    expect(await refusedBy(CLIENT, ['Testinsurer', insurer, ama])).toBeNull();
   });
 
   /* CLI 02. Done when: creating a duplicate client name is refused. */
   it('is recorded once, whatever the case or spacing of its name', async () => {
-    expect(await refusedBy(CLIENT, ['Agricultural Development Bank', bank, ama, null])).toBeNull();
+    expect(await refusedBy(CLIENT, ['Agricultural Development Bank', bank, ama])).toBeNull();
 
     for (const same of [
       'agricultural development bank',
@@ -499,18 +496,16 @@ describe('a client', () => {
       'Agricultural  Development   Bank',
       'Agricultural\tDevelopment\nBank',
     ]) {
-      expect(await refusedBy(CLIENT, [same, bank, kofi, null])).toBe('uq_clients_client_name');
+      expect(await refusedBy(CLIENT, [same, bank, kofi])).toBe('uq_clients_client_name');
     }
 
     /* Another name altogether, which merely contains the first, is another client. */
-    expect(
-      await refusedBy(CLIENT, ['Agricultural Development Bank Ghana', bank, ama, null]),
-    ).toBeNull();
+    expect(await refusedBy(CLIENT, ['Agricultural Development Bank Ghana', bank, ama])).toBeNull();
   });
 
   it('is refused the name of another client when renamed into it', async () => {
-    await admin.query(CLIENT, ['ADB', bank, ama, null]);
-    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Ecobank', bank, ama, null]);
+    await admin.query(CLIENT, ['ADB', bank, ama]);
+    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Ecobank', bank, ama]);
 
     expect(
       await refusedBy(`UPDATE clients_client SET name = ' adb' WHERE id = $1`, [rows[0].id]),
@@ -530,20 +525,12 @@ describe('a client', () => {
   });
 
   it('is named, and owned by somebody who exists', async () => {
-    expect(await refusedBy(CLIENT, ['  ', bank, ama, null])).toBe('clients_client_named');
-    expect(await refusedBy(CLIENT, ['\t\n', bank, ama, null])).toBe('clients_client_named');
-    expect(await refusedBy(CLIENT, ['Testbank', bank, null, null])).toMatch(/owner_id/);
-    expect(await refusedBy(CLIENT, ['Testbank', bank, '987654321', null])).toBe(
+    expect(await refusedBy(CLIENT, ['  ', bank, ama])).toBe('clients_client_named');
+    expect(await refusedBy(CLIENT, ['\t\n', bank, ama])).toBe('clients_client_named');
+    expect(await refusedBy(CLIENT, ['Testbank', bank, null])).toMatch(/owner_id/);
+    expect(await refusedBy(CLIENT, ['Testbank', bank, '987654321'])).toBe(
       'clients_client_owner_id_fkey',
     );
-  });
-
-  /* Missing is null, never an empty string, so the screen can say it is missing. */
-  it('has no note rather than a blank one', async () => {
-    expect(await refusedBy(CLIENT, ['Testbank', bank, ama, '  '])).toBe(
-      'clients_client_note_not_blank',
-    );
-    expect(await refusedBy(CLIENT, ['Testbank', bank, ama, null])).toBeNull();
   });
 
   it('is written to the audit log by the database, with who did it', async () => {
@@ -552,7 +539,7 @@ describe('a client', () => {
               set_config('lms.audit.actor_employee_id', $1, true)`,
       [ama],
     );
-    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Testbank', bank, ama, null]);
+    const { rows } = await admin.query<{ id: string }>(CLIENT, ['Testbank', bank, ama]);
     await admin.query('UPDATE clients_client SET owner_id = $2 WHERE id = $1', [rows[0].id, kofi]);
 
     const log = await admin.query(
@@ -1529,6 +1516,81 @@ describe("a deal's stage history", () => {
   });
 });
 
+/* --------------------------------------------------- notes on a client, #278 */
+
+describe('a note on a client', () => {
+  const NOTE = `INSERT INTO clients_client_note (client_id, heading, body, written_by)
+                VALUES ($1, $2, $3, $4) RETURNING id`;
+
+  let client: string;
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+  });
+
+  it('records its client, heading, words, writer, and when it was written', async () => {
+    const { rows } = await admin.query(
+      `${NOTE.replace('RETURNING id', '')}
+       RETURNING client_id, heading, body, written_by, written_at, edited_at, archived_at`,
+      [client, 'How they buy', 'Through a tender, every March.', ama],
+    );
+
+    expect(rows[0]).toMatchObject({
+      client_id: client,
+      heading: 'How they buy',
+      body: 'Through a tender, every March.',
+      written_by: ama,
+      edited_at: null,
+      archived_at: null,
+    });
+    expect(rows[0].written_at).toBeInstanceOf(Date);
+  });
+
+  it('is on a client that exists, by somebody who does', async () => {
+    expect(await refusedBy(NOTE, ['987654321', 'A', 'B', ama])).toBe(
+      'clients_client_note_client_id_fkey',
+    );
+    expect(await refusedBy(NOTE, [client, 'A', 'B', null])).toMatch(/written_by/);
+  });
+
+  it('has a heading and words, never blank ones', async () => {
+    expect(await refusedBy(NOTE, [client, '  ', 'B', ama])).toBe(
+      'clients_client_note_heading_not_blank',
+    );
+    expect(await refusedBy(NOTE, [client, 'A', '   ', ama])).toBe(
+      'clients_client_note_body_not_blank',
+    );
+    expect(await refusedBy(NOTE, [client, null, 'B', ama])).toMatch(/heading/);
+  });
+
+  it('may be one of many on the same client', async () => {
+    for (const heading of ['How they buy', 'Who signs off', 'How they buy']) {
+      expect(await refusedBy(NOTE, [client, heading, 'Something', ama])).toBeNull();
+    }
+  });
+
+  it('is written to the audit log by the database, with who did it', async () => {
+    await admin.query(
+      `SELECT set_config('lms.audit.actor', 'employee 7', true),
+              set_config('lms.audit.actor_employee_id', $1, true)`,
+      [ama],
+    );
+    const { rows } = await admin.query<{ id: string }>(NOTE, [client, 'A', 'B', ama]);
+    await admin.query('UPDATE clients_client_note SET archived_at = now() WHERE id = $1', [
+      rows[0].id,
+    ]);
+
+    const log = await admin.query(
+      `SELECT action, entity_id FROM audit_log
+        WHERE entity = 'clients_client_note' ORDER BY id`,
+    );
+    expect(log.rows).toEqual([
+      { action: 'CREATE', entity_id: rows[0].id },
+      { action: 'UPDATE', entity_id: rows[0].id },
+    ]);
+  });
+});
+
 /* ---------------------------------------------------------- what lms_app may do */
 
 describe('the application role', () => {
@@ -1572,9 +1634,13 @@ describe('the application role', () => {
     );
     expect(columns.rows).toEqual([
       { table_name: 'clients_client', column_name: 'name' },
-      { table_name: 'clients_client', column_name: 'note' },
       { table_name: 'clients_client', column_name: 'owner_id' },
       { table_name: 'clients_client', column_name: 'type_id' },
+      /* #278. A note's words, and its archiving; never its client, writer or when. */
+      { table_name: 'clients_client_note', column_name: 'archived_at' },
+      { table_name: 'clients_client_note', column_name: 'body' },
+      { table_name: 'clients_client_note', column_name: 'edited_at' },
+      { table_name: 'clients_client_note', column_name: 'heading' },
       { table_name: 'clients_client_product', column_name: 'ended_on' },
       { table_name: 'clients_client_product', column_name: 'since_on' },
       /* #278, CLI 25. A won deal starts again a product the client had stopped. */

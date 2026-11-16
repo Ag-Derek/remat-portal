@@ -610,6 +610,69 @@ describe('where a deal could be moved', () => {
   });
 });
 
+/* ---------------------------------------------------------- the client's activity */
+
+describe("a client's activity", () => {
+  async function activityOf(as: Asker = associate): Promise<globalThis.Response> {
+    return app.send('GET', `/api/clients/clients/${adb}/activity`, as);
+  }
+
+  /* CLI 99. Every deal's stage and value changes, newest first, each naming its deal. */
+  it("is every deal's stage and value changes, newest first, each naming its deal", async () => {
+    const credit = await aDeal(associate, 'CreditStudio');
+    await moved(associate, credit.id, 'PROPOSAL');
+    const cloud = await aDeal(bdManager, 'Cloud9');
+    await app.send('PATCH', `/api/clients/opportunities/${cloud.id}`, bdManager, {
+      value: { amount: '75600', currency: 'USD' },
+      probability: 40,
+    });
+
+    const response = await activityOf();
+    expect(response.status).toBe(200);
+    const { activity } = (await response.json()) as {
+      activity: { kind: string; deal: { productName: string }; opening?: boolean }[];
+    };
+
+    expect(
+      activity.map((entry) => [
+        entry.deal.productName,
+        entry.kind,
+        ...(entry.kind === 'VALUE' ? [entry.opening] : []),
+      ]),
+    ).toEqual([
+      ['Cloud9', 'VALUE', false],
+      ['Cloud9', 'VALUE', true],
+      ['Cloud9', 'STAGE'],
+      ['CreditStudio', 'STAGE'],
+      ['CreditStudio', 'VALUE', true],
+      ['CreditStudio', 'STAGE'],
+    ]);
+    expect(activity[0]).toMatchObject({
+      value: { amountMinor: 7_560_000, currency: 'USD' },
+      probability: 40,
+      source: 'MANUAL',
+      by: { id: people.commercialDirector },
+    });
+    expect(activity[3]).toMatchObject({
+      fromStage: 'DISCOVERY',
+      toStage: 'PROPOSAL',
+      toOutcome: 'OPEN',
+      by: { id: people.officer },
+    });
+  });
+
+  it('is empty for a client with no deals', async () => {
+    expect(await (await activityOf()).json()).toEqual({ activity: [] });
+  });
+
+  /* NFR CLI SEC 04. */
+  it('is nothing to somebody without a role', async () => {
+    await aDeal();
+
+    expect((await activityOf(nobody)).status).toBe(404);
+  });
+});
+
 /* ------------------------------------------------------------------------- who */
 
 describe('who may move a deal', () => {

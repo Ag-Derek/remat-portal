@@ -3,12 +3,13 @@
  * CLI 02, CLI 05.
  *
  * The client is the record. Its deals, its contacts and the products it already uses each hang
- * off it. It has a name, a type and an owner, and may have a note; a note left out is null, never
- * an empty string, so that it is shown as missing.
+ * off it. It has a name, a type and an owner, and any number of notes, each with a heading
+ * (#278).
  */
 
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Contact } from './contact.js';
+import type { ClientNote } from './note.js';
 import type { Opportunity } from './opportunity.js';
 import { isAnId } from './product.js';
 import type { ProductInUse } from './product-in-use.js';
@@ -38,8 +39,6 @@ export interface Client {
   type: { id: string; name: string };
   /** Who looks after it. */
   owner: Person;
-  /** Null where none was given. */
-  note: string | null;
   createdAt: Date;
   /** Its contacts by name, removed ones included and marked. */
   contacts: Contact[];
@@ -47,6 +46,8 @@ export interface Client {
   products: ProductInUse[];
   /** Its deals, open first and then ended, each newest first (CLI 55, CLI 99). #277. */
   opportunities: Opportunity[];
+  /** Its notes, newest first, archived ones included and marked. #278. */
+  notes: ClientNote[];
 }
 
 /** A client as the clients list shows it. */
@@ -57,11 +58,11 @@ export type ClientSummary = Pick<Client, 'id' | 'name' | 'type' | 'owner'>;
  * offers only what the server would allow. The server still refuses whatever it refuses.
  */
 export interface ClientPermissions {
-  /** Its name, type and note. Its owner's or a BD manager's. */
+  /** Its name and type. Its owner's or a BD manager's. */
   change: boolean;
   /** Moving it to somebody else. A BD manager's. */
   reassign: boolean;
-  /** Adding and correcting contacts and products, and opening a deal. Anybody with a role's. */
+  /** Adding and correcting contacts and products, opening a deal, and adding a note. */
   contribute: boolean;
 }
 
@@ -87,24 +88,18 @@ export function readClientTypeName(body: unknown): string {
 export interface NewClient {
   name: string;
   typeId: string;
-  note: string | null;
 }
 
-/**
- * What a change to a client asks for. Only what is present changes; a note given as null or
- * blank is taken away.
- */
+/** What a change to a client asks for. Only what is present changes. */
 export interface ClientChange {
   name?: string;
   typeId?: string;
   ownerId?: string;
-  note?: string | null;
 }
 
-/** The longest names and note the columns hold. */
+/** The longest names the columns hold. */
 export const MAX_CLIENT_NAME_LENGTH = 120;
 export const MAX_CLIENT_TYPE_NAME_LENGTH = 60;
-export const MAX_NOTE_LENGTH = 2000;
 
 /** A request that makes no sense, naming the field to fix. */
 export class InvalidClient extends Error {
@@ -154,7 +149,6 @@ export function readNewClient(body: unknown): NewClient {
   return {
     name: readClientName(fields.name),
     typeId: readTypeId(fields.typeId),
-    note: readNote(fields.note),
   };
 }
 
@@ -166,7 +160,6 @@ export function readClientChange(body: unknown): ClientChange {
   if (fields.name !== undefined) change.name = readClientName(fields.name);
   if (fields.typeId !== undefined) change.typeId = readTypeId(fields.typeId);
   if (fields.ownerId !== undefined) change.ownerId = readOwnerId(fields.ownerId);
-  if ('note' in fields) change.note = readNote(fields.note);
 
   return change;
 }
@@ -205,24 +198,6 @@ export function readOwnerId(value: unknown): string {
   }
 
   return value;
-}
-
-/** A note, or null where it was left out or left blank. */
-export function readNote(value: unknown): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value !== 'string') {
-    throw new InvalidClient('note', 'Write the note as text.');
-  }
-
-  const note = value.trim();
-
-  if (note.length > MAX_NOTE_LENGTH) {
-    throw new InvalidClient('note', `Keep the note to ${String(MAX_NOTE_LENGTH)} characters.`);
-  }
-
-  return note === '' ? null : note;
 }
 
 /** Trimmed, with each run of white space inside one space: as clients_name_key compares. */

@@ -84,6 +84,7 @@ import { ClientService } from './apps/clients/client.service.js';
 import type { ClientsContactRepository } from './apps/clients/contact.db.js';
 import type { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.js';
 import type { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
+import type { ClientsNoteRepository } from './apps/clients/note.db.js';
 import { OpportunityService } from './apps/clients/opportunity.service.js';
 import { StageService } from './apps/clients/stage.service.js';
 import type { ClientsProductRepository } from './apps/clients/product.db.js';
@@ -231,6 +232,8 @@ export interface Application {
   clientsProductsInUse?: ClientsProductInUseRepository;
   /** #277. Their deals, which go with them as well. */
   clientsOpportunities?: ClientsOpportunityRepository;
+  /** #278. Notes on a client. */
+  clientsNotes?: ClientsNoteRepository;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -566,13 +569,15 @@ export function buildApp(parts: Application): Express {
       parts.clientsClients === undefined ||
       parts.clientsContacts === undefined ||
       parts.clientsProductsInUse === undefined ||
-      parts.clientsOpportunities === undefined
+      parts.clientsOpportunities === undefined ||
+      parts.clientsNotes === undefined
         ? undefined
         : {
             clients: parts.clientsClients,
             contacts: parts.clientsContacts,
             productsInUse: parts.clientsProductsInUse,
             opportunities: parts.clientsOpportunities,
+            notes: parts.clientsNotes,
           };
 
     app.use(
@@ -600,6 +605,7 @@ export function buildApp(parts: Application): Express {
                 clientParts.contacts,
                 clientParts.productsInUse,
                 clientParts.opportunities,
+                clientParts.notes,
               ),
         opportunities:
           clientParts === undefined

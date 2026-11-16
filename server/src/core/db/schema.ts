@@ -726,16 +726,30 @@ export interface ClientsClientTypeTable {
 }
 
 /**
- * A client: a bank, broker or lender the department sells to. #276. Its name, type, owner and
- * note change; when it was created does not, and none is deleted.
+ * A client: a bank, broker or lender the department sells to. #276. Its name, type and owner
+ * change; when it was created does not, and none is deleted. Its notes are their own table.
  */
 export interface ClientsClientTable {
   id: Generated<string>;
   name: string;
   type_id: string;
   owner_id: string;
-  note: string | null;
   created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A note on a client, with a heading. #278. Its words change and it is archived; which client,
+ * who wrote it and when do not, and none is deleted.
+ */
+export interface ClientsClientNoteTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  heading: string;
+  body: string;
+  written_by: ColumnType<string, string, never>;
+  written_at: ColumnType<Date, never, never>;
+  edited_at: ColumnType<Date | null, never, Date | null>;
+  archived_at: ColumnType<Date | null, never, Date | null>;
 }
 
 /**
@@ -847,6 +861,8 @@ export interface Database {
   clients_contact: ClientsContactTable;
   /** #276. */
   clients_client: ClientsClientTable;
+  /** #278. */
+  clients_client_note: ClientsClientNoteTable;
   /** #276. */
   clients_client_type: ClientsClientTypeTable;
   /** #293. */

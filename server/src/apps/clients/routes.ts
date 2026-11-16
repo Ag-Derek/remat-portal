@@ -21,6 +21,7 @@ import { accessOf, viewsOf } from './access.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
 import type { Contact } from './contact.js';
+import type { ClientNote } from './note.js';
 import type { Opportunity } from './opportunity.js';
 import type { OpportunityService } from './opportunity.service.js';
 import type { Grant } from './role.js';
@@ -254,6 +255,20 @@ function clientRoutes(routes: Router, clients: ClientService): void {
     }),
   );
 
+  /**
+   * Everything that has happened to the client's deals, newest first: stage changes and changes
+   * to value or chance of closing, each naming its deal. #278, CLI 99.
+   */
+  routes.get(
+    '/clients/clients/:id/activity',
+    answer(async (request, response) => ({
+      activity: (await clients.activity(actorOf(response), idOf(request))).map((entry) => ({
+        ...entry,
+        at: entry.at.toISOString(),
+      })),
+    })),
+  );
+
   /** The products that may be added to a client: neither retired nor in a retired line. */
   routes.get(
     '/clients/products',
@@ -306,6 +321,41 @@ function clientRoutes(routes: Router, clients: ClientService): void {
   routes.post(
     '/clients/contacts/:id/restore',
     answer((request, response) => clients.restoreContact(actorOf(response), idOf(request))),
+  );
+
+  /* Notes on a client, each with a heading. #278. */
+
+  /** `{ heading, body }`. Anybody with a role's. */
+  routes.post(
+    '/clients/clients/:id/notes',
+    answer(
+      async (request, response) =>
+        noteAsJson(await clients.addNote(actorOf(response), idOf(request), request.body)),
+      201,
+    ),
+  );
+
+  /** `{ heading?, body? }`: only what is present changes. Its writer's or a BD manager's. */
+  routes.patch(
+    '/clients/notes/:id',
+    answer(async (request, response) =>
+      noteAsJson(await clients.changeNote(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+
+  /** Folded away, and kept. */
+  routes.post(
+    '/clients/notes/:id/archive',
+    answer(async (request, response) =>
+      noteAsJson(await clients.archiveNote(actorOf(response), idOf(request), true)),
+    ),
+  );
+
+  routes.post(
+    '/clients/notes/:id/restore',
+    answer(async (request, response) =>
+      noteAsJson(await clients.archiveNote(actorOf(response), idOf(request), false)),
+    ),
   );
 
   /** `{ productId, sinceOn }`: a product the client already uses, from that day. CLI 04. */
@@ -434,12 +484,22 @@ function clientAsJson(client: Client): unknown {
     createdAt: client.createdAt.toISOString(),
     contacts: client.contacts.map(contactAsJson),
     opportunities: client.opportunities.map(opportunityAsJson),
+    notes: client.notes.map(noteAsJson),
   };
 }
 
 /** Every field present, a missing one as null, so the screen shows it as missing (CLI 06). */
 function opportunityAsJson(opportunity: Opportunity): unknown {
   return { ...opportunity, createdAt: opportunity.createdAt.toISOString() };
+}
+
+function noteAsJson(note: ClientNote): unknown {
+  return {
+    ...note,
+    writtenAt: note.writtenAt.toISOString(),
+    editedAt: note.editedAt?.toISOString() ?? null,
+    archivedAt: note.archivedAt?.toISOString() ?? null,
+  };
 }
 
 function contactAsJson(contact: Contact): unknown {

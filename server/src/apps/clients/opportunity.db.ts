@@ -10,6 +10,7 @@ import type { Attribution } from '../../core/audit/audit.js';
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Database } from '../../core/db/index.js';
 import { recording } from '../../core/db/recording.js';
+import { type Activity, newestFirst } from './activity.js';
 import type {
   Currency,
   Money,
@@ -271,6 +272,85 @@ export class ClientsOpportunityRepository {
       if ((error as { constraint?: unknown }).constraint === ENDED_IS_FIXED) throw new Ended();
       throw error;
     }
+  }
+
+  /**
+   * Everything that has happened to a client's deals, open and ended, newest first: every stage
+   * change and every change to a deal's value or chance of closing, each naming its deal. Read in
+   * two queries, one per history, and put in order here.
+   */
+  async activityOf(clientId: string): Promise<Activity[]> {
+    const [stages, values] = await Promise.all([
+      this.db
+        .selectFrom('clients_stage_change as s')
+        .innerJoin('clients_opportunity as o', 'o.id', 's.opportunity_id')
+        .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+        .innerJoin('employee as e', 'e.id', 's.changed_by')
+        .select([
+          'o.id as deal_id',
+          'p.name as product_name',
+          's.from_stage',
+          's.to_stage',
+          's.to_outcome',
+          's.note',
+          's.changed_at',
+          'e.id as by_id',
+          sql<string>`e.first_name || ' ' || e.last_name`.as('by_name'),
+        ])
+        .where('o.client_id', '=', clientId)
+        .execute(),
+      this.db
+        .selectFrom('clients_value_change as v')
+        .innerJoin('clients_opportunity as o', 'o.id', 'v.opportunity_id')
+        .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+        .innerJoin('employee as e', 'e.id', 'v.changed_by')
+        .select([
+          'o.id as deal_id',
+          'p.name as product_name',
+          'v.value_minor',
+          'v.currency',
+          'v.probability',
+          'v.source',
+          'v.changed_at',
+          'e.id as by_id',
+          sql<string>`e.first_name || ' ' || e.last_name`.as('by_name'),
+        ])
+        .where('o.client_id', '=', clientId)
+        /* Oldest first, so the first seen of each deal is what it was opened with. */
+        .orderBy('v.changed_at')
+        .orderBy('v.id')
+        .execute(),
+    ]);
+
+    const opened = new Set<string>();
+
+    return newestFirst([
+      ...stages.map((row): Activity => ({
+        kind: 'STAGE',
+        deal: { id: row.deal_id, productName: row.product_name },
+        fromStage: row.from_stage as Stage | null,
+        toStage: row.to_stage as Stage,
+        toOutcome: row.to_outcome as Outcome,
+        note: row.note,
+        by: { id: row.by_id, name: row.by_name },
+        at: row.changed_at,
+      })),
+      ...values.map((row): Activity => {
+        const opening = !opened.has(row.deal_id);
+        opened.add(row.deal_id);
+
+        return {
+          kind: 'VALUE',
+          deal: { id: row.deal_id, productName: row.product_name },
+          value: moneyFrom(row),
+          probability: row.probability,
+          source: row.source as ValueSource,
+          opening,
+          by: { id: row.by_id, name: row.by_name },
+          at: row.changed_at,
+        };
+      }),
+    ]);
   }
 
   /** Every stage a deal has been at, newest first. The oldest is its opening, at Discovery. */

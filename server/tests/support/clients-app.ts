@@ -14,6 +14,7 @@ import { ClientsContactRepository } from '../../src/apps/clients/contact.db.js';
 import { ClientsProductInUseRepository } from '../../src/apps/clients/product-in-use.db.js';
 import { clientsDoor } from '../../src/apps/clients/door.js';
 import { ClientsOpportunityRepository } from '../../src/apps/clients/opportunity.db.js';
+import { ClientsNoteRepository } from '../../src/apps/clients/note.db.js';
 import { OpportunityService } from '../../src/apps/clients/opportunity.service.js';
 import { ClientsProductRepository } from '../../src/apps/clients/product.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
@@ -85,6 +86,7 @@ export async function startClientsApp(
       new ClientsContactRepository(db),
       productsInUse,
       opportunities,
+      new ClientsNoteRepository(db),
     ),
     opportunities: new OpportunityService(
       guard,

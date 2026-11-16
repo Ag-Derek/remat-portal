@@ -3299,16 +3299,32 @@ export interface ClientProductInUse {
 
 /** What the person reading the page may do to it. The server's answer; it refuses the rest. */
 export interface ClientPermissions {
-  /** Name, type and note. */
+  /** Name and type. */
   change: boolean;
   /** Moving it to somebody else. */
   reassign: boolean;
-  /** Adding and correcting contacts and products. */
+  /** Adding and correcting contacts and products, and adding a note. */
   contribute: boolean;
 }
 
+/** A note on a client: a heading, and the note itself. #278. */
+export interface ClientNote {
+  id: string;
+  heading: string;
+  body: string;
+  writtenBy: ClientsNamed;
+  writtenAt: string;
+  /** When it was last changed, or null if it never was. */
+  editedAt: string | null;
+  /** When it was archived, or null while it is current. */
+  archivedAt: string | null;
+  /** Changing and archiving it: whoever wrote it, or a BD manager. */
+  may: { change: boolean };
+}
+
 export interface ClientPage extends ClientSummary {
-  note: string | null;
+  /** Newest first, archived ones included. #278. */
+  notes: ClientNote[];
   createdAt: string;
   /** By name, removed ones included. */
   contacts: ClientContact[];
@@ -3405,6 +3421,8 @@ export interface NewDeal {
   statedInterest: string;
   /** Whether it will have a POC, or null where nobody knows yet. Left out, it is left as it is. */
   hasPoc?: boolean | null;
+  /** Who is to own a new deal: a BD manager may name anybody with a role. Left out, the sender. */
+  ownerId?: string;
 }
 
 /** Opens a deal, owned by whoever asks. Refused if the client has one open for the product. */
@@ -3474,6 +3492,46 @@ export async function dealStages(id: string): Promise<DealStageChange[]> {
   return stages;
 }
 
+/** The deal an activity entry is about. */
+export interface ActivityDeal {
+  id: string;
+  productName: string;
+}
+
+/** Something that happened to one of a client's deals. #278. */
+export type ClientActivityEntry =
+  | {
+      kind: 'STAGE';
+      deal: ActivityDeal;
+      /** Null where this is the deal being opened. */
+      fromStage: DealStage | null;
+      toStage: DealStage;
+      toOutcome: Deal['outcome'];
+      note: string | null;
+      by: ClientsNamed;
+      at: string;
+    }
+  | {
+      kind: 'VALUE';
+      deal: ActivityDeal;
+      value: Money | null;
+      probability: number | null;
+      source: DealValueChange['source'];
+      /** What it was opened with, rather than a change. */
+      opening: boolean;
+      by: ClientsNamed;
+      at: string;
+    };
+
+/** Everything that has happened to a client's deals, newest first. */
+export async function clientActivity(clientId: string): Promise<ClientActivityEntry[]> {
+  const { activity } = await request<{ activity: ClientActivityEntry[] }>(
+    'GET',
+    `/api/clients/clients/${encodeURIComponent(clientId)}/activity`,
+  );
+  return activity;
+}
+
 /** A product that may be added to a client. */
 export interface ClientsOfferedProduct {
   id: string;
@@ -3497,21 +3555,45 @@ export async function clientTypes(): Promise<ClientType[]> {
 }
 
 /** Records a client, owned by whoever asks. Answers with its id. */
-export async function createClient(client: {
-  name: string;
-  typeId: string;
-  note: string;
-}): Promise<string> {
+export async function createClient(client: { name: string; typeId: string }): Promise<string> {
   const { id } = await request<{ id: string }>('POST', '/api/clients/clients', client);
   return id;
 }
 
-/** Only what is given changes. A note of '' takes it away. */
+/** Only what is given changes. */
 export async function changeClient(
   id: string,
-  change: { name?: string; typeId?: string; note?: string; ownerId?: string },
+  change: { name?: string; typeId?: string; ownerId?: string },
 ): Promise<void> {
   await request<unknown>('PATCH', `/api/clients/clients/${encodeURIComponent(id)}`, change);
+}
+
+/** Adds a note to a client: a heading and the note. Anybody with a role. #278. */
+export async function addClientNote(
+  clientId: string,
+  note: { heading: string; body: string },
+): Promise<ClientNote> {
+  return request<ClientNote>(
+    'POST',
+    `/api/clients/clients/${encodeURIComponent(clientId)}/notes`,
+    note,
+  );
+}
+
+/** Changes a note's heading or words. Its writer or a BD manager, while it is not archived. */
+export async function changeClientNote(
+  id: string,
+  change: { heading?: string; body?: string },
+): Promise<ClientNote> {
+  return request<ClientNote>('PATCH', `/api/clients/notes/${encodeURIComponent(id)}`, change);
+}
+
+/** Archives a note, or brings one back. Nothing is deleted. */
+export async function archiveClientNote(id: string, archived: boolean): Promise<ClientNote> {
+  return request<ClientNote>(
+    'POST',
+    `/api/clients/notes/${encodeURIComponent(id)}/${archived ? 'archive' : 'restore'}`,
+  );
 }
 
 /** Everybody holding a clients role, whom a client may be moved to. */

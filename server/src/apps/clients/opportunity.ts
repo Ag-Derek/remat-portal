@@ -131,6 +131,8 @@ export interface NewOpportunity {
   statedInterest: string | null;
   /** Whether it will have a POC, where somebody already knows (CLI 19). */
   hasPoc: boolean | null;
+  /** Who is to own it, where somebody other than whoever opens it is named (#278). */
+  ownerId: string | null;
 }
 
 /** The longest texts the columns hold. */
@@ -256,6 +258,10 @@ export function readNewOpportunity(body: unknown): NewOpportunity {
       MAX_STATED_INTEREST_LENGTH,
     ),
     hasPoc: readHasPoc(fields.hasPoc),
+    ownerId:
+      fields.ownerId === undefined || fields.ownerId === null
+        ? null
+        : readId(fields.ownerId, 'ownerId', 'Choose who is to own the deal.'),
   };
 }
 

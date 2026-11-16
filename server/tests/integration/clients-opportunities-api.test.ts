@@ -153,14 +153,51 @@ describe('opening a deal', () => {
     expect(deal.owner.id).toBe(people.commercialDirector);
   });
 
-  /* Moving a deal is a BD manager's, later, and not a field on opening one (CLI 92). */
-  it('is owned by whoever opens it, whoever the request names', async () => {
-    const deal = await opened(associate, {
+  /* #278. A BD manager may open a deal for somebody else with a role, as they could move it to
+     them a moment later (CLI 92). */
+  it('may be opened by a BD manager for somebody else with a role, who owns it', async () => {
+    const deal = await opened(bdManager, {
+      clientId: adb,
+      productId: products.CreditStudio,
+      ownerId: people.officer,
+    });
+
+    expect(deal.owner).toEqual({ id: people.officer, name: await nameOf(people.officer) });
+  });
+
+  it('is not opened for somebody without a role, nor for nobody in particular', async () => {
+    for (const ownerId of [people.engineer, 'nonsense']) {
+      const response = await open(bdManager, {
+        clientId: adb,
+        productId: products.CreditStudio,
+        ownerId,
+      });
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { field: string }).field).toBe('ownerId');
+    }
+    expect(await dealCount()).toBe(0);
+  });
+
+  /* CLI 12, CLI 92. An associate owns what they open, and may name only themselves. */
+  it('is opened by an associate for themselves alone', async () => {
+    const refused = await open(associate, {
       clientId: adb,
       productId: products.CreditStudio,
       ownerId: people.commercialDirector,
     });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: 'NotAuthorised',
+      message: 'Only a BD manager can open a deal for somebody else. Open it for yourself instead.',
+    });
+    expect(await dealCount()).toBe(0);
 
+    const deal = await opened(associate, {
+      clientId: adb,
+      productId: products.CreditStudio,
+      ownerId: people.officer,
+    });
     expect(deal.owner.id).toBe(people.officer);
   });
 

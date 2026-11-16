@@ -508,6 +508,8 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   LiveAfterSigning: 409,
   /** Looking again is the fix. */
   StageMovedMeanwhile: 409,
+  /** #278. A note is archived; bringing it back is the fix. */
+  NoteArchived: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };
