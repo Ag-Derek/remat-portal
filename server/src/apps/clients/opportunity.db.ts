@@ -7,8 +7,10 @@
 
 import { type Kysely, sql } from 'kysely';
 import type { Attribution } from '../../core/audit/audit.js';
+import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Database } from '../../core/db/index.js';
 import { recording } from '../../core/db/recording.js';
+import { type Activity, newestFirst } from './activity.js';
 import type {
   Currency,
   Money,
@@ -20,6 +22,7 @@ import type {
   ValueSource,
   WaitingOnWhat,
 } from './opportunity.js';
+import { outcomeAt, type Stage, type StageChange } from './stage.js';
 
 /** The unique index that holds a client to one open deal per product (CLI 11). */
 const ONE_OPEN_PER_PRODUCT = 'uq_clients_opportunity_open';
@@ -29,6 +32,25 @@ const RETIRED_PRODUCT = 'clients_product_takes_new_deals';
 
 /** The trigger that keeps an ended deal as it ended (CLI 55, CLI 56). */
 const ENDED_IS_FIXED = 'clients_opportunity_ended_is_fixed';
+
+/** The trigger that settles the POC question once the contract is signed (CLI 19). */
+const POC_DECISION_FIXED = 'clients_opportunity_poc_decision_fixed';
+
+/** Refused by the database: the POC question is settled. */
+export class PocDecisionSettled extends Error {
+  constructor() {
+    super('Whether the deal has a POC is settled.');
+    this.name = 'PocDecisionSettled';
+  }
+}
+
+/** The deal was not where the move started from: somebody moved it first. */
+export class MovedMeanwhile extends Error {
+  constructor() {
+    super('The deal moved meanwhile.');
+    this.name = 'MovedMeanwhile';
+  }
+}
 
 /** Refused by the database: the client has an open deal for the product already. */
 export class AlreadyOpen extends Error {
@@ -95,12 +117,24 @@ export class ClientsOpportunityRepository {
             waiting_on: deal.waitingOn?.on ?? null,
             waiting_note: deal.waitingOn?.note ?? null,
             stated_interest: deal.statedInterest,
+            has_poc: deal.hasPoc,
           })
           .returning(['id', 'value_minor', 'currency', 'probability'])
           .executeTakeFirstOrThrow();
 
-        /* Its history starts with what it was opened with, in the same transaction. */
+        /* Both its histories start with what it was opened with, in the same transaction: its
+           figures, and Discovery (CLI 12, CLI 26). */
         await recordFigures(on, row.id, row, writerOf(by));
+        await on
+          .insertInto('clients_stage_change')
+          .values({
+            opportunity_id: row.id,
+            from_stage: null,
+            to_stage: 'DISCOVERY',
+            to_outcome: 'OPEN',
+            changed_by: writerOf(by),
+          })
+          .execute();
 
         return row.id;
       });
@@ -144,6 +178,7 @@ export class ClientsOpportunityRepository {
             waiting_note: change.waitingOn?.note ?? null,
           }),
       ...(change.statedInterest === undefined ? {} : { stated_interest: change.statedInterest }),
+      ...(change.hasPoc === undefined ? {} : { has_poc: change.hasPoc }),
     };
 
     if (Object.keys(values).length === 0) {
@@ -172,9 +207,179 @@ export class ClientsOpportunityRepository {
         }
       });
     } catch (error) {
+      const constraint = (error as { constraint?: unknown }).constraint;
+
+      if (constraint === ENDED_IS_FIXED) throw new Ended();
+      if (constraint === POC_DECISION_FIXED) throw new PocDecisionSettled();
+      throw error;
+    }
+  }
+
+  /**
+   * Moves a deal from one stage to another: the one way a deal's stage or outcome changes (TDD 3,
+   * 5). The caller has decided the move may be made; the database refuses it anyway if not.
+   *
+   * In one transaction (TDD 5, step 7): the deal's stage, its outcome after (won at Live, CLI
+   * 25), the day it ended where it did, a row in its stage history (CLI 26), and on a win, its
+   * product added to what the client uses (CLI 04). Refused with {@link MovedMeanwhile} where the
+   * deal is no longer at `from`, so a move decided on a stale look is never made.
+   */
+  async move(
+    by: Attribution,
+    id: string,
+    move: { from: Stage; to: Stage; note: string | null },
+    today: CalendarDate,
+  ): Promise<void> {
+    const outcome = outcomeAt(move.to);
+    const changedBy = writerOf(by);
+
+    try {
+      await recording(this.db, by, async (on) => {
+        const moved = await on
+          .updateTable('clients_opportunity')
+          .set({
+            stage: move.to,
+            outcome,
+            ended_on: outcome === 'OPEN' ? null : today,
+          })
+          .where('id', '=', id)
+          .where('stage', '=', move.from)
+          .where('outcome', '=', 'OPEN')
+          .returning(['client_id', 'product_id'])
+          .executeTakeFirst();
+
+        if (moved === undefined) {
+          throw new MovedMeanwhile();
+        }
+
+        await on
+          .insertInto('clients_stage_change')
+          .values({
+            opportunity_id: id,
+            from_stage: move.from,
+            to_stage: move.to,
+            to_outcome: outcome,
+            note: move.note,
+            changed_by: changedBy,
+          })
+          .execute();
+
+        if (outcome === 'WON') {
+          await addWonProduct(on, moved.client_id, moved.product_id, id, today);
+        }
+      });
+    } catch (error) {
       if ((error as { constraint?: unknown }).constraint === ENDED_IS_FIXED) throw new Ended();
       throw error;
     }
+  }
+
+  /**
+   * Everything that has happened to a client's deals, open and ended, newest first: every stage
+   * change and every change to a deal's value or chance of closing, each naming its deal. Read in
+   * two queries, one per history, and put in order here.
+   */
+  async activityOf(clientId: string): Promise<Activity[]> {
+    const [stages, values] = await Promise.all([
+      this.db
+        .selectFrom('clients_stage_change as s')
+        .innerJoin('clients_opportunity as o', 'o.id', 's.opportunity_id')
+        .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+        .innerJoin('employee as e', 'e.id', 's.changed_by')
+        .select([
+          'o.id as deal_id',
+          'p.name as product_name',
+          's.from_stage',
+          's.to_stage',
+          's.to_outcome',
+          's.note',
+          's.changed_at',
+          'e.id as by_id',
+          sql<string>`e.first_name || ' ' || e.last_name`.as('by_name'),
+        ])
+        .where('o.client_id', '=', clientId)
+        .execute(),
+      this.db
+        .selectFrom('clients_value_change as v')
+        .innerJoin('clients_opportunity as o', 'o.id', 'v.opportunity_id')
+        .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+        .innerJoin('employee as e', 'e.id', 'v.changed_by')
+        .select([
+          'o.id as deal_id',
+          'p.name as product_name',
+          'v.value_minor',
+          'v.currency',
+          'v.probability',
+          'v.source',
+          'v.changed_at',
+          'e.id as by_id',
+          sql<string>`e.first_name || ' ' || e.last_name`.as('by_name'),
+        ])
+        .where('o.client_id', '=', clientId)
+        /* Oldest first, so the first seen of each deal is what it was opened with. */
+        .orderBy('v.changed_at')
+        .orderBy('v.id')
+        .execute(),
+    ]);
+
+    const opened = new Set<string>();
+
+    return newestFirst([
+      ...stages.map((row): Activity => ({
+        kind: 'STAGE',
+        deal: { id: row.deal_id, productName: row.product_name },
+        fromStage: row.from_stage as Stage | null,
+        toStage: row.to_stage as Stage,
+        toOutcome: row.to_outcome as Outcome,
+        note: row.note,
+        by: { id: row.by_id, name: row.by_name },
+        at: row.changed_at,
+      })),
+      ...values.map((row): Activity => {
+        const opening = !opened.has(row.deal_id);
+        opened.add(row.deal_id);
+
+        return {
+          kind: 'VALUE',
+          deal: { id: row.deal_id, productName: row.product_name },
+          value: moneyFrom(row),
+          probability: row.probability,
+          source: row.source as ValueSource,
+          opening,
+          by: { id: row.by_id, name: row.by_name },
+          at: row.changed_at,
+        };
+      }),
+    ]);
+  }
+
+  /** Every stage a deal has been at, newest first. The oldest is its opening, at Discovery. */
+  async stages(id: string): Promise<StageChange[]> {
+    const rows = await this.db
+      .selectFrom('clients_stage_change as s')
+      .innerJoin('employee as e', 'e.id', 's.changed_by')
+      .select([
+        's.from_stage',
+        's.to_stage',
+        's.to_outcome',
+        's.note',
+        's.changed_at',
+        'e.id as changed_by',
+        sql<string>`e.first_name || ' ' || e.last_name`.as('changed_by_name'),
+      ])
+      .where('s.opportunity_id', '=', id)
+      .orderBy('s.changed_at', 'desc')
+      .orderBy('s.id', 'desc')
+      .execute();
+
+    return rows.map((row) => ({
+      fromStage: row.from_stage as Stage | null,
+      toStage: row.to_stage as Stage,
+      toOutcome: row.to_outcome as Outcome,
+      note: row.note,
+      changedBy: { id: row.changed_by, name: row.changed_by_name },
+      changedAt: row.changed_at,
+    }));
   }
 
   /** What a deal was worth and how likely to close, each time either changed, newest first. */
@@ -223,6 +428,31 @@ function sameFigures(one: Figures, other: Figures): boolean {
     one.currency === other.currency &&
     one.probability === other.probability
   );
+}
+
+/**
+ * Puts a won deal's product on what the client uses, from today, naming the deal (CLI 04, CLI
+ * 25). Where the client used it once and stopped, it is started again from today, named as won
+ * back by this deal; the audit log keeps the dates it had. Where they use it already, it is left
+ * as it is.
+ */
+async function addWonProduct(
+  on: Kysely<Database>,
+  clientId: string,
+  productId: string,
+  dealId: string,
+  today: CalendarDate,
+): Promise<void> {
+  await on
+    .insertInto('clients_client_product')
+    .values({ client_id: clientId, product_id: productId, since_on: today, won_by: dealId })
+    .onConflict((conflict) =>
+      conflict
+        .columns(['client_id', 'product_id'])
+        .doUpdateSet({ since_on: today, ended_on: null, won_by: dealId })
+        .where('clients_client_product.ended_on', 'is not', null),
+    )
+    .execute();
 }
 
 /** Adds the figures as they now stand to a deal's history, as an edit by a person. */
@@ -277,7 +507,10 @@ function deals(db: Kysely<Database>) {
       'l.name as line_name',
       'o.owner_id',
       sql<string>`e.first_name || ' ' || e.last_name`.as('owner_name'),
+      'o.stage',
       'o.outcome',
+      'o.has_poc',
+      'o.ended_on',
       'o.value_minor',
       'o.currency',
       'o.probability',
@@ -298,7 +531,10 @@ function opportunityFrom(row: Row): Opportunity {
     client: { id: row.client_id, name: row.client_name },
     product: { id: row.product_id, name: row.product_name, lineName: row.line_name },
     owner: { id: row.owner_id, name: row.owner_name },
+    stage: row.stage as Stage,
     outcome: row.outcome as Outcome,
+    hasPoc: row.has_poc,
+    endedOn: row.ended_on,
     value:
       row.value_minor === null || row.currency === null
         ? null

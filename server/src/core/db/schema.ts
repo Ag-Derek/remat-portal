@@ -726,16 +726,30 @@ export interface ClientsClientTypeTable {
 }
 
 /**
- * A client: a bank, broker or lender the department sells to. #276. Its name, type, owner and
- * note change; when it was created does not, and none is deleted.
+ * A client: a bank, broker or lender the department sells to. #276. Its name, type and owner
+ * change; when it was created does not, and none is deleted. Its notes are their own table.
  */
 export interface ClientsClientTable {
   id: Generated<string>;
   name: string;
   type_id: string;
   owner_id: string;
-  note: string | null;
   created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A note on a client, with a heading. #278. Its words change and it is archived; which client,
+ * who wrote it and when do not, and none is deleted.
+ */
+export interface ClientsClientNoteTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  heading: string;
+  body: string;
+  written_by: ColumnType<string, string, never>;
+  written_at: ColumnType<Date, never, never>;
+  edited_at: ColumnType<Date | null, never, Date | null>;
+  archived_at: ColumnType<Date | null, never, Date | null>;
 }
 
 /**
@@ -763,7 +777,8 @@ export interface ClientsClientProductTable {
   product_id: ColumnType<string, string, never>;
   since_on: string;
   ended_on: string | null;
-  won_by: ColumnType<string | null, string | null | undefined, never>;
+  /** Set when it is added, and again when a won deal starts it once more (#278). */
+  won_by: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /**
@@ -776,8 +791,14 @@ export interface ClientsOpportunityTable {
   client_id: ColumnType<string, string, never>;
   product_id: string;
   owner_id: string;
-  /** Every deal starts open; only the stage service (#278) moves it on. */
-  outcome: ColumnType<string, never, never>;
+  /** Every deal starts open; only the stage service moves it on (#278). */
+  outcome: ColumnType<string, never, string>;
+  /** Every deal starts at Discovery (CLI 12); only the stage service moves it on (#278). */
+  stage: ColumnType<string, never, string>;
+  /** Whether it will have a POC: null until somebody says, and fixed once signed (CLI 19). */
+  has_poc: Nullable<boolean>;
+  /** The day it ended; null while it is open. Set by the stage service (#278). */
+  ended_on: ColumnType<string | null, never, string | null>;
   /** BIGINT, which pg hands back as a string. */
   value_minor: Nullable<string, string | number>;
   currency: Nullable<string>;
@@ -807,6 +828,22 @@ export interface ClientsValueChangeTable {
   changed_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * One move of a deal on the ladder, or its opening at Discovery. #278, TDD 4.2. Written once,
+ * never changed or deleted (NFR CLI REC 01).
+ */
+export interface ClientsStageChangeTable {
+  id: Generated<string>;
+  opportunity_id: ColumnType<string, string, never>;
+  /** Null on the row that opens the deal. */
+  from_stage: ColumnType<string | null, string | null, never>;
+  to_stage: ColumnType<string, string, never>;
+  to_outcome: ColumnType<string, string, never>;
+  note: ColumnType<string | null, string | null | undefined, never>;
+  changed_by: ColumnType<string, string, never>;
+  changed_at: ColumnType<Date, never, never>;
+}
+
 /** A column that may be null, and is left null when an insert leaves it out. */
 type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
 
@@ -816,12 +853,16 @@ export interface Database {
   clients_opportunity: ClientsOpportunityTable;
   /** #277. */
   clients_value_change: ClientsValueChangeTable;
+  /** #278. */
+  clients_stage_change: ClientsStageChangeTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */
   clients_contact: ClientsContactTable;
   /** #276. */
   clients_client: ClientsClientTable;
+  /** #278. */
+  clients_client_note: ClientsClientNoteTable;
   /** #276. */
   clients_client_type: ClientsClientTypeTable;
   /** #293. */

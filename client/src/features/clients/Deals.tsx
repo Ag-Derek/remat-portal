@@ -1,20 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
+  answerDealPoc,
   type ClientPage,
+  clientsHolders,
+  type ClientsNamed,
   type ClientsOfferedProduct,
   changeDeal,
   type Currency,
+  DEAL_STAGES,
   type Deal,
-  dealHistory,
-  type DealValueChange,
+  type DealStage,
   isNotSignedIn,
   type Money,
+  moveDeal,
   offeredProducts,
   openDeal,
   type WaitingOnWhat,
 } from '../../api';
 import { AddButton, EditButton } from '../../ActionButtons';
-import { moment, money } from '../../format';
+import { money } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { Dialog, DialogFoot, Field, useSending } from './ui';
@@ -22,7 +26,8 @@ import { Dialog, DialogFoot, Field, useSending } from './ui';
 /**
  * A client's opportunities, which are also called deals: the figures across the top of the client
  * page, the open ones as a table, the ended ones folded away beneath, and opening and editing one.
- * #277, Clients SRS CLI 10 to CLI 17, CLI 75 to CLI 77, CLI 99.
+ * #277, Clients SRS CLI 10 to CLI 17, CLI 75 to CLI 77, CLI 99. Each one's stage, moving it, and
+ * whether it will have a POC: #278, CLI 18 to CLI 26.
  *
  * Whatever nobody has said about one, its value, probability or expected close, is said by name,
  * "No value", rather than left blank (CLI 06): an opportunity with no value is a gap somebody can
@@ -128,16 +133,19 @@ function LeftOut({ count, what }: { count: number; what: string }) {
 export function ClientDeals({
   client,
   onChanged,
+  onShowActivity,
   onSignedOut,
 }: {
   client: ClientPage;
   onChanged: () => void;
+  /** Shows the page's Activity section for one deal: its clock button. */
+  onShowActivity: (dealId: string) => void;
   onSignedOut: () => void;
 }) {
   /* The dialog open: a new one, or one being edited. */
   const [open, setOpen] = useState<{ deal?: Deal } | null>(null);
-  /* The deal whose past values are showing, if any. */
-  const [history, setHistory] = useState<Deal | null>(null);
+  /* The deal being moved to another stage, if any. */
+  const [moving, setMoving] = useState<Deal | null>(null);
   const close = () => {
     setOpen(null);
   };
@@ -150,7 +158,9 @@ export function ClientDeals({
       <header className="clients-panel-head">
         <div>
           <h3 id="clients-deals-heading">Open opportunities</h3>
-          <p className="muted">{summaryOf(live, client.name)}</p>
+          {live.length === 0 ? (
+            <p className="muted">Nothing is in play with {client.name} right now.</p>
+          ) : null}
         </div>
         {client.may.contribute ? (
           <AddButton
@@ -168,7 +178,10 @@ export function ClientDeals({
           onEdit={(deal) => {
             setOpen({ deal });
           }}
-          onHistory={setHistory}
+          onMove={setMoving}
+          onHistory={(deal) => {
+            onShowActivity(deal.id);
+          }}
         />
       )}
 
@@ -179,15 +192,28 @@ export function ClientDeals({
               ? '1 ended opportunity'
               : `${String(ended.length)} ended opportunities`}
           </summary>
-          <DealTable deals={ended} onEdit={() => undefined} onHistory={setHistory} />
+          <DealTable
+            deals={ended}
+            onEdit={() => undefined}
+            onMove={() => undefined}
+            onHistory={(deal) => {
+              onShowActivity(deal.id);
+            }}
+          />
         </details>
       )}
 
-      {history === null ? null : (
-        <HistoryDialog
-          deal={history}
+      {moving === null ? null : (
+        <StageDialog
+          deal={moving}
+          clientName={client.name}
+          onMoved={() => {
+            setMoving(null);
+            onChanged();
+          }}
+          onAnswered={onChanged}
           onClose={() => {
-            setHistory(null);
+            setMoving(null);
           }}
           onSignedOut={onSignedOut}
         />
@@ -209,24 +235,12 @@ export function ClientDeals({
   );
 }
 
-/** "Four products in play: CreditStudio, Cloud9, …", or that there are none. */
-function summaryOf(live: readonly Deal[], clientName: string): string {
-  if (live.length === 0) {
-    return `Nothing is in play with ${clientName} right now.`;
-  }
-
-  const products = live.map((deal) => deal.product.name).join(', ');
-
-  return live.length === 1
-    ? `One product in play: ${products}.`
-    : `${String(live.length)} products in play: ${products}.`;
-}
-
 /**
- * Opportunities as a table: product, expected close, what it is waiting on, and its value with
- * the probability under it. Its past values are open to anybody reading it (#277). Edit is offered
- * where the server says this person may: its owner or a BD manager, while it is open (CLI 13). An
- * ended one says how it ended instead.
+ * Opportunities as a table: product, stage, expected close, what it is waiting on, and its value
+ * with the probability under it. Its history, stages and values, is open to anybody reading it
+ * (#277, #278). Moving and editing are offered where the server says this person may: its owner or
+ * a BD manager, while it is open (CLI 13), and moving not while it is in its POC (CLI 24). An ended
+ * one says how it ended instead.
  *
  * On a phone each row becomes a card of its own, every cell labelled, since four columns do not
  * fit beside each other there (NFR CLI USA 02).
@@ -234,10 +248,12 @@ function summaryOf(live: readonly Deal[], clientName: string): string {
 function DealTable({
   deals,
   onEdit,
+  onMove,
   onHistory,
 }: {
   deals: readonly Deal[];
   onEdit: (deal: Deal) => void;
+  onMove: (deal: Deal) => void;
   onHistory: (deal: Deal) => void;
 }) {
   return (
@@ -245,7 +261,7 @@ function DealTable({
       <thead>
         <tr>
           <th scope="col">Product</th>
-          <th scope="col">Expected close</th>
+          <th scope="col">Stage</th>
           <th scope="col">Waiting on</th>
           <th scope="col" className="is-figure">
             Value
@@ -260,23 +276,19 @@ function DealTable({
           <tr key={deal.id} className={deal.outcome === 'OPEN' ? undefined : 'is-ended'}>
             <td data-label="Product">
               <strong>{deal.product.name}</strong>
-              <small>
-                {deal.product.lineName} · {deal.owner.name}
-              </small>
+              <small>{deal.product.lineName}</small>
               {deal.statedInterest === null ? null : (
                 <small className="clients-deal-interest">“{deal.statedInterest}”</small>
               )}
             </td>
-            <td data-label="Expected close">
-              {deal.expectedClose === null ? (
-                <NotSet what="Not set" />
-              ) : (
-                `${deal.expectedClose.half} ${String(deal.expectedClose.year)}`
-              )}
+            <td data-label="Stage">
+              <StageCell deal={deal} />
             </td>
             <td data-label="Waiting on">
               <WaitingOnCell waiting={deal.waitingOn} />
             </td>
+            {/* What it is worth, and under it how likely and when: the three a pipeline asks
+                together. Each missing one says so by name (CLI 06). */}
             <td data-label="Value" className="is-figure">
               {deal.value === null ? <NotSet what="No value" /> : <span>{money(deal.value)}</span>}
               <small>
@@ -284,6 +296,12 @@ function DealTable({
                   <NotSet what="No probability" />
                 ) : (
                   `${String(deal.probability)}%`
+                )}
+                {' · '}
+                {deal.expectedClose === null ? (
+                  <NotSet what="No close" />
+                ) : (
+                  `${deal.expectedClose.half} ${String(deal.expectedClose.year)}`
                 )}
               </small>
             </td>
@@ -295,16 +313,31 @@ function DealTable({
                 <button
                   type="button"
                   className="iconic action-icon is-history"
-                  title="Past values"
+                  title="Activity"
                   onClick={() => {
                     onHistory(deal);
                   }}
                 >
                   <Icon name="history" />
                   <span className="visually-hidden">
-                    Past values of the {deal.product.name} opportunity
+                    Activity on the {deal.product.name} opportunity
                   </span>
                 </button>
+                {deal.may.move ? (
+                  <button
+                    type="button"
+                    className="iconic action-icon is-edit"
+                    title="Move to another stage"
+                    onClick={() => {
+                      onMove(deal);
+                    }}
+                  >
+                    <Icon name="stage" />
+                    <span className="visually-hidden">
+                      Move the {deal.product.name} opportunity to another stage
+                    </span>
+                  </button>
+                ) : null}
                 {deal.outcome === 'OPEN' && deal.may.change ? (
                   <EditButton
                     label={`Edit the ${deal.product.name} opportunity`}
@@ -326,7 +359,7 @@ function DealTable({
  * Something nobody has said, in amber and by name (CLI 06): plainly a gap to fill, not a blank
  * and not something somebody wrote.
  */
-function NotSet({ what }: { what: string }) {
+export function NotSet({ what }: { what: string }) {
   return <span className="clients-not-set">{what}</span>;
 }
 
@@ -350,7 +383,7 @@ function WaitingOnCell({ waiting }: { waiting: Deal['waitingOn'] }) {
   );
 }
 
-const OUTCOME: Record<Deal['outcome'], string> = {
+export const OUTCOME: Record<Deal['outcome'], string> = {
   OPEN: 'Open',
   WON: 'Won',
   LOST: 'Lost',
@@ -367,96 +400,313 @@ const WAITING_ON: { value: WaitingOnWhat; label: string; short: string }[] = [
   { value: 'OTHER', label: 'Something else', short: 'Other' },
 ];
 
-/* ------------------------------------------------------------------ its past values */
+/* ----------------------------------------------------------------------- its stage */
+
+/** How each stage is named on the screen. */
+export const STAGE_NAME: Record<DealStage, string> = {
+  DISCOVERY: 'Discovery',
+  QUALIFICATION: 'Qualification',
+  PROPOSAL: 'Proposal',
+  NEGOTIATION: 'Negotiation',
+  CONTRACT_SIGNED: 'Contract signed',
+  POC: 'POC',
+  LIVE: 'Live',
+};
 
 /**
- * What a deal was worth and how likely to close, each time either changed, newest first, with who
- * changed it and when (#277). The oldest is what it was opened with. Whatever changed at each step
- * is the darker figure, so the eye finds what moved.
+ * Where a deal stands: the stage by name, a ladder of seven steps filled up to it, green once won,
+ * and under it whether it will have a POC, or that nobody has said (CLI 06, CLI 19).
  */
-function HistoryDialog({
-  deal,
+function StageCell({ deal }: { deal: Deal }) {
+  const at = DEAL_STAGES.indexOf(deal.stage);
+
+  return (
+    <>
+      <span>
+        {STAGE_NAME[deal.stage]}
+        <span className="visually-hidden">
+          , stage {at + 1} of {DEAL_STAGES.length}
+        </span>
+      </span>
+      <Ladder deal={deal} />
+      <small>
+        {deal.hasPoc === null ? (
+          <NotSet what="POC not decided" />
+        ) : deal.hasPoc ? (
+          'With a POC'
+        ) : (
+          'No POC'
+        )}
+      </small>
+    </>
+  );
+}
+
+/** Seven short steps filled up to where a deal stands: green once won, grey once lost or exited. */
+function Ladder({ deal }: { deal: Deal }) {
+  const at = DEAL_STAGES.indexOf(deal.stage);
+  const tone = deal.outcome === 'WON' ? ' is-won' : deal.outcome === 'OPEN' ? '' : ' is-ended';
+
+  return (
+    <span className={`clients-ladder${tone}`} aria-hidden="true">
+      {DEAL_STAGES.map((stage, step) => (
+        <i key={stage} className={step <= at ? 'is-reached' : undefined} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Moving a deal to another stage (CLI 20 to CLI 25), next step first.
+ *
+ * Most moves are one step forward, so that is the one big button, named for where it goes. Any
+ * other stage open to it, back or further on, is behind "Other stage", and a move back asks why
+ * (CLI 21). Where it cannot go forward at all, the one thing in the way is said once, in the
+ * server's words; which stages are open is the server's answer, so the rules are written once.
+ *
+ * Whether there will be a POC is at the top, a tap to change until the contract is signed and
+ * saved at once, since Contract signed waits on it (CLI 19). Once signed, it is said, not asked.
+ */
+function StageDialog({
+  deal: given,
+  clientName,
+  onMoved,
+  onAnswered,
   onClose,
   onSignedOut,
 }: {
   deal: Deal;
+  clientName: string;
+  onMoved: () => void;
+  /** The POC question was answered, so the page behind is out of date. */
+  onAnswered: () => void;
   onClose: () => void;
   onSignedOut: () => void;
 }) {
-  const [history, setHistory] = useState<DealValueChange[] | undefined>(undefined);
-  const [problem, setProblem] = useState<Problem | undefined>(undefined);
+  const [deal, setDeal] = useState(given);
+  /* A stage chosen under "Other stage"; null for the next step. */
+  const [picked, setPicked] = useState<DealStage | null>(null);
+  const [othersOpen, setOthersOpen] = useState(false);
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState('');
+  const [answering, setAnswering] = useState(false);
+  const [answerProblem, setAnswerProblem] = useState<Problem | undefined>(undefined);
+  const sending = useSending(onMoved, onSignedOut);
+  const pocLabel = useId();
 
-  useEffect(() => {
-    dealHistory(deal.id)
-      .then(setHistory)
+  /* The server lists every stage in order, so what is after this one is ahead of it. */
+  const ahead = deal.moves.slice(DEAL_STAGES.indexOf(deal.stage) + 1);
+  const next = ahead.find((option) => option.open);
+  const open = deal.moves.filter((option) => option.open);
+  const target = open.find((option) => option.stage === picked) ?? next;
+  const needsNote = target?.needsNote === true;
+  const busy = sending.busy || answering;
+
+  const answer = (hasPoc: boolean) => {
+    setAnswering(true);
+    setAnswerProblem(undefined);
+
+    answerDealPoc(deal.id, hasPoc)
+      .then((now) => {
+        setDeal(now);
+        /* A stage chosen that the answer has closed is no longer chosen. */
+        if (!now.moves.some((option) => option.stage === picked && option.open)) {
+          setPicked(null);
+        }
+        setAnswering(false);
+        onAnswered();
+      })
       .catch((error: unknown) => {
         if (isNotSignedIn(error)) {
           onSignedOut();
           return;
         }
-        setProblem(problemFrom(error));
+        setAnswerProblem(problemFrom(error));
+        setAnswering(false);
       });
-  }, [deal.id, onSignedOut]);
+  };
 
   return (
-    <Dialog
-      title={`Past values: ${deal.product.name}`}
-      intro="Its value and chance of closing each time either changed, newest first."
-      onClose={onClose}
-    >
-      {problem === undefined ? null : <Notice problem={problem} />}
-      {history === undefined ? null : (
-        <ol className="clients-history">
-          {history.map((change, at) => {
-            /* The one before it in time, which is the next one down the list. */
-            const before = history[at + 1];
-            const valueMoved = before === undefined || !sameMoney(before.value, change.value);
-            const chanceMoved = before === undefined || before.probability !== change.probability;
+    <Dialog title={`Move the ${deal.product.name} deal`} onClose={onClose}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (target !== undefined) {
+            sending.send(() => moveDeal(deal.id, target.stage, note));
+          }
+        }}
+      >
+        <div className="clients-move-where">
+          <Ladder deal={deal} />
+          <span>
+            At <strong>{STAGE_NAME[deal.stage]}</strong> · {clientName}
+          </span>
+        </div>
 
-            return (
-              <li key={`${change.changedAt}-${String(at)}`}>
-                <div className="clients-history-figures">
-                  <span className={valueMoved ? 'is-moved' : undefined}>
-                    {change.value === null ? <NotSet what="No value" /> : money(change.value)}
-                  </span>
-                  <span className={chanceMoved ? 'is-moved' : undefined}>
-                    {change.probability === null ? (
-                      <NotSet what="No probability" />
-                    ) : (
-                      `${String(change.probability)}%`
-                    )}
-                  </span>
-                  {at === 0 ? <span className="tag">Now</span> : null}
-                </div>
-                <small>
-                  {before === undefined ? 'Opened' : 'Changed'} by {change.changedBy.name}
-                  {SOURCE[change.source]} · {moment(change.changedAt)}
-                </small>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      <footer className="clients-dialog-foot">
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </footer>
+        <div className="clients-move-poc">
+          <span id={pocLabel}>Will there be a POC?</span>
+          {deal.may.decidePoc ? (
+            <PocChoice
+              labelledBy={pocLabel}
+              value={deal.hasPoc}
+              disabled={busy}
+              onChange={(hasPoc) => {
+                if (hasPoc !== null) answer(hasPoc);
+              }}
+            />
+          ) : (
+            <span className="muted">{deal.hasPoc ? 'Yes' : 'No'} · settled at signing</span>
+          )}
+        </div>
+        {answerProblem === undefined ? null : <Notice problem={answerProblem} />}
+
+        {target === undefined ? (
+          /* Nowhere to go forward by hand: the one thing in the way, said once. */
+          <p className="clients-move-blocked">
+            <Icon name="info" />
+            <span>{ahead[0]?.why ?? 'This deal has nowhere further to go.'}</span>
+          </p>
+        ) : (
+          <>
+            <button
+              type="submit"
+              className={`primary clients-move-go${target.stage === 'LIVE' ? ' is-win' : ''}`}
+              disabled={busy || (needsNote && note.trim() === '')}
+            >
+              {busy ? 'Moving…' : moveLabel(target.stage, target.needsNote)}
+            </button>
+            {target.stage === 'LIVE' ? (
+              <p className="clients-move-sub">
+                Adds {deal.product.name} to what {clientName} uses, from today.
+              </p>
+            ) : null}
+          </>
+        )}
+
+        {open.length > 1 || (open.length === 1 && next === undefined) ? (
+          <div className="clients-move-others">
+            <button
+              type="button"
+              className="linkish"
+              aria-expanded={othersOpen}
+              onClick={() => {
+                setOthersOpen(!othersOpen);
+              }}
+            >
+              Other stage {othersOpen ? '▴' : '▾'}
+            </button>
+            {othersOpen ? (
+              <div className="clients-move-chips">
+                {open.map((option) => (
+                  <button
+                    key={option.stage}
+                    type="button"
+                    aria-pressed={target?.stage === option.stage}
+                    disabled={busy}
+                    onClick={() => {
+                      setPicked(option.stage);
+                      if (option.needsNote) setNoting(true);
+                    }}
+                  >
+                    {option.needsNote ? '↩ ' : ''}
+                    {STAGE_NAME[option.stage]}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {target === undefined ? null : noting || needsNote ? (
+          <Field
+            label={needsNote ? 'Why is it going back?' : 'Note'}
+            hint={needsNote ? 'Needed to move a deal back. Kept with the move.' : undefined}
+            error={sending.errorFor('note')}
+          >
+            {({ id, describedBy }) => (
+              <textarea
+                id={id}
+                value={note}
+                rows={2}
+                maxLength={2000}
+                autoFocus
+                aria-describedby={describedBy}
+                onChange={(event) => {
+                  setNote(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        ) : (
+          <button
+            type="button"
+            className="linkish clients-move-add-note"
+            onClick={() => {
+              setNoting(true);
+            }}
+          >
+            + Add a note
+          </button>
+        )}
+
+        <Other problem={sending.other(['note'])} />
+        <footer className="clients-dialog-foot">
+          <button type="button" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+        </footer>
+      </form>
     </Dialog>
   );
 }
 
-/** How a change came about, where it was not somebody editing the deal. */
-const SOURCE: Record<DealValueChange['source'], string> = {
-  MANUAL: '',
-  PROPOSAL: ', from a proposal',
-  CONVERSION: ', on its POC converting',
-  IMPORT: ', from the workbooks',
-};
+/** What the one big button says: where the deal goes, and that Live is a win. */
+function moveLabel(stage: DealStage, back: boolean): string {
+  if (stage === 'LIVE') return 'Mark as won';
 
-function sameMoney(one: Money | null, other: Money | null): boolean {
+  return back ? `Move back to ${STAGE_NAME[stage]}` : `Move to ${STAGE_NAME[stage]} →`;
+}
+
+/**
+ * Whether a deal will have a POC, as a choice of two or three side by side (CLI 19). "Not sure
+ * yet" is offered where the answer can be taken back, in the deal's own form; the move card saves
+ * each tap at once, and asks only yes or no.
+ */
+function PocChoice({
+  labelledBy,
+  value,
+  disabled,
+  allowUnsure = false,
+  onChange,
+}: {
+  labelledBy: string;
+  value: boolean | null;
+  disabled: boolean;
+  allowUnsure?: boolean;
+  onChange: (hasPoc: boolean | null) => void;
+}) {
+  const choices: { value: boolean | null; label: string }[] = [
+    { value: true, label: 'Yes' },
+    { value: false, label: 'No' },
+    ...(allowUnsure ? [{ value: null, label: 'Not sure yet' }] : []),
+  ];
+
   return (
-    one?.amountMinor === other?.amountMinor && (one?.currency ?? null) === (other?.currency ?? null)
+    <div className="clients-choice" role="group" aria-labelledby={labelledBy}>
+      {choices.map((one) => (
+        <button
+          key={one.label}
+          type="button"
+          aria-pressed={value === one.value}
+          disabled={disabled}
+          onClick={() => {
+            onChange(one.value);
+          }}
+        >
+          {one.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -467,6 +717,7 @@ const DEAL_FIELDS = [
   'value',
   'probability',
   'expectedClose',
+  'hasPoc',
   'waitingOn',
   'statedInterest',
 ] as const;
@@ -497,10 +748,19 @@ function DealDialog({
   const [probability, setProbability] = useState(
     deal?.probability == null ? '' : String(deal.probability),
   );
-  const [half, setHalf] = useState<'' | 'H1' | 'H2'>(deal?.expectedClose?.half ?? '');
-  const [year, setYear] = useState(
-    deal?.expectedClose == null ? '' : String(deal.expectedClose.year),
-  );
+  /* A new deal starts expecting to close in the next half year, which is the likeliest and quick
+     to change; an existing one keeps what it has, a gap included, so saving never fills one in. */
+  const close = deal === undefined ? nextHalfYear() : deal.expectedClose;
+  const [half, setHalf] = useState<'' | 'H1' | 'H2'>(close?.half ?? '');
+  const [year, setYear] = useState(close == null ? '' : String(close.year));
+  const [hasPoc, setHasPoc] = useState<boolean | null>(deal?.hasPoc ?? null);
+  /* A new deal's owner, which a BD manager chooses: whoever looks after the client, to start. */
+  const assigns = deal === undefined && client.may.reassign;
+  const [people, setPeople] = useState<ClientsNamed[] | undefined>(undefined);
+  const [ownerId, setOwnerId] = useState(client.owner.id);
+  /* Settled once its contract is signed (CLI 19): shown, not offered. */
+  const pocSettled = deal !== undefined && !deal.may.decidePoc;
+  const pocLabel = useId();
   const [waitingOn, setWaitingOn] = useState<'' | WaitingOnWhat>(deal?.waitingOn?.on ?? '');
   const [waitingNote, setWaitingNote] = useState(deal?.waitingOn?.note ?? '');
   const [statedInterest, setStatedInterest] = useState(deal?.statedInterest ?? '');
@@ -528,12 +788,24 @@ function DealDialog({
       });
   }, [deal, client.opportunities, onSignedOut]);
 
+  useEffect(() => {
+    if (!assigns) {
+      return;
+    }
+
+    clientsHolders()
+      .then(setPeople)
+      .catch((error: unknown) => {
+        if (isNotSignedIn(error)) onSignedOut();
+      });
+  }, [assigns, onSignedOut]);
+
   const lines = [...new Set((products ?? []).map((product) => product.lineName))];
   const thisYear = new Date().getFullYear();
   /* The next five years, and the one a deal already has, even if it has slipped past. */
   const years = [
     ...new Set([
-      ...(deal?.expectedClose == null ? [] : [deal.expectedClose.year]),
+      ...(close == null ? [] : [close.year]),
       ...Array.from({ length: 5 }, (_, offset) => thisYear + offset),
     ]),
   ].sort((one, other) => one - other);
@@ -542,15 +814,22 @@ function DealDialog({
     const details = {
       value: amount.trim() === '' ? null : { amount: amount.trim(), currency },
       probability: probability.trim() === '' ? null : Number(probability),
-      expectedClose:
-        half === '' && year === '' ? null : { half, year: year === '' ? null : Number(year) },
+      expectedClose: half === '' ? null : { half, year: year === '' ? thisYear : Number(year) },
       waitingOn: waitingOn === '' ? null : { on: waitingOn, note: waitingNote },
       statedInterest,
+      /* Not sent once settled, so saving a signed deal never touches it. */
+      ...(pocSettled ? {} : { hasPoc }),
     };
 
     sending.send(() =>
       deal === undefined
-        ? openDeal({ clientId: client.id, productId, ...details })
+        ? openDeal({
+            clientId: client.id,
+            productId,
+            ...details,
+            /* Only a BD manager names an owner; anybody else owns what they open. */
+            ...(assigns ? { ownerId } : {}),
+          })
         : changeDeal(deal.id, details),
     );
   };
@@ -562,11 +841,7 @@ function DealDialog({
           ? `New deal with ${client.name}`
           : `The ${deal.product.name} deal with ${client.name}`
       }
-      intro={
-        deal === undefined
-          ? 'You will own it. Only the product is needed: anything left empty shows on the deal as missing, for somebody to fill in.'
-          : 'Anything left empty shows on the deal as missing, for somebody to fill in.'
-      }
+      intro={deal === undefined ? undefined : 'Anything left empty shows as missing.'}
       onClose={onClose}
     >
       <form
@@ -609,107 +884,150 @@ function DealDialog({
           </Field>
         )}
 
-        <Field
-          label="Value"
-          hint="Optional. Cedis or dollars, with at most two figures after the point."
-          error={sending.errorFor('value')}
-        >
-          {({ id, describedBy }) => (
-            <span className="clients-deal-money">
+        {assigns ? (
+          <Field label="Assign to" error={sending.errorFor('ownerId')}>
+            {({ id, describedBy }) => (
               <select
-                aria-label="Currency"
-                value={currency}
-                disabled={sending.busy}
+                id={id}
+                value={ownerId}
+                aria-describedby={describedBy}
+                disabled={sending.busy || people === undefined}
                 onChange={(event) => {
-                  setCurrency(event.target.value as Currency);
+                  setOwnerId(event.target.value);
                 }}
               >
-                <option value="GHS">GHS</option>
-                <option value="USD">USD</option>
+                {(people ?? [client.owner]).map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
               </select>
-              <input
-                id={id}
-                inputMode="decimal"
-                value={amount}
-                placeholder="125000"
-                autoComplete="off"
-                aria-describedby={describedBy}
-                disabled={sending.busy}
-                onChange={(event) => {
-                  setAmount(event.target.value);
-                }}
-              />
-            </span>
-          )}
-        </Field>
+            )}
+          </Field>
+        ) : null}
 
-        <Field
-          label="Probability of closing, %"
-          hint="Optional. A whole number from 0 to 100."
-          error={sending.errorFor('probability')}
-        >
-          {({ id, describedBy }) => (
-            <input
-              id={id}
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={probability}
-              aria-describedby={describedBy}
-              disabled={sending.busy}
-              onChange={(event) => {
-                setProbability(event.target.value);
-              }}
-            />
-          )}
-        </Field>
+        <div className="clients-field-row is-money">
+          <Field label="Value" error={sending.errorFor('value')}>
+            {({ id, describedBy }) => (
+              <span className="clients-deal-money">
+                <select
+                  aria-label="Currency"
+                  value={currency}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setCurrency(event.target.value as Currency);
+                  }}
+                >
+                  <option value="GHS">GHS</option>
+                  <option value="USD">USD</option>
+                </select>
+                <input
+                  id={id}
+                  inputMode="decimal"
+                  value={amount}
+                  placeholder="125000"
+                  autoComplete="off"
+                  aria-describedby={describedBy}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                  }}
+                />
+              </span>
+            )}
+          </Field>
 
-        <Field
-          label="Expected to close"
-          hint="Optional. H1 is January to June, H2 July to December."
-          error={sending.errorFor('expectedClose')}
-        >
-          {({ id, describedBy }) => (
-            <span className="clients-deal-close">
+          <Field label="Chance of closing" error={sending.errorFor('probability')}>
+            {({ id, describedBy }) => (
+              <span className="clients-deal-percent">
+                <input
+                  id={id}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={probability}
+                  placeholder="0–100"
+                  aria-describedby={describedBy}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setProbability(event.target.value);
+                  }}
+                />
+                <span aria-hidden="true">%</span>
+              </span>
+            )}
+          </Field>
+        </div>
+
+        <p className="clients-field-group">Expected to close</p>
+        <div className="clients-field-row">
+          <Field label="Half" error={sending.errorFor('expectedClose')}>
+            {({ id, describedBy }) => (
               <select
                 id={id}
-                aria-label="Half"
                 aria-describedby={describedBy}
                 value={half}
                 disabled={sending.busy}
                 onChange={(event) => {
-                  setHalf(event.target.value as '' | 'H1' | 'H2');
+                  const chosen = event.target.value as '' | 'H1' | 'H2';
+                  setHalf(chosen);
+                  if (chosen !== '' && year === '') setYear(String(thisYear));
                 }}
               >
-                <option value="">Half</option>
+                <option value="">Not known yet</option>
                 <option value="H1">H1</option>
                 <option value="H2">H2</option>
               </select>
+            )}
+          </Field>
+          <Field label="Year">
+            {({ id, describedBy }) => (
               <select
-                aria-label="Year"
-                value={year}
-                disabled={sending.busy}
+                id={id}
+                aria-describedby={describedBy}
+                value={half === '' ? '' : year}
+                disabled={sending.busy || half === ''}
                 onChange={(event) => {
                   setYear(event.target.value);
                 }}
               >
-                <option value="">Year</option>
+                {half === '' ? <option value="">—</option> : null}
                 {years.map((one) => (
                   <option key={one} value={String(one)}>
                     {one}
                   </option>
                 ))}
               </select>
-            </span>
-          )}
-        </Field>
+            )}
+          </Field>
+        </div>
 
-        <Field
-          label="Waiting on"
-          hint="Optional. What is holding it up today."
-          error={sending.errorFor('waitingOn')}
-        >
+        <div className="clients-field">
+          <span id={pocLabel} className="clients-field-label">
+            Will there be a POC?
+          </span>
+          {pocSettled ? (
+            <p className="muted clients-field-static">
+              {deal?.hasPoc === true ? 'Yes' : 'No'} · settled when the contract was signed
+            </p>
+          ) : (
+            <PocChoice
+              labelledBy={pocLabel}
+              value={hasPoc}
+              disabled={sending.busy}
+              allowUnsure
+              onChange={setHasPoc}
+            />
+          )}
+          {sending.errorFor('hasPoc') === undefined ? null : (
+            <p className="clients-field-error" role="alert">
+              {sending.errorFor('hasPoc')}
+            </p>
+          )}
+        </div>
+
+        <Field label="Waiting on" error={sending.errorFor('waitingOn')}>
           {({ id, describedBy }) => (
             <select
               id={id}
@@ -731,10 +1049,7 @@ function DealDialog({
         </Field>
 
         {waitingOn === '' ? null : (
-          <Field
-            label={waitingOn === 'OTHER' ? 'What it is waiting on' : 'More about it'}
-            hint={waitingOn === 'OTHER' ? undefined : 'Optional.'}
-          >
+          <Field label={waitingOn === 'OTHER' ? 'What it is waiting on' : 'More about it'}>
             {({ id, describedBy }) => (
               <input
                 id={id}
@@ -753,7 +1068,7 @@ function DealDialog({
 
         <Field
           label="Stated interest"
-          hint="Optional. What the client said they want, in their own words."
+          hint="What the client said they want, in their own words."
           error={sending.errorFor('statedInterest')}
         >
           {({ id, describedBy }) => (
@@ -785,6 +1100,15 @@ function DealDialog({
       </form>
     </Dialog>
   );
+}
+
+/** The half year after the one today is in: in November 2026, H1 2027. */
+function nextHalfYear(): { half: 'H1' | 'H2'; year: number } {
+  const today = new Date();
+
+  return today.getMonth() < 6
+    ? { half: 'H2', year: today.getFullYear() }
+    : { half: 'H1', year: today.getFullYear() + 1 };
 }
 
 /** An amount as somebody would type it back: "75600", or "125000.50" where there are pesewas. */

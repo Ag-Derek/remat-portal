@@ -10,6 +10,7 @@ import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
 import { currentDate } from '../../core/calendar/time.js';
 import { accessOf } from './access.js';
+import type { Activity } from './activity.js';
 import {
   type Client,
   ClientNotFound,
@@ -32,6 +33,16 @@ import {
 import type { ClientsContactRepository } from './contact.db.js';
 import type { DealView } from './opportunity.js';
 import type { ClientsOpportunityRepository } from './opportunity.db.js';
+import {
+  type ClientNote,
+  NoteArchived,
+  NoteNotFound,
+  type NoteView,
+  readNewNote,
+  readNoteChange,
+} from './note.js';
+import type { ClientsNoteRepository } from './note.db.js';
+import { type ClientsAccess } from './policy.js';
 import { viewOf } from './opportunity.service.js';
 import { clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
@@ -54,9 +65,73 @@ export class ClientService {
     private readonly clients: ClientsClientRepository,
     private readonly contacts: ClientsContactRepository,
     private readonly productsInUse: ClientsProductInUseRepository,
-    /** #277. A client's deals, which its page lists. */
-    private readonly opportunities: Pick<ClientsOpportunityRepository, 'of'>,
+    /** #277. A client's deals, which its page lists, and what has happened to them (#278). */
+    private readonly opportunities: Pick<ClientsOpportunityRepository, 'of' | 'activityOf'>,
+    /** #278. Its notes, each with a heading. */
+    private readonly notes: ClientsNoteRepository,
   ) {}
+
+  /**
+   * Adds a note to a client: a heading and the note. Anybody with a role's, at any client, as a
+   * contact is (#278). Whoever adds it wrote it.
+   */
+  async addNote(actor: Actor, clientId: string, body: unknown): Promise<NoteView> {
+    const access = await this.accessOf(actor);
+    this.guard.enforce(clientsPolicy.contribute(actor, access, 'addNote'));
+
+    /* The policy allows only somebody holding a role, who is always a person. */
+    if (actor.employeeId === null) {
+      throw new Error('A note was written by nobody.');
+    }
+
+    await this.clientOrRefuse(clientId);
+    const note = readNewNote(body);
+    const id = await this.notes.add(actor, clientId, note, actor.employeeId);
+
+    return noteViewOf(actor, access, await this.noteOrRefuse(id));
+  }
+
+  /** Changes a note's heading or words. Whoever wrote it, or a BD manager; not while archived. */
+  async changeNote(actor: Actor, id: string, body: unknown): Promise<NoteView> {
+    const access = await this.accessOf(actor);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const note = await this.noteOrRefuse(id);
+    this.guard.enforce(clientsPolicy.changeNote(actor, access, note));
+
+    if (note.archivedAt !== null) {
+      throw new NoteArchived();
+    }
+
+    await this.notes.change(actor, id, readNoteChange(body));
+
+    return noteViewOf(actor, access, await this.noteOrRefuse(id));
+  }
+
+  /** Archives a note, or brings one back. Whoever wrote it, or a BD manager. Nothing is deleted. */
+  async archiveNote(actor: Actor, id: string, archived: boolean): Promise<NoteView> {
+    const access = await this.accessOf(actor);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const note = await this.noteOrRefuse(id);
+    this.guard.enforce(clientsPolicy.changeNote(actor, access, note));
+
+    await this.notes.archive(actor, id, archived);
+
+    return noteViewOf(actor, access, await this.noteOrRefuse(id));
+  }
+
+  /**
+   * Everything that has happened to a client's deals, newest first, each entry naming its deal:
+   * the page's Activity section (CLI 99, #278). Anybody with a role's, as the client is (CLI 90).
+   */
+  async activity(actor: Actor, id: string): Promise<Activity[]> {
+    this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor), id));
+
+    await this.clientOrRefuse(id);
+
+    return this.opportunities.activityOf(id);
+  }
 
   /** Every client type, retired ones included and marked, for the form to offer. */
   async types(actor: Actor): Promise<ClientType[]> {
@@ -144,7 +219,10 @@ export class ClientService {
   async page(
     actor: Actor,
     id: string,
-  ): Promise<{ client: Client & { opportunities: DealView[] }; may: ClientPermissions }> {
+  ): Promise<{
+    client: Client & { opportunities: DealView[]; notes: NoteView[] };
+    may: ClientPermissions;
+  }> {
     const access = await this.accessOf(actor);
     this.guard.enforce(clientsPolicy.read(actor, access, id));
 
@@ -155,6 +233,8 @@ export class ClientService {
         ...client,
         /* Each with what the person reading may do to it, for the page to offer. #277. */
         opportunities: client.opportunities.map((deal) => viewOf(actor, access, deal)),
+        /* And each note, with whether they may change it. #278. */
+        notes: client.notes.map((note) => noteViewOf(actor, access, note)),
       },
       may: {
         change: clientsPolicy.changeClient(actor, access, client).allowed,
@@ -337,12 +417,37 @@ export class ClientService {
       throw new ClientNotFound();
     }
 
-    const [contacts, products, opportunities] = await Promise.all([
+    const [contacts, products, opportunities, notes] = await Promise.all([
       this.contacts.of(id),
       this.productsInUse.of(id),
       this.opportunities.of(id),
+      this.notes.of(id),
     ]);
 
-    return { ...client, contacts, products, opportunities };
+    return { ...client, contacts, products, opportunities, notes };
   }
+
+  private async noteOrRefuse(id: string): Promise<ClientNote> {
+    const found = isAnId(id) ? await this.notes.find(id) : undefined;
+
+    if (found === undefined) {
+      throw new NoteNotFound();
+    }
+
+    return found;
+  }
+}
+
+/** A note, with whether the person reading may change it: its writer or a BD manager. */
+function noteViewOf(actor: Actor, access: ClientsAccess, note: ClientNote): NoteView {
+  return {
+    id: note.id,
+    heading: note.heading,
+    body: note.body,
+    writtenBy: note.writtenBy,
+    writtenAt: note.writtenAt,
+    editedAt: note.editedAt,
+    archivedAt: note.archivedAt,
+    may: { change: clientsPolicy.changeNote(actor, access, note).allowed },
+  };
 }

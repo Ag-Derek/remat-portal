@@ -115,6 +115,8 @@ describe('the entities an entry can be about', () => {
       /* #277. Who owns a deal, and what it was said to be worth and when, is what a pipeline
          review argues about. */
       'clients_opportunity',
+      /* #278. What the department knows about a client, and who wrote or changed it. */
+      'clients_client_note',
     ]);
   });
 });

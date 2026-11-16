@@ -1,5 +1,6 @@
 /**
- * Opportunities, which the screen calls deals. #277, Clients SRS CLI 10 to CLI 17.
+ * Opportunities, which the screen calls deals. #277, Clients SRS CLI 10 to CLI 17, and whether
+ * each will have a POC, #278, CLI 19.
  *
  * Every method asks `clientsPolicy` first, before reading the request or looking anything up, so
  * somebody refused learns nothing from what they sent. Stages and outcomes are not changed here:
@@ -25,12 +26,14 @@ import {
   AlreadyOpen,
   type ClientsOpportunityRepository,
   Ended,
+  PocDecisionSettled,
   ProductRetired,
 } from './opportunity.db.js';
 import { type ClientsAccess, clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
 import type { ClientsProductInUseRepository } from './product-in-use.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
+import { isSigned, optionsOf, PocDecisionFixed } from './stage.js';
 
 export class OpportunityService {
   constructor(
@@ -43,9 +46,10 @@ export class OpportunityService {
   ) {}
 
   /**
-   * Opens a deal for a client and a product, owned by whoever opens it (CLI 12). Anybody with a
-   * clients role may, at any client: an associate owns what they open, as a BD manager does. An
-   * owner named in the request is not read; moving a deal is a BD manager's, later (CLI 92).
+   * Opens a deal for a client and a product (CLI 12). Anybody with a clients role may, at any
+   * client, and owns what they open. A BD manager may instead name somebody else holding a role
+   * to own it from the start (#278), as they could move it to them a moment later (CLI 92); an
+   * associate who names anybody but themselves is told only a BD manager can.
    *
    * A client has one open deal per product (CLI 11), and a retired product takes none (CLI 08).
    * The database holds both; this turns its refusal into a sentence that names what is in the way.
@@ -55,12 +59,23 @@ export class OpportunityService {
     this.guard.enforce(clientsPolicy.contribute(actor, access, 'createDeal'));
 
     /* The policy allows only somebody holding a role, who is always a person. */
-    const ownerId = actor.employeeId;
-    if (ownerId === null) {
+    if (actor.employeeId === null) {
       throw new Error('A deal was opened by nobody.');
     }
 
     const deal = readNewOpportunity(body);
+    const ownerId = deal.ownerId ?? actor.employeeId;
+
+    if (ownerId !== actor.employeeId) {
+      this.guard.enforce(clientsPolicy.openDealFor(actor, access));
+
+      if ((await this.grants.rolesOf(ownerId)).length === 0) {
+        throw new InvalidOpportunity(
+          'ownerId',
+          'Whoever owns a deal needs a role in clients. Choose somebody who has one.',
+        );
+      }
+    }
     const [client, product] = await Promise.all([
       this.clients.find(deal.clientId),
       this.products.product(deal.productId),
@@ -134,9 +149,18 @@ export class OpportunityService {
 
     const change = readOpportunityChange(body);
 
+    /* CLI 19. Answered, and changed as often as it needs to be, until the contract is signed;
+       then settled. Sending the answer it already has is no change, so a form that sends every
+       field is not refused for it. */
+    if (change.hasPoc !== undefined && change.hasPoc !== deal.hasPoc && isSigned(deal.stage)) {
+      throw new PocDecisionFixed(deal.product.name);
+    }
+
     try {
       await this.opportunities.change(actor, id, change);
     } catch (error) {
+      /* Signed between the look and the write. */
+      if (error instanceof PocDecisionSettled) throw new PocDecisionFixed(deal.product.name);
       if (error instanceof Ended) {
         /* Ended between the look and the write: say how, as it is now. */
         const now = await this.opportunityOrRefuse(id);
@@ -165,14 +189,17 @@ export class OpportunityService {
 
 /**
  * A deal, with the policy's answers about it for the screen to offer. Editing an ended deal is
- * offered to nobody, since the database refuses it whoever asks.
+ * offered to nobody, since the database refuses it whoever asks; nor is moving a deal in its POC,
+ * which its POC moves (CLI 24), nor answering the POC question once it is settled (CLI 19).
  */
 export function viewOf(actor: Actor, access: ClientsAccess, deal: Opportunity): DealView {
+  const change = deal.outcome === 'OPEN' && clientsPolicy.changeDeal(actor, access, deal).allowed;
+  const move = change && deal.stage !== 'POC';
+
   return {
     ...deal,
-    may: {
-      change: deal.outcome === 'OPEN' && clientsPolicy.changeDeal(actor, access, deal).allowed,
-    },
+    may: { change, move, decidePoc: change && !isSigned(deal.stage) },
+    moves: move ? optionsOf(deal) : [],
   };
 }
 

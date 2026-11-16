@@ -36,7 +36,8 @@ interface ClientJson {
   name: string;
   type: { id: string; name: string };
   owner: { id: string; name: string };
-  note: string | null;
+  /** Its notes, each with a heading. #278. */
+  notes: unknown[];
   createdAt: string;
 }
 
@@ -107,17 +108,12 @@ async function clientCount(): Promise<number> {
 
 describe('creating a client', () => {
   it('may be done by an associate, who becomes its owner', async () => {
-    const adb = await created(associate, {
-      name: 'ADB',
-      typeId: types.Bank,
-      note: 'Agricultural Development Bank',
-    });
+    const adb = await created(associate, { name: 'ADB', typeId: types.Bank });
 
     expect(adb).toMatchObject({
       name: 'ADB',
       type: { id: types.Bank, name: 'Bank' },
       owner: { id: people.officer, name: await nameOf(people.officer) },
-      note: 'Agricultural Development Bank',
     });
     expect(Date.parse(adb.createdAt)).not.toBeNaN();
   });
@@ -158,12 +154,11 @@ describe('creating a client', () => {
     expect(client.name).toBe('Agricultural Development Bank');
   });
 
-  /* Shown as missing, not as a blank. */
-  it('has no note where none was given, or only spaces were', async () => {
-    expect((await created(associate, { name: 'ADB', typeId: types.Bank })).note).toBeNull();
-    expect(
-      (await created(associate, { name: 'Ecobank', typeId: types.Bank, note: '   ' })).note,
-    ).toBeNull();
+  /* #278. Notes are added on the client page, each with a heading. */
+  it('starts with no notes, and takes none on creation', async () => {
+    const client = await created(associate, { name: 'ADB', typeId: types.Bank, note: 'Hello' });
+
+    expect(client.notes).toEqual([]);
   });
 
   it('may be of a type added since the migration', async () => {
@@ -252,13 +247,6 @@ describe('a request that makes no sense', () => {
       400,
       { field: 'typeId' },
     ]);
-    expect(
-      await refusal({ name: 'ADB', typeId: types.Bank, note: 'x'.repeat(2001) }),
-    ).toMatchObject([400, { field: 'note' }]);
-    expect(await refusal({ name: 'ADB', typeId: types.Bank, note: 7 })).toMatchObject([
-      400,
-      { field: 'note' },
-    ]);
     expect(await refusal({})).toMatchObject([400, { field: 'name' }]);
 
     expect(await clientCount()).toBe(0);
@@ -291,7 +279,8 @@ describe('a request that makes no sense', () => {
   });
 });
 
-/* CLI 05, #276. Only the owner or a BD manager changes a client's name, type, owner or note. */
+/* CLI 05, #276. Only the owner or a BD manager changes a client's name and type, and only a BD
+   manager its owner. Its notes are their own, below (#278). */
 describe('changing a client', () => {
   /** An associate who neither owns the client nor manages anybody. */
   let colleague: Asker;
@@ -305,7 +294,7 @@ describe('changing a client', () => {
       'them',
     );
     colleague = { employeeId: people.opsDirector };
-    adb = await created(associate, { name: 'ADB', typeId: types.Bank, note: 'From the summit' });
+    adb = await created(associate, { name: 'ADB', typeId: types.Bank });
   });
 
   async function change(as: Asker, body: unknown): Promise<globalThis.Response> {
@@ -320,37 +309,27 @@ describe('changing a client', () => {
   }
 
   async function asItIs(): Promise<unknown> {
-    return (await admin.query('SELECT name, type_id, owner_id, note FROM clients_client')).rows;
+    return (await admin.query('SELECT name, type_id, owner_id FROM clients_client')).rows;
   }
 
-  it('may be done by its owner: name, type and note', async () => {
+  it('may be done by its owner: name and type', async () => {
     expect(
       await changed(associate, {
         name: 'Agricultural  Development Bank ',
         typeId: types.DFI,
-        note: 'State owned',
       }),
     ).toMatchObject({
       name: 'Agricultural Development Bank',
       type: { id: types.DFI, name: 'DFI' },
       owner: { id: people.officer },
-      note: 'State owned',
     });
   });
 
   it('changes only what the request names', async () => {
-    expect(await changed(associate, { note: 'Visit in March' })).toMatchObject({
+    expect(await changed(associate, { typeId: types.DFI })).toMatchObject({
       name: 'ADB',
-      type: { id: types.Bank },
-      note: 'Visit in March',
+      type: { id: types.DFI },
     });
-  });
-
-  /* Shown as missing afterwards, not as a blank. */
-  it('takes the note away when it is given as nothing', async () => {
-    expect((await changed(associate, { note: null })).note).toBeNull();
-    await changed(associate, { note: 'Back again' });
-    expect((await changed(associate, { note: '  ' })).note).toBeNull();
   });
 
   it('may be done by a BD manager, to a client they do not own', async () => {
@@ -365,14 +344,14 @@ describe('changing a client', () => {
     });
 
     /* The new owner may change it now; the old one may not. */
-    expect((await change(colleague, { note: 'Mine now' })).status).toBe(200);
-    expect((await change(associate, { note: 'Still mine?' })).status).toBe(403);
+    expect((await change(colleague, { name: 'Mine now' })).status).toBe(200);
+    expect((await change(associate, { name: 'Still mine?' })).status).toBe(403);
   });
 
   it('is not moved by its owner, who is told to ask a BD manager, and nothing changes', async () => {
     const before = await asItIs();
 
-    const response = await change(associate, { ownerId: people.opsDirector, note: 'Yours now' });
+    const response = await change(associate, { ownerId: people.opsDirector, name: 'Yours now' });
 
     expect([response.status, await response.json()]).toEqual([
       403,
@@ -382,7 +361,7 @@ describe('changing a client', () => {
   });
 
   it('is left with its owner when the owner names themself', async () => {
-    expect((await changed(associate, { ownerId: people.officer, note: 'Same' })).note).toBe('Same');
+    expect((await changed(associate, { ownerId: people.officer, name: 'Same' })).name).toBe('Same');
   });
 
   it('is not moved to somebody with no clients role', async () => {
@@ -407,7 +386,6 @@ describe('changing a client', () => {
       { name: 'Not ADB' },
       { typeId: types.DFI },
       { ownerId: people.opsDirector },
-      { note: null },
     ]) {
       const response = await change(colleague, body);
 
@@ -443,7 +421,7 @@ describe('changing a client', () => {
       types.Bank,
     ]);
 
-    expect((await changed(associate, { typeId: types.Bank, note: 'Still a bank' })).note).toBe(
+    expect((await changed(associate, { typeId: types.Bank, name: 'Still a bank' })).name).toBe(
       'Still a bank',
     );
 
@@ -1100,5 +1078,180 @@ describe('anybody with no clients role', () => {
       expect(response.status).toBe(404);
     }
     expect(await clientCount()).toBe(1);
+  });
+});
+
+/* ---------------------------------------------------------------- notes, #278 */
+
+describe('notes on a client', () => {
+  interface NoteJson {
+    id: string;
+    heading: string;
+    body: string;
+    writtenBy: { id: string; name: string };
+    writtenAt: string;
+    editedAt: string | null;
+    archivedAt: string | null;
+    may: { change: boolean };
+  }
+
+  let adb: ClientJson;
+  let colleague: Asker;
+
+  beforeEach(async () => {
+    await new ClientsRoleRepository(db).grant(
+      people.opsDirector,
+      'ASSOCIATE',
+      people.headOfHr,
+      'them',
+    );
+    colleague = { employeeId: people.opsDirector };
+    adb = await created(bdManager, { name: 'ADB', typeId: types.Bank });
+  });
+
+  function add(as: Asker, body: unknown): Promise<globalThis.Response> {
+    return app.send('POST', `/api/clients/clients/${adb.id}/notes`, as, body);
+  }
+
+  async function added(as: Asker, heading = 'How they buy', body = 'A tender every March.') {
+    const response = await add(as, { heading, body });
+    expect(response.status).toBe(201);
+
+    return (await response.json()) as NoteJson;
+  }
+
+  async function notesOnThePage(as: Asker = associate): Promise<NoteJson[]> {
+    return (
+      (await (await app.send('GET', `/api/clients/clients/${adb.id}`, as)).json()) as {
+        notes: NoteJson[];
+      }
+    ).notes;
+  }
+
+  it('may be added by anybody with a role, at a client they do not own', async () => {
+    const note = await added(associate, '  Who signs off  ', '  The CFO, Mrs Owusu.  ');
+
+    expect(note).toMatchObject({
+      heading: 'Who signs off',
+      body: 'The CFO, Mrs Owusu.',
+      writtenBy: { id: people.officer, name: await nameOf(people.officer) },
+      editedAt: null,
+      archivedAt: null,
+      may: { change: true },
+    });
+  });
+
+  it('are as many as are wanted, newest first, on the client page', async () => {
+    await added(associate, 'First');
+    await added(bdManager, 'Second');
+
+    expect((await notesOnThePage()).map((note) => note.heading)).toEqual(['Second', 'First']);
+  });
+
+  it('need a heading and words', async () => {
+    for (const [body, field] of [
+      [{ body: 'Words' }, 'heading'],
+      [{ heading: '  ', body: 'Words' }, 'heading'],
+      [{ heading: 'Heading' }, 'body'],
+      [{ heading: 'x'.repeat(121), body: 'Words' }, 'heading'],
+      [{ heading: 'Heading', body: 'x'.repeat(4001) }, 'body'],
+    ] as const) {
+      const response = await add(associate, body);
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { field: string }).field).toBe(field);
+    }
+    expect(await notesOnThePage()).toEqual([]);
+  });
+
+  it('are changed by whoever wrote them, or a BD manager, and marked as changed', async () => {
+    const note = await added(associate);
+
+    for (const as of [associate, bdManager]) {
+      const response = await app.send('PATCH', `/api/clients/notes/${note.id}`, as, {
+        body: 'Changed',
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        heading: 'How they buy',
+        body: 'Changed',
+        editedAt: expect.any(String),
+      });
+    }
+  });
+
+  it('are not changed by another associate, who is told who can', async () => {
+    const note = await added(associate);
+
+    const response = await app.send('PATCH', `/api/clients/notes/${note.id}`, colleague, {
+      body: 'Mine now',
+    });
+
+    expect([response.status, await response.json()]).toEqual([
+      403,
+      {
+        error: 'NotAuthorised',
+        message: `Only ${await nameOf(people.officer)} or a BD manager can change this note.`,
+      },
+    ]);
+    expect((await notesOnThePage(colleague))[0]).toMatchObject({
+      body: 'A tender every March.',
+      may: { change: false },
+    });
+  });
+
+  /* CLI 57. Archived, kept, and brought back; never deleted. */
+  it('are archived and brought back, and not changed while archived', async () => {
+    const note = await added(associate);
+
+    const archived = await app.send('POST', `/api/clients/notes/${note.id}/archive`, associate);
+    expect(((await archived.json()) as NoteJson).archivedAt).not.toBeNull();
+    expect(await notesOnThePage()).toHaveLength(1);
+
+    const refused = await app.send('PATCH', `/api/clients/notes/${note.id}`, associate, {
+      body: 'Changed',
+    });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe('NoteArchived');
+
+    const restored = await app.send('POST', `/api/clients/notes/${note.id}/restore`, bdManager);
+    expect(((await restored.json()) as NoteJson).archivedAt).toBeNull();
+  });
+
+  /* NFR CLI SEC 04. */
+  it('are nothing to somebody without a role', async () => {
+    const note = await added(associate);
+
+    expect((await add(nobody, { heading: 'A', body: 'B' })).status).toBe(404);
+    expect(
+      (await app.send('PATCH', `/api/clients/notes/${note.id}`, nobody, { body: 'B' })).status,
+    ).toBe(404);
+    expect((await app.send('POST', `/api/clients/notes/${note.id}/archive`, nobody)).status).toBe(
+      404,
+    );
+  });
+
+  it('are of a note that exists', async () => {
+    const response = await app.send('PATCH', '/api/clients/notes/987654321', associate, {
+      body: 'B',
+    });
+
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { error: string }).error).toBe('NoteNotFound');
+  });
+
+  /* NFR CLI AUD 01. */
+  it('are written to the audit log as whoever wrote and changed them', async () => {
+    const note = await added(associate);
+    await app.send('PATCH', `/api/clients/notes/${note.id}`, bdManager, { heading: 'New' });
+
+    const { rows } = await admin.query(
+      `SELECT action, actor_employee_id FROM audit_log
+        WHERE entity = 'clients_client_note' ORDER BY id`,
+    );
+    expect(rows).toEqual([
+      { action: 'CREATE', actor_employee_id: people.officer },
+      { action: 'UPDATE', actor_employee_id: people.commercialDirector },
+    ]);
   });
 });

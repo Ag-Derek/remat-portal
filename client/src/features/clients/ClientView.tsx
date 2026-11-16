@@ -24,7 +24,9 @@ import { AddButton, EditButton } from '../../ActionButtons';
 import { day } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
+import { ClientActivity } from './Activity';
 import { ClientDeals, OpportunityFigures } from './Deals';
+import { ClientNotes } from './Notes';
 import { Dialog, DialogFoot, Field, Missing, useSending } from './ui';
 
 /**
@@ -45,6 +47,8 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
   const [problem, setProblem] = useState<Problem | undefined>(undefined);
   const [notFound, setNotFound] = useState(false);
   const [open, setOpen] = useState<Open>(null);
+  /* The deal the Activity section is narrowed to, or null for every deal. */
+  const [activityDeal, setActivityDeal] = useState<string | null>(null);
 
   const load = useCallback(() => {
     clientPage(id)
@@ -112,33 +116,53 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
                 <h2>{client.name}</h2>
                 {client.may.change ? (
                   <EditButton
-                    label={`Edit ${client.name}'s name, type and note`}
+                    label={`Edit ${client.name}'s name and type`}
                     onClick={() => {
                       setOpen({ what: 'details' });
                     }}
                   />
                 ) : null}
               </div>
-              <p className="clients-client-lede">
-                Owned by {client.owner.name}.{' '}
-                {current.length === 0
-                  ? 'No contacts yet.'
-                  : `Contacts: ${listed(current.map((contact) => contact.name))}.`}
-                {client.may.reassign ? (
-                  <>
-                    {' '}
-                    <button
-                      type="button"
-                      className="linkish"
-                      onClick={() => {
-                        setOpen({ what: 'owner' });
-                      }}
-                    >
-                      Move to somebody else
-                    </button>
-                  </>
-                ) : null}
-              </p>
+            </div>
+
+            {/* Who owns it, and whether there is anybody there to talk to, as pills at the
+                right of the heading; under it on a phone. */}
+            <div className="clients-client-pills">
+              <span className="clients-pill is-person" title="Owner">
+                <span className="clients-pill-avatar" aria-hidden="true">
+                  {initialsOf(client.owner.name)}
+                </span>
+                <span className="visually-hidden">Owner: </span>
+                {client.owner.name}
+              </span>
+              {client.may.reassign ? (
+                <EditButton
+                  label={`Change who owns ${client.name}`}
+                  onClick={() => {
+                    setOpen({ what: 'owner' });
+                  }}
+                />
+              ) : null}
+
+              <span className="clients-pill-divider" aria-hidden="true" />
+
+              {current.length > 0 ? (
+                <span className="clients-pill">
+                  {current.length === 1 ? '1 contact' : `${String(current.length)} contacts`}
+                </span>
+              ) : client.may.contribute ? (
+                <button
+                  type="button"
+                  className="clients-pill is-missing"
+                  onClick={() => {
+                    setOpen({ what: 'contact' });
+                  }}
+                >
+                  No contacts yet · Add one
+                </button>
+              ) : (
+                <span className="clients-pill is-missing">No contacts yet</span>
+              )}
             </div>
           </header>
 
@@ -150,7 +174,26 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
             {/* ------------------------------------------------- opportunities */}
 
             <div className="clients-client-main">
-              <ClientDeals client={client} onChanged={load} onSignedOut={onSignedOut} />
+              <ClientDeals
+                client={client}
+                onChanged={load}
+                onShowActivity={(dealId) => {
+                  setActivityDeal(dealId);
+                  document
+                    .getElementById('clients-activity')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                onSignedOut={onSignedOut}
+              />
+
+              {/* -------------------------------------------- activity */}
+
+              <ClientActivity
+                client={client}
+                dealId={activityDeal}
+                onDealChange={setActivityDeal}
+                onSignedOut={onSignedOut}
+              />
             </div>
 
             <aside className="clients-client-side">
@@ -256,16 +299,9 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
                 )}
               </section>
 
-              {/* ------------------------------------------------------- note */}
+              {/* ------------------------------------------------------ notes */}
 
-              <section className="clients-panel" aria-labelledby="clients-note-heading">
-                <header className="clients-side-head">
-                  <h3 id="clients-note-heading">Note</h3>
-                </header>
-                <p className="clients-note">
-                  {client.note === null ? <Missing what="note" /> : client.note}
-                </p>
-              </section>
+              <ClientNotes client={client} onChanged={load} onSignedOut={onSignedOut} />
             </aside>
           </div>
 
@@ -317,11 +353,13 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
   );
 }
 
-/** "Ama", "Ama and Kofi", "Ama, Kofi and Esi". */
-function listed(names: readonly string[]): string {
-  return names.length <= 1
-    ? (names[0] ?? '')
-    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1] ?? ''}`;
+/** "AM" for Ama Mensah: the first letters of the first and last names. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/);
+  const first = words[0]?.[0] ?? '';
+  const last = words.length > 1 ? (words[words.length - 1]?.[0] ?? '') : '';
+
+  return (first + last).toUpperCase();
 }
 
 /** Which dialog is open, and on what. */
@@ -409,7 +447,7 @@ function ContactRow({
   );
 }
 
-/** Name, type and note: the owner's or a BD manager's. */
+/** Name and type: the owner's or a BD manager's. Its notes are their own card (#278). */
 function DetailsDialog({
   client,
   onSaved,
@@ -419,7 +457,6 @@ function DetailsDialog({
   const [types, setTypes] = useState<ClientType[] | undefined>(undefined);
   const [name, setName] = useState(client.name);
   const [typeId, setTypeId] = useState(client.type.id);
-  const [note, setNote] = useState(client.note ?? '');
   const sending = useSending(onSaved, onSignedOut);
 
   useEffect(() => {
@@ -438,7 +475,7 @@ function DetailsDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          sending.send(() => changeClient(client.id, { name, typeId, note }));
+          sending.send(() => changeClient(client.id, { name, typeId }));
         }}
       >
         <Field label="Name" error={sending.errorFor('name')}>
@@ -478,27 +515,7 @@ function DetailsDialog({
           )}
         </Field>
 
-        <Field
-          label="Note"
-          hint="Optional. Leave it empty to take the note away."
-          error={sending.errorFor('note')}
-        >
-          {({ id, describedBy }) => (
-            <textarea
-              id={id}
-              value={note}
-              rows={4}
-              maxLength={2000}
-              aria-describedby={describedBy}
-              disabled={sending.busy}
-              onChange={(event) => {
-                setNote(event.target.value);
-              }}
-            />
-          )}
-        </Field>
-
-        <Other problem={sending.other(['name', 'typeId', 'note'])} />
+        <Other problem={sending.other(['name', 'typeId'])} />
         <DialogFoot
           busy={sending.busy}
           disabled={name.trim() === ''}
@@ -531,11 +548,7 @@ function OwnerDialog({
   }, [onSignedOut]);
 
   return (
-    <Dialog
-      title={`Move ${client.name}`}
-      intro="Only people with a role in clients can look after a client."
-      onClose={onClose}
-    >
+    <Dialog title={`Move ${client.name}`} onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
