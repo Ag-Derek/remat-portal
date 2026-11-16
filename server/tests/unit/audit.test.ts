@@ -101,6 +101,20 @@ describe('the entities an entry can be about', () => {
       'notification_template',
       /* #226. Who colleagues are sent to while somebody is away, and who said so. */
       'leave_cover',
+      /* #293, Clients NFR CLI AUD 01. A product renamed or retired changes what every
+         pipeline filter means, and the row says only what it is called today. */
+      'clients_product_line',
+      'clients_product',
+      /* #276. Who owns a client and what it is called are argued over; the log settles it. */
+      'clients_client_type',
+      'clients_client',
+      /* #276. Anybody with a role corrects a contact, so the log is how a wrong edit is traced. */
+      'clients_contact',
+      /* #276. What a client uses decides what is sold to them next. */
+      'clients_client_product',
+      /* #277. Who owns a deal, and what it was said to be worth and when, is what a pipeline
+         review argues about. */
+      'clients_opportunity',
     ]);
   });
 });

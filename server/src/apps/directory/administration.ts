@@ -338,6 +338,20 @@ export function readReassignment(body: unknown): Reassignment {
   return { toManagerId: toManagerId.trim(), employeeIds: [...new Set(employeeIds as string[])] };
 }
 
+/** Whether somebody is a team lead, as the form sent it: `{ "teamLead": true }`. */
+export function readTeamLead(body: unknown): boolean {
+  const { teamLead } = (typeof body === 'object' && body !== null ? body : {}) as Record<
+    string,
+    unknown
+  >;
+
+  if (typeof teamLead !== 'boolean') {
+    throw new InvalidAdministrationForm('teamLead', 'teamLead must be true or false.');
+  }
+
+  return teamLead;
+}
+
 /** One change to a record, as HR reads its history. NFR AUD 01. */
 export interface RecordChange {
   at: Date;
@@ -365,6 +379,7 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   gender: 'Gender',
   work_mobile: 'Work mobile',
   description: 'Description',
+  team_lead: 'Team lead on the chart',
 };
 
 /** What the ids in a history point at, by the column that holds them. */

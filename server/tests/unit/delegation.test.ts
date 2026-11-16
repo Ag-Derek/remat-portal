@@ -37,7 +37,13 @@ const ESI = 'esi';
 const ADWOA = 'adwoa';
 
 function person(employeeId: string, roles: RoleCode[] = ['EMPLOYEE'], isManager = false): Actor {
-  return { employeeId, roles, isManager, description: `employee ${employeeId}` };
+  return {
+    employeeId,
+    roles,
+    isManager,
+    isSysAdmin: roles.includes('SYS_ADMIN'),
+    description: `employee ${employeeId}`,
+  };
 }
 
 function delegation(fields: Partial<ApprovalDelegation> = {}): ApprovalDelegation {

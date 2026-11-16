@@ -27,7 +27,7 @@ import {
 } from './report.js';
 import { theYearToOpenOn } from '../balance/balance-statement.js';
 import { byStartDate, type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { BalanceRepository } from '../balance/balance.db.js';
 import type { DepartmentRepository } from '../../../core/organisation/department/department.db.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
@@ -185,6 +185,6 @@ export class ReportService {
 
   /** Today, in UTC. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }

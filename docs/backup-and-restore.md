@@ -104,3 +104,4 @@ npm run restore -- backups/<name>.manifest.json # BACKUP_RESTORE_URL
 | Date | Backup | Into | Result | Time |
 |---|---|---|---|---|
 | 2026-09-14 | Seeded local database, `npm run backup` | New database, local Postgres 17 | Verified: 32 tables, 231 rows | 1s |
+| 2026-11-04 | Production, Backup run 41854864171 (the first green one) | Clean Postgres 17 in Actions | Verified: 38 tables, 426 rows | 0.3s |

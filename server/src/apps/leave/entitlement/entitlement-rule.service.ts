@@ -23,7 +23,7 @@ import type {
   EntitlementRuleListOptions,
   EntitlementRuleRepository,
 } from './entitlement-rule.db.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 
 export class EntitlementRuleService {
   constructor(
@@ -161,6 +161,6 @@ export class EntitlementRuleService {
 
   /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }

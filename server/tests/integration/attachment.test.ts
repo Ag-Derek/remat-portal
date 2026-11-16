@@ -7,7 +7,7 @@ import { Guard, NotAuthorised } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
 import { AUDITED_ENTITIES } from '../../src/core/audit/audit.js';
-import { calendarDateIn } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate } from '../../src/core/calendar/time.js';
 import type { LeaveYear } from '../../src/apps/leave/leave-year/leave-year.js';
 import {
   ACCEPTED_CONTENT_TYPES,
@@ -191,7 +191,7 @@ async function clear(): Promise<void> {
 /* --------------------------------------------------------------------- the fixtures */
 
 function daysFromToday(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + offset);
 

@@ -77,6 +77,20 @@ import { CoverService } from './apps/leave/cover/cover.service.js';
 import { coverRoutes } from './apps/leave/cover/routes.js';
 import { DirectoryService } from './apps/directory/directory.service.js';
 import { type DirectoryLimits, directoryRoutes } from './apps/directory/routes.js';
+import { clientsRoutes } from './apps/clients/routes.js';
+import type { ClientsRoleRepository } from './apps/clients/role.db.js';
+import type { ClientsClientRepository } from './apps/clients/client.db.js';
+import { ClientService } from './apps/clients/client.service.js';
+import type { ClientsContactRepository } from './apps/clients/contact.db.js';
+import type { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.js';
+import type { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
+import { OpportunityService } from './apps/clients/opportunity.service.js';
+import type { ClientsProductRepository } from './apps/clients/product.db.js';
+import { SetupService } from './apps/clients/setup.service.js';
+import { RoleService } from './apps/clients/role.service.js';
+import { clientsVisibility } from './apps/clients/visibility.js';
+import { clientsDoor } from './apps/clients/door.js';
+import { portalRoutes } from './core/portal/routes.js';
 import type { PhotoRepository } from './apps/directory/photo.db.js';
 import type { DirectoryEmailService } from './apps/directory/email.service.js';
 import type { EmailOutbox } from './core/notification/outbox.service.js';
@@ -86,7 +100,7 @@ import { AdministrationService } from './apps/directory/administration.service.j
 import type { EmployeeService } from './core/organisation/employee/employee.service.js';
 import type { WorkPatternRepository } from './core/calendar/work-pattern/work-pattern.db.js';
 import { identify, insistOnANewPassword } from './core/http/identify.js';
-import { answerProblems, type FailureLog } from './core/http/problems.js';
+import { answerProblems, type FailureLog, NO_SUCH_ROUTE } from './core/http/problems.js';
 import { requestRoutes } from './apps/leave/leave-request/routes.js';
 import { publicSessionRoutes, signedInSessionRoutes } from './apps/leave/session/session.routes.js';
 import { sessionSecretFrom } from './core/identity/sign-in/session-cookie.routes.js';
@@ -201,6 +215,21 @@ export interface Application {
   covers?: CoverRepository;
   /** How much one person may ask of the directory. `DIRECTORY_LIMITS` when not given. */
   directoryLimits?: DirectoryLimits;
+  /**
+   * #274. Who holds a clients role. Optional, so a test app without it has no clients routes.
+   * Mounted outside production only, while clients is being built.
+   */
+  clientsRoles?: ClientsRoleRepository;
+  /** #293. Product lines and products. Optional, so a test app without them has no setup routes. */
+  clientsProducts?: ClientsProductRepository;
+  /** #276. Clients themselves. Optional, so a test app without them has no client routes. */
+  clientsClients?: ClientsClientRepository;
+  /** #276. Their contacts, which go with them: no client routes without both. */
+  clientsContacts?: ClientsContactRepository;
+  /** #276. The products they use, which go with them too. */
+  clientsProductsInUse?: ClientsProductInUseRepository;
+  /** #277. Their deals, which go with them as well. */
+  clientsOpportunities?: ClientsOpportunityRepository;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -468,65 +497,132 @@ export function buildApp(parts: Application): Express {
   /* The staff directory, every employee's. Who is away comes from leave through the
      directory's own port, so neither app imports the other; only a return date crosses.
 
-     Still being built, so not mounted in production: `/api/directory` answers 404 there
-     until it is finished. The client hides the screen on the same terms. */
-  if (process.env.NODE_ENV !== 'production') {
-    /* #226. Cover is named on leave and shown in the directory, and the colleague named is
-       told by the directory's emails, so it opens with the directory. Same port arrangement as
-       who is away: the directory is handed the service, and neither imports the other. */
-    const cover =
-      parts.covers === undefined
-        ? undefined
-        : new CoverService(
-            parts.guard,
-            parts.covers,
-            parts.requests,
-            parts.employees,
-            parts.directoryEmails,
-          );
+     #226. Cover is named on leave and shown in the directory, and the colleague named is
+     told by the directory's emails, so it is built with the directory. Same port arrangement as
+     who is away: the directory is handed the service, and neither imports the other. */
+  const cover =
+    parts.covers === undefined
+      ? undefined
+      : new CoverService(
+          parts.guard,
+          parts.covers,
+          parts.requests,
+          parts.employees,
+          parts.directoryEmails,
+        );
 
-    if (cover !== undefined) {
-      app.use('/api', coverRoutes({ cover }));
-    }
+  if (cover !== undefined) {
+    app.use('/api', coverRoutes({ cover }));
+  }
+
+  app.use(
+    '/api',
+    directoryRoutes({
+      guard: parts.guard,
+      limits: parts.directoryLimits,
+      directory: new DirectoryService(
+        parts.guard,
+        parts.employees,
+        parts.departments,
+        parts.photos ?? { photosOf: () => Promise.resolve([]) },
+        parts.patterns === undefined
+          ? undefined
+          : new AwayTodayService(parts.requests, parts.employees, parts.patterns, parts.holidays),
+        undefined,
+        cover,
+      ),
+      photos:
+        parts.photos === undefined
+          ? undefined
+          : new PhotoService(parts.guard, parts.photos, parts.employees, parts.storage),
+      emails: parts.directoryEmails,
+      /* HR's Administration tab. Every route asks `directoryPolicy.administer` itself. */
+      administration:
+        parts.employeeRecords === undefined || parts.patterns === undefined
+          ? undefined
+          : new AdministrationService(
+              parts.guard,
+              parts.employees,
+              parts.employeeRecords,
+              parts.departments,
+              parts.patterns,
+              parts.accounts,
+              parts.roles,
+              parts.audit,
+            ),
+    }),
+  );
+
+  /* Clients, the business development pipeline. #274.
+
+     Still being built, so not mounted in production: `/api/clients` answers 404 there until it
+     goes live, as the directory's did. The client hides the screen on the same terms. */
+  const clientsRoles = process.env.NODE_ENV === 'production' ? undefined : parts.clientsRoles;
+
+  if (clientsRoles !== undefined) {
+    /* A client's page lists its deals, so there are client routes only with both. */
+    const clientParts =
+      parts.clientsClients === undefined ||
+      parts.clientsContacts === undefined ||
+      parts.clientsProductsInUse === undefined ||
+      parts.clientsOpportunities === undefined
+        ? undefined
+        : {
+            clients: parts.clientsClients,
+            contacts: parts.clientsContacts,
+            productsInUse: parts.clientsProductsInUse,
+            opportunities: parts.clientsOpportunities,
+          };
 
     app.use(
       '/api',
-      directoryRoutes({
-        guard: parts.guard,
-        limits: parts.directoryLimits,
-        directory: new DirectoryService(
-          parts.guard,
-          parts.employees,
-          parts.departments,
-          parts.photos ?? { photosOf: () => Promise.resolve([]) },
-          parts.patterns === undefined
+      clientsRoutes({
+        door: clientsDoor(parts.guard, clientsRoles),
+        grants: clientsRoles,
+        roles: new RoleService(parts.guard, clientsRoles, parts.employees),
+        setup:
+          parts.clientsProducts === undefined || parts.clientsClients === undefined
             ? undefined
-            : new AwayTodayService(parts.requests, parts.employees, parts.patterns, parts.holidays),
-          undefined,
-          cover,
-        ),
-        photos:
-          parts.photos === undefined
-            ? undefined
-            : new PhotoService(parts.guard, parts.photos, parts.employees, parts.storage),
-        emails: parts.directoryEmails,
-        /* HR's Administration tab. Every route asks `directoryPolicy.administer` itself. */
-        administration:
-          parts.employeeRecords === undefined || parts.patterns === undefined
-            ? undefined
-            : new AdministrationService(
+            : new SetupService(
                 parts.guard,
-                parts.employees,
-                parts.employeeRecords,
-                parts.departments,
-                parts.patterns,
-                parts.accounts,
-                parts.roles,
-                parts.audit,
+                clientsRoles,
+                parts.clientsProducts,
+                parts.clientsClients,
+              ),
+        clients:
+          clientParts === undefined
+            ? undefined
+            : new ClientService(
+                parts.guard,
+                clientsRoles,
+                clientParts.clients,
+                clientParts.contacts,
+                clientParts.productsInUse,
+                clientParts.opportunities,
+              ),
+        opportunities:
+          clientParts === undefined
+            ? undefined
+            : new OpportunityService(
+                parts.guard,
+                clientsRoles,
+                clientParts.clients,
+                clientParts.productsInUse,
+                clientParts.opportunities,
               ),
       }),
     );
   }
+
+  /* #274. Which tiles are only some people's, and whether this person has them. Clients is the
+     only one, and is registered on the same terms as its routes: where they are not mounted, its
+     tile is nobody's. */
+  app.use(
+    '/api',
+    portalRoutes({
+      apps: clientsRoles === undefined ? [] : [clientsVisibility(parts.guard, clientsRoles)],
+    }),
+  );
 
   /* Who was sent which email and what became of it. An HR Administrator's and a System
      Administrator's, which `outboxPolicy` decides rather than the mounting. */
@@ -629,9 +725,7 @@ export function buildApp(parts: Application): Express {
   );
 
   app.use('/api', (_request: Request, response: Response) => {
-    response
-      .status(404)
-      .json({ error: 'NoSuchRoute', message: 'There is nothing at that address.' });
+    response.status(404).json(NO_SUCH_ROUTE);
   });
 
   app.use(answerProblems(parts.failures));

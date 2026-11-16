@@ -125,7 +125,7 @@ import {
   LeaveTypeNotFound,
 } from '../leave-type/leave-type.js';
 import { type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
-import { type CalendarDate, calendarDateIn, dayAfter } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate, dayAfter } from '../../../core/calendar/time.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { LeaveDecisionRepository } from './leave-decision.db.js';
 import type { LeaveRequestListOptions, LeaveRequestRepository } from './leave-request.db.js';
@@ -2488,7 +2488,7 @@ export class LeaveRequestService {
    * so it is also the day the person at the screen is having. NFR DAT 03.
    */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

@@ -8,6 +8,9 @@ export default defineConfig({
     // Migrates one template database, and drops it and every copy afterwards.
     globalSetup: ['server/tests/setup/integration-database.ts'],
 
+    // Every file has the same today. See the file for why.
+    setupFiles: ['server/tests/setup/pinned-date.ts'],
+
     /**
      * Files run in parallel, each against a database of its own.
      *

@@ -20,7 +20,7 @@ import {
 import type { LeaveTypeRepository } from '../leave-type/leave-type.db.js';
 import { byStartDate, type LeaveYear, LeaveYearNotFound } from '../leave-year/leave-year.js';
 import type { LeaveYearRepository } from '../leave-year/leave-year.db.js';
-import { calendarDateIn, type CalendarDate, formatDay } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate, formatDay } from '../../../core/calendar/time.js';
 import type { LeavePlanRepository } from './plan.db.js';
 import {
   InvalidPlan,
@@ -234,7 +234,7 @@ export class LeavePlanService {
 
   /** NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

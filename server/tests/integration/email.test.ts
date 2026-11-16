@@ -111,6 +111,11 @@ async function outboxRows(kind?: string): Promise<Record<string, unknown>[]> {
   return rows;
 }
 
+/** When a drain runs, for a row queued just now. Whole seconds, so it reads back unchanged. */
+function anHourFromNow(): Date {
+  return new Date(Math.ceil(Date.now() / 1000) * 1000 + 60 * 60_000);
+}
+
 const ONE: NewOutboxEmail = {
   kind: 'WELCOME',
   recipientEmployeeId: null,

@@ -25,6 +25,8 @@ export interface EmployeeTable {
   /** Kept by the person themselves; everything above is HR's. */
   work_mobile: Generated<string | null>;
   description: Generated<string | null>;
+  /** HR's. Their reports are drawn beside them on the chart, under their own manager. */
+  team_lead: Generated<boolean>;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -678,8 +680,156 @@ export interface EmailOptOutTable {
   opted_out_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * A clients grant: BD manager or associate. #274, Clients TDD 4.8.
+ *
+ * Granted once and ended once; nothing else about a row ever changes, and none is deleted.
+ * lms_app may update the three `ended_` columns and nothing else.
+ */
+export interface ClientsRoleTable {
+  id: Generated<string>;
+  employee_id: ColumnType<string, string, never>;
+  role: ColumnType<string, string, never>;
+  granted_by: ColumnType<string, string, never>;
+  granted_at: ColumnType<Date, never, never>;
+  ended_at: ColumnType<Date | null, never, Date>;
+  ended_by: ColumnType<string | null, never, string | null>;
+  ended_reason: ColumnType<string | null, never, string>;
+}
+
+/**
+ * A product line: Symphony, Dura Capital. #293, Clients TDD 4.1. Renamed and retired, never
+ * deleted.
+ */
+export interface ClientsProductLineTable {
+  id: Generated<string>;
+  name: string;
+  retired_on: string | null;
+}
+
+/** A product, in exactly one line for good. #293, Clients TDD 4.1, SRS CLI 07. */
+export interface ClientsProductTable {
+  id: Generated<string>;
+  line_id: ColumnType<string, string, never>;
+  name: string;
+  retired_on: string | null;
+}
+
+/**
+ * What kind of institution a client is: Bank, Broker. #276. Added as the department needs,
+ * renamed and retired, never deleted.
+ */
+export interface ClientsClientTypeTable {
+  id: Generated<string>;
+  name: string;
+  retired_on: string | null;
+}
+
+/**
+ * A client: a bank, broker or lender the department sells to. #276. Its name, type, owner and
+ * note change; when it was created does not, and none is deleted.
+ */
+export interface ClientsClientTable {
+  id: Generated<string>;
+  name: string;
+  type_id: string;
+  owner_id: string;
+  note: string | null;
+  created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * Somebody the department deals with at a client. #276. Corrected and removed by anybody with a
+ * clients role; never moved to another client, and never deleted.
+ */
+export interface ClientsContactTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  name: string;
+  job_title: string | null;
+  email: string | null;
+  phone: string | null;
+  created_at: ColumnType<Date, never, never>;
+  removed_at: ColumnType<Date | null, never, Date | null>;
+}
+
+/**
+ * A product a client already uses, from a date. #276, Clients SRS CLI 04, TDD 4.1. Its dates are
+ * corrected; which client and product never change, and none is deleted.
+ */
+export interface ClientsClientProductTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  product_id: ColumnType<string, string, never>;
+  since_on: string;
+  ended_on: string | null;
+  won_by: ColumnType<string | null, string | null | undefined, never>;
+}
+
+/**
+ * An opportunity, a deal: one client and one product. #277, Clients SRS CLI 12, TDD 4.2. Which
+ * client it is for never changes, and none is deleted. Its value is minor units of one currency,
+ * and its expected close a half and a year; each pair is both null while unknown.
+ */
+export interface ClientsOpportunityTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  product_id: string;
+  owner_id: string;
+  /** Every deal starts open; only the stage service (#278) moves it on. */
+  outcome: ColumnType<string, never, never>;
+  /** BIGINT, which pg hands back as a string. */
+  value_minor: Nullable<string, string | number>;
+  currency: Nullable<string>;
+  probability: Nullable<number>;
+  close_half: Nullable<string>;
+  close_year: Nullable<number>;
+  waiting_on: Nullable<string>;
+  waiting_note: Nullable<string>;
+  stated_interest: Nullable<string>;
+  created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * What a deal's value and probability were after one change to either. #277, TDD 4.2. Written
+ * once, never changed or deleted (NFR CLI REC 01).
+ */
+export interface ClientsValueChangeTable {
+  id: Generated<string>;
+  opportunity_id: ColumnType<string, string, never>;
+  /** BIGINT, which pg hands back as a string. */
+  value_minor: ColumnType<string | null, string | number | null, never>;
+  currency: ColumnType<string | null, string | null, never>;
+  probability: ColumnType<number | null, number | null, never>;
+  source: ColumnType<string, string, never>;
+  activity_id: ColumnType<string | null, string | null | undefined, never>;
+  changed_by: ColumnType<string, string, never>;
+  changed_at: ColumnType<Date, never, never>;
+}
+
+/** A column that may be null, and is left null when an insert leaves it out. */
+type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
+
 export interface Database {
   app_user: AppUserTable;
+  /** #277. */
+  clients_opportunity: ClientsOpportunityTable;
+  /** #277. */
+  clients_value_change: ClientsValueChangeTable;
+  /** #276. */
+  clients_client_product: ClientsClientProductTable;
+  /** #276. */
+  clients_contact: ClientsContactTable;
+  /** #276. */
+  clients_client: ClientsClientTable;
+  /** #276. */
+  clients_client_type: ClientsClientTypeTable;
+  /** #293. */
+  clients_product: ClientsProductTable;
+  /** #293. */
+  clients_product_line: ClientsProductLineTable;
+  /** #274. */
+  clients_role: ClientsRoleTable;
   /** FR 49. */
   approval_delegation: ApprovalDelegationTable;
   /** NFR SEC 04. */

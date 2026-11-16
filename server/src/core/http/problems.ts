@@ -14,6 +14,18 @@ export interface Problem {
   field?: string;
 }
 
+/**
+ * What an address with nothing at it answers, with a 404.
+ *
+ * One value, because a door that must look like no door at all answers with exactly this: the
+ * clients app, to somebody with no clients role (#274, Clients NFR CLI SEC 04). Were the two
+ * worded apart, the difference would be the thing that gave it away.
+ */
+export const NO_SUCH_ROUTE: Readonly<Problem> = Object.freeze({
+  error: 'NoSuchRoute',
+  message: 'There is nothing at that address.',
+});
+
 /** Where a failure that is nobody's fault but ours is written down. */
 export interface FailureLog {
   record(failure: { at: Date; method: string; path: string; error: unknown }): void;
@@ -455,6 +467,25 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   CoverNotAtTheCompany: 409,
   /** #226. 409: the leave has ended, or is over. */
   CoverCannotBeChanged: 409,
+
+  /** #274. Clients roles: each is the state of the grants refusing, not what was typed. */
+  ClientsRoleAlreadyHeld: 409,
+  ClientsGranteeNotCurrent: 409,
+  ClientsGrantAlreadyEnded: 409,
+  /** #293. Another line or product has the name; choosing another is the fix, but it is the
+      state of the setup that refuses it, as a role already held is. */
+  ClientsNameTaken: 409,
+  ClientsLineRetired: 409,
+  /** #276, CLI 02. The client is there already; adding to it is the fix. */
+  ClientAlreadyRecorded: 409,
+  /** #276. Bringing the contact back is the fix. */
+  ContactRemoved: 409,
+  /** #276. Correcting the dates on the one already there is the fix. */
+  ProductAlreadyInUse: 409,
+  /** #277, CLI 11. TDD 11's ALREADY_OPEN: the open deal is the one to work on. */
+  OpportunityAlreadyOpen: 409,
+  /** #277, CLI 55, CLI 56. An ended deal is kept as it ended; a new deal is the fix. */
+  OpportunityEnded: 409,
 };
 
 /**

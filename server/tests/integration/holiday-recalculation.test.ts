@@ -6,7 +6,7 @@ import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard, NotAuthorised } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { calendarDateIn } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate } from '../../src/core/calendar/time.js';
 import type { LeaveYear } from '../../src/apps/leave/leave-year/leave-year.js';
 import { AttachmentRepository } from '../../src/apps/leave/leave-request/attachment.db.js';
 import { BalanceRepository } from '../../src/apps/leave/balance/balance.db.js';
@@ -196,7 +196,7 @@ async function grant(
 
 /** The nth working day before today. A calendar offset lands fixtures on a Saturday. */
 function workingDaysAgo(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   for (let counted = 0; counted < offset;) {
     day.setUTCDate(day.getUTCDate() - 1);

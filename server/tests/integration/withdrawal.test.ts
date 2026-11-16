@@ -8,7 +8,7 @@ import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard, NotAuthorised } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { calendarDateIn } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate } from '../../src/core/calendar/time.js';
 import type { LeaveYear } from '../../src/apps/leave/leave-year/leave-year.js';
 import { WITHDRAWAL_ACTIONS } from '../../src/apps/leave/leave-request/withdrawal.js';
 import { BalanceRepository } from '../../src/apps/leave/balance/balance.db.js';
@@ -167,7 +167,7 @@ async function clear(): Promise<void> {
 
 /** A calendar date this many days either side of today, in UTC. NFR DAT 03. */
 function daysFromToday(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   day.setUTCDate(day.getUTCDate() + offset);
 

@@ -13,12 +13,6 @@ import { dayAfter, period } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 
-/**
- * Cover is named only where the directory is open, because that is where it is shown and what
- * the email to the colleague links to. The server mounts its routes on the same terms.
- */
-export const COVER_OPEN = import.meta.env.DEV;
-
 /** The most parts the server takes. */
 const MOST_PARTS = 10;
 
@@ -30,7 +24,7 @@ export function mayNameCover(live: boolean, to: string): boolean {
     `${String(now.getMonth() + 1).padStart(2, '0')}-` +
     `${String(now.getDate()).padStart(2, '0')}`;
 
-  return COVER_OPEN && live && to >= today;
+  return live && to >= today;
 }
 
 /**

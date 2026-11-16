@@ -10,7 +10,7 @@ import {
   reasonForLapse,
   wasLapsed,
 } from '../leave-event/leave-event.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import type { LeaveEventRepository } from '../leave-event/leave-event.db.js';
 import type { LeaveTypeRepository } from '../leave-type/leave-type.db.js';
 import type { LeaveYearRepository } from '../leave-year/leave-year.db.js';
@@ -151,7 +151,7 @@ export class EntitlementExpiry {
 
   /** Today, in UTC. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

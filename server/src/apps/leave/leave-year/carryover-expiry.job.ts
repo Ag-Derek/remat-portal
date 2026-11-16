@@ -3,7 +3,7 @@
 import type { Actor } from '../../../core/auth/actor.js';
 import type { LeaveBalance } from '../balance/balance.js';
 import type { LeaveYear } from './leave-year.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 import {
   type CarryoverExpiryRun,
   decideTheExpiry,
@@ -112,6 +112,6 @@ export class CarryoverExpiry {
 
   /** Today, in UTC. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }

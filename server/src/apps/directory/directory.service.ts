@@ -2,7 +2,7 @@
 
 import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
-import { type CalendarDate, calendarDateIn } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import type { DepartmentRepository } from '../../core/organisation/department/department.db.js';
 import { EmployeeNotFound } from '../../core/organisation/employee/employee.js';
 import type { EmployeeRepository } from '../../core/organisation/employee/employee.db.js';
@@ -40,7 +40,7 @@ export class DirectoryService {
     /** Who is on agreed leave. Absent, nobody is marked away. */
     private readonly away?: WhoIsAway,
     /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
     /** Who covers for whom, from leave. Absent, nobody names cover. #226. */
     private readonly covering?: WhoIsCovering,
   ) {}
@@ -86,18 +86,23 @@ export class DirectoryService {
    * Who reports to whom, among the people at the company today.
    *
    * Built afresh on every read from the manager on each record, which is the field leave
-   * requests are routed by, so the chart cannot disagree with where a request goes.
+   * requests are routed by, so the chart cannot disagree with where a request goes. A team
+   * lead's reports are drawn beside them, and say whom they report to.
    */
   async chart(actor: Actor): Promise<StaffChart> {
     this.guard.enforce(directoryPolicy.chart(actor));
 
     const today = this.today();
-    const employees = await this.employees.list();
+    const [employees, teamLeads, departments] = await Promise.all([
+      this.employees.list(),
+      this.employees.teamLeadIds(),
+      this.departments.list(),
+    ]);
     const photos = await this.photos.photosOf(
       employees.filter((one) => isCurrentOn(one, today)).map((one) => one.id),
     );
 
-    return staffChartFor(employees, today, photos);
+    return staffChartFor(employees, today, photos, teamLeads, departments);
   }
 
   /**

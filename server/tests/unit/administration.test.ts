@@ -14,6 +14,7 @@ import {
   readEmployeeChanges,
   readNewEmployee,
   readReassignment,
+  readTeamLead,
   reportsStillHere,
   setsAnExitDate,
   type StaffRecord,
@@ -187,6 +188,21 @@ describe('moving reports', () => {
     expect(() => readReassignment({ toManagerId: 'efua', employeeIds: [] })).toThrow(
       NobodyToReassign,
     );
+  });
+});
+
+describe('marking a team lead', () => {
+  it('reads true or false', () => {
+    expect(readTeamLead({ teamLead: true })).toBe(true);
+    expect(readTeamLead({ teamLead: false })).toBe(false);
+  });
+
+  it('refuses anything else, naming the field', () => {
+    for (const body of [{}, { teamLead: 'true' }, { teamLead: 1 }, null, 'true']) {
+      expect(() => readTeamLead(body)).toThrow(
+        expect.objectContaining({ name: 'InvalidAdministrationForm', field: 'teamLead' }),
+      );
+    }
   });
 });
 

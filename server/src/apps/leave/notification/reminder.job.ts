@@ -7,7 +7,7 @@ import type {
   LeaveRequestService,
 } from '../leave-request/leave-request.service.js';
 import type { NotificationService } from './notification.service.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 
 /** One approver chased about one request. FR 50. */
 export interface Reminded {
@@ -122,7 +122,7 @@ export class DailyApproverReminders {
 
   /** The same clock every job here reads. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

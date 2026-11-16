@@ -19,6 +19,20 @@ export function signed(figure: number): string {
   return figure > 0 ? `+${days(figure)}` : `−${days(Math.abs(figure))}`;
 }
 
+/**
+ * An amount with its currency, "GHS 125,000.50": never a bare number (Clients NFR CLI USA 03).
+ * Whole amounts drop the pence, "USD 75,600", as people write them. The amount arrives in minor
+ * units, and is divided here, at the last moment, and nowhere else.
+ */
+export function money(amount: { amountMinor: number; currency: string }): string {
+  const whole = amount.amountMinor % 100 === 0;
+
+  return `${amount.currency} ${(amount.amountMinor / 100).toLocaleString('en-GB', {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 /** The server writes its sentences to sit mid-line; a heading starts one. */
 export function sentenceCase(sentence: string): string {
   return sentence.charAt(0).toUpperCase() + sentence.slice(1);

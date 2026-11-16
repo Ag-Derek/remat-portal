@@ -2021,6 +2021,15 @@ export async function currentSession(): Promise<Me> {
  * holding roles starts deciding what may be done with them. Every section is refused by
  * its own policy whether or not a card was drawn for it.
  */
+/**
+ * Which of the apps that are only some people's this person may see: `clients`, or nothing.
+ * Each app's own policy answers on the server (#274); the portal home only draws.
+ */
+export async function visibleApps(): Promise<string[]> {
+  const { apps } = await request<{ apps: string[] }>('GET', '/api/me/apps');
+  return apps;
+}
+
 export async function mySections(): Promise<string[]> {
   const { sections } = await request<{ sections: string[] }>('GET', '/api/me/sections');
   return sections;
@@ -2243,6 +2252,9 @@ export interface ChartPerson {
   lastName: string;
   jobTitle: string | null;
   photo: PhotoLinks | null;
+  department: DirectoryDepartment;
+  /** The team lead they report to, where they are drawn beside that lead rather than beneath. */
+  ledBy: { employeeId: string; firstName: string; lastName: string } | null;
   /** By surname. */
   reports: ChartPerson[];
 }
@@ -2343,6 +2355,8 @@ export interface AdministrationRecord extends StaffRecord {
   workPatternName: string;
   /** The people still here who report to them, by surname. */
   reportsStillHere: PersonNamed[];
+  /** Whether the chart draws their reports beside them, under their own manager. */
+  teamLead: boolean;
   /** Newest first. */
   history: RecordChange[];
 }
@@ -2429,6 +2443,18 @@ export async function reassignReports(
     'POST',
     `/api/directory/admin/people/${encodeURIComponent(employeeId)}/reports`,
     { toManagerId, employeeIds },
+  );
+}
+
+/** Marks somebody a team lead on the chart, or not. Changes nothing but the drawing. */
+export async function setTeamLead(
+  employeeId: string,
+  teamLead: boolean,
+): Promise<AdministrationRecord> {
+  return request<AdministrationRecord>(
+    'PUT',
+    `/api/directory/admin/people/${encodeURIComponent(employeeId)}/team-lead`,
+    { teamLead },
   );
 }
 
@@ -3104,4 +3130,389 @@ function errorFrom(status: number, payload: unknown): ApiError {
           'tell IT roughly when you tried if it keeps happening.',
     typeof body.field === 'string' ? body.field : undefined,
   );
+}
+
+/* ------------------------------------------------------------------- clients, #274 */
+
+/** The two roles clients grants. */
+export type ClientsRole = 'BD_MANAGER' | 'ASSOCIATE';
+
+/** Somebody, as the clients roles screen names them. */
+export interface ClientsPerson {
+  id: string;
+  name: string;
+  jobTitle: string | null;
+}
+
+/** A live clients grant. */
+export interface ClientsGrant {
+  id: string;
+  role: ClientsRole;
+  /** `current` is false where they have left, not started or are suspended. */
+  holder: ClientsPerson & { current: boolean };
+  grantedBy: ClientsPerson;
+  grantedAt: string;
+}
+
+/** Who holds which clients role, and who could. A portal System Administrator's alone. */
+export interface ClientsRoles {
+  today: string;
+  /** BD managers first, then by surname. */
+  grants: ClientsGrant[];
+  /** Everybody at the company today, by surname. */
+  people: ClientsPerson[];
+}
+
+/**
+ * The roles screen. Refused with a 403 to anybody holding a clients role who is not a System
+ * Administrator, and with a 404 to everybody else: the server decides, this only asks.
+ */
+export async function clientsRoles(): Promise<ClientsRoles> {
+  return request<ClientsRoles>('GET', '/api/clients/roles');
+}
+
+export async function grantClientsRole(employeeId: string, role: ClientsRole): Promise<void> {
+  await request<unknown>('POST', '/api/clients/roles', { employeeId, role });
+}
+
+/** Ends a grant. It stays on the record as withdrawn, by whoever pressed the button. */
+export async function endClientsRole(grantId: string): Promise<void> {
+  await request<unknown>('DELETE', `/api/clients/roles/${encodeURIComponent(grantId)}`);
+}
+
+/** Which parts of clients this person has. The server's answer, from its own policy. */
+export interface ClientsViews {
+  /** Products and lines. A BD manager's. */
+  setUp: boolean;
+  /** Who holds which role. A portal System Administrator's. */
+  manageRoles: boolean;
+}
+
+export async function clientsViews(): Promise<ClientsViews> {
+  return request<ClientsViews>('GET', '/api/clients/me');
+}
+
+/* ----------------------------------------------------- clients products and lines, #293 */
+
+export interface ClientsProduct {
+  id: string;
+  lineId: string;
+  name: string;
+  /** The day it stopped taking new deals, or null while it takes them. */
+  retiredOn: string | null;
+}
+
+export interface ClientsProductLine {
+  id: string;
+  name: string;
+  retiredOn: string | null;
+  /** By name, retired ones included. */
+  products: ClientsProduct[];
+}
+
+/** Every line and its products, by name. A BD manager's. */
+export async function productLines(): Promise<ClientsProductLine[]> {
+  const { lines } = await request<{ lines: ClientsProductLine[] }>(
+    'GET',
+    '/api/clients/setup/products',
+  );
+  return lines;
+}
+
+export async function addProductLine(name: string): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/lines', { name });
+}
+
+export async function addProduct(lineId: string, name: string): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/products', { lineId, name });
+}
+
+/** A line, a product or a client type, as the setup routes name them. */
+export type SetupThing = 'lines' | 'products' | 'client-types';
+
+export async function renameSetupThing(thing: SetupThing, id: string, name: string): Promise<void> {
+  await request<unknown>('PATCH', `/api/clients/setup/${thing}/${encodeURIComponent(id)}`, {
+    name,
+  });
+}
+
+/** Retires a line (and every product in it) or a product, or restores one. */
+export async function retireOrRestore(
+  thing: SetupThing,
+  id: string,
+  act: 'retire' | 'restore',
+): Promise<void> {
+  await request<unknown>('POST', `/api/clients/setup/${thing}/${encodeURIComponent(id)}/${act}`);
+}
+
+/* -------------------------------------------------------- clients themselves, #276 */
+
+/**
+ * Wherever a field below is `string | null`, null means nobody has said: the screen shows it as
+ * missing, by name, never as a blank (CLI 06).
+ */
+
+/** What kind of institution a client is: Bank, Broker. A list a BD manager keeps. */
+export interface ClientType {
+  id: string;
+  name: string;
+  /** The day it stopped being offered for new clients, or null while it is. */
+  retiredOn: string | null;
+}
+
+/** Somebody named on a client: its owner, or somebody it may be moved to. */
+export interface ClientsNamed {
+  id: string;
+  name: string;
+}
+
+/** A client as the clients list shows it. */
+export interface ClientSummary {
+  id: string;
+  name: string;
+  type: { id: string; name: string };
+  owner: ClientsNamed;
+}
+
+export interface ClientContact {
+  id: string;
+  clientId: string;
+  name: string;
+  jobTitle: string | null;
+  email: string | null;
+  phone: string | null;
+  createdAt: string;
+  /** When they stopped being somebody to deal with there, or null while they are. */
+  removedAt: string | null;
+}
+
+/** A product a client uses or has used. */
+export interface ClientProductInUse {
+  productId: string;
+  productName: string;
+  lineName: string;
+  sinceOn: string;
+  /** The day they stopped, or null while they use it. */
+  endedOn: string | null;
+  wonBy: string | null;
+}
+
+/** What the person reading the page may do to it. The server's answer; it refuses the rest. */
+export interface ClientPermissions {
+  /** Name, type and note. */
+  change: boolean;
+  /** Moving it to somebody else. */
+  reassign: boolean;
+  /** Adding and correcting contacts and products. */
+  contribute: boolean;
+}
+
+export interface ClientPage extends ClientSummary {
+  note: string | null;
+  createdAt: string;
+  /** By name, removed ones included. */
+  contacts: ClientContact[];
+  /** By product name, ones it stopped using included. */
+  products: ClientProductInUse[];
+  /** Open first, then ended, each newest first. #277. */
+  opportunities: Deal[];
+  may: ClientPermissions;
+}
+
+/* ---------------------------------------------------------------- deals, #277 */
+
+/** Ghana cedis or US dollars, chosen per deal. Never added together. */
+export type Currency = 'GHS' | 'USD';
+
+/** An amount in pesewas or cents, always with its currency. */
+export interface Money {
+  amountMinor: number;
+  currency: Currency;
+}
+
+/** What is holding a deal up today, whatever its stage. SRS CLI 16. */
+export type WaitingOnWhat =
+  'DEMO' | 'PROPOSAL_RESPONSE' | 'PAPERWORK' | 'SIGNATURE' | 'CLIENT_DECISION' | 'OTHER';
+
+/** A deal: one client and one product. Null fields are missing, shown as such (CLI 06). */
+export interface Deal {
+  id: string;
+  client: { id: string; name: string };
+  product: { id: string; name: string; lineName: string };
+  owner: ClientsNamed;
+  outcome: 'OPEN' | 'WON' | 'LOST' | 'EXITED';
+  value: Money | null;
+  /** A whole percentage. */
+  probability: number | null;
+  expectedClose: { half: 'H1' | 'H2'; year: number } | null;
+  waitingOn: { on: WaitingOnWhat; note: string | null } | null;
+  statedInterest: string | null;
+  createdAt: string;
+  /** What the person reading may do. The server's answer; it refuses the rest. */
+  may: {
+    /** Its figures and words: its owner's or a BD manager's, while it is open. */
+    change: boolean;
+  };
+}
+
+/** A new deal, as the form sends it. The owner is whoever sends it. */
+export interface NewDeal {
+  clientId: string;
+  productId: string;
+  /** The amount as typed, "12500.50", so that nothing is rounded on the way. */
+  value: { amount: string; currency: Currency } | null;
+  probability: number | null;
+  /** As chosen. Half of the pair is sent as it is, for the server to say what is missing. */
+  expectedClose: { half: '' | 'H1' | 'H2'; year: number | null } | null;
+  waitingOn: { on: WaitingOnWhat; note: string } | null;
+  statedInterest: string;
+}
+
+/** Opens a deal, owned by whoever asks. Refused if the client has one open for the product. */
+export async function openDeal(deal: NewDeal): Promise<Deal> {
+  return request<Deal>('POST', '/api/clients/opportunities', deal);
+}
+
+/** A deal's value and probability as they stood after one change to either. */
+export interface DealValueChange {
+  value: Money | null;
+  probability: number | null;
+  /** By hand, a proposal, a POC converting, or the workbook import. */
+  source: 'MANUAL' | 'PROPOSAL' | 'CONVERSION' | 'IMPORT';
+  changedBy: ClientsNamed;
+  changedAt: string;
+}
+
+/** A deal's past values, newest first. The oldest is what it was opened with. */
+export async function dealHistory(id: string): Promise<DealValueChange[]> {
+  const { history } = await request<{ history: DealValueChange[] }>(
+    'GET',
+    `/api/clients/opportunities/${encodeURIComponent(id)}/history`,
+  );
+  return history;
+}
+
+/** What an edit sends: everything about a deal but its client and product. */
+export type DealChange = Omit<NewDeal, 'clientId' | 'productId'>;
+
+/** Edits a deal. Its owner's or a BD manager's, while it is open. */
+export async function changeDeal(id: string, change: DealChange): Promise<Deal> {
+  return request<Deal>('PATCH', `/api/clients/opportunities/${encodeURIComponent(id)}`, change);
+}
+
+/** A product that may be added to a client. */
+export interface ClientsOfferedProduct {
+  id: string;
+  name: string;
+  lineName: string;
+}
+
+export async function clientsList(): Promise<ClientSummary[]> {
+  const { clients } = await request<{ clients: ClientSummary[] }>('GET', '/api/clients/clients');
+  return clients;
+}
+
+export async function clientPage(id: string): Promise<ClientPage> {
+  return request<ClientPage>('GET', `/api/clients/clients/${encodeURIComponent(id)}`);
+}
+
+/** Every client type, retired ones included, for the form to offer the rest. */
+export async function clientTypes(): Promise<ClientType[]> {
+  const { types } = await request<{ types: ClientType[] }>('GET', '/api/clients/client-types');
+  return types;
+}
+
+/** Records a client, owned by whoever asks. Answers with its id. */
+export async function createClient(client: {
+  name: string;
+  typeId: string;
+  note: string;
+}): Promise<string> {
+  const { id } = await request<{ id: string }>('POST', '/api/clients/clients', client);
+  return id;
+}
+
+/** Only what is given changes. A note of '' takes it away. */
+export async function changeClient(
+  id: string,
+  change: { name?: string; typeId?: string; note?: string; ownerId?: string },
+): Promise<void> {
+  await request<unknown>('PATCH', `/api/clients/clients/${encodeURIComponent(id)}`, change);
+}
+
+/** Everybody holding a clients role, whom a client may be moved to. */
+export async function clientsHolders(): Promise<ClientsNamed[]> {
+  const { people } = await request<{ people: ClientsNamed[] }>('GET', '/api/clients/holders');
+  return people;
+}
+
+/** The details of a contact, as a form sends them: '' for anything not known. */
+export interface ContactDetails {
+  name: string;
+  jobTitle: string;
+  email: string;
+  phone: string;
+}
+
+export async function addContact(clientId: string, contact: ContactDetails): Promise<void> {
+  await request<unknown>(
+    'POST',
+    `/api/clients/clients/${encodeURIComponent(clientId)}/contacts`,
+    contact,
+  );
+}
+
+export async function changeContact(id: string, contact: ContactDetails): Promise<void> {
+  await request<unknown>('PATCH', `/api/clients/contacts/${encodeURIComponent(id)}`, contact);
+}
+
+/** Marks a contact removed, or brings them back. Nothing is deleted. */
+export async function removeOrRestoreContact(id: string, act: 'remove' | 'restore'): Promise<void> {
+  await request<unknown>('POST', `/api/clients/contacts/${encodeURIComponent(id)}/${act}`);
+}
+
+/** The products that may be added to a client, by line. */
+export async function offeredProducts(): Promise<ClientsOfferedProduct[]> {
+  const { products } = await request<{ products: ClientsOfferedProduct[] }>(
+    'GET',
+    '/api/clients/products',
+  );
+  return products;
+}
+
+export async function addProductInUse(
+  clientId: string,
+  productId: string,
+  sinceOn: string,
+): Promise<void> {
+  await request<unknown>('POST', `/api/clients/clients/${encodeURIComponent(clientId)}/products`, {
+    productId,
+    sinceOn,
+  });
+}
+
+/** An `endedOn` of null says they use it again. */
+export async function changeProductInUse(
+  clientId: string,
+  productId: string,
+  dates: { sinceOn: string; endedOn: string | null },
+): Promise<void> {
+  await request<unknown>(
+    'PATCH',
+    `/api/clients/clients/${encodeURIComponent(clientId)}/products/${encodeURIComponent(productId)}`,
+    dates,
+  );
+}
+
+/** Every client type, retired ones included. A BD manager's. */
+export async function setupClientTypes(): Promise<ClientType[]> {
+  const { types } = await request<{ types: ClientType[] }>(
+    'GET',
+    '/api/clients/setup/client-types',
+  );
+  return types;
+}
+
+export async function addClientType(name: string): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/client-types', { name });
 }

@@ -316,17 +316,6 @@ a.portal-app:hover {
   box-shadow: var(--shadow);
 }
 
-.portal-app.is-soon {
-  color: var(--ink-soft);
-}
-
-.portal-app small {
-  margin-left: auto;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--ink-faint);
-}
-
 .portal-mark {
   flex: none;
   width: 2.75rem;
@@ -1225,6 +1214,1419 @@ a.portal-app:hover {
   font-weight: 600;
 }
 
+/* ------------------------------------------------------------- clients setup, #293 */
+
+/* The sections of setup down the side, and the one chosen beside them. */
+.clients-setup {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: var(--gap-lg);
+  align-items: start;
+}
+
+/* A card that stays in view while a long list of lines scrolls past it. */
+.clients-setup-menu {
+  position: sticky;
+  top: var(--gap);
+  padding: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-setup-menu-title {
+  margin: 0.15rem 0.5rem 0.6rem;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.clients-setup-menu ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each section: its icon and its name. */
+.clients-setup-menu a,
+.clients-setup-menu .is-unbuilt {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  font-weight: 500;
+  border-radius: var(--radius-small);
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+/* Not built yet: there, so the page has its shape, and plainly not something to click. */
+.clients-setup-menu .is-unbuilt {
+  color: var(--ink-faint);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.clients-setup-menu a:hover {
+  background: var(--page);
+  color: var(--ink);
+}
+
+.clients-setup-menu a[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.clients-setup-menu a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.clients-setup-menu svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.clients-setup-menu a[aria-current='page'] svg {
+  color: var(--accent);
+}
+
+/* On a phone the menu goes above the section, as a row of chips that scrolls sideways. */
+@media (max-width: 760px) {
+  .clients-setup {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap);
+  }
+
+  .clients-setup-menu {
+    position: static;
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+
+  .clients-setup-menu-title {
+    display: none;
+  }
+
+  .clients-setup-menu ul {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .clients-setup-menu a,
+  .clients-setup-menu .is-unbuilt {
+    padding: 0.45rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--card);
+    white-space: nowrap;
+  }
+
+  .clients-setup-menu a[aria-current='page'] {
+    border-color: var(--accent);
+    box-shadow: none;
+  }
+
+  .clients-setup-menu svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+.clients-setup-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.clients-setup-head h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.75rem;
+}
+
+.clients-setup-head p {
+  max-width: 36rem;
+  margin: 0;
+}
+
+.clients-setup-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* A line is a card, its own row the tinted head of it, its products the rows under. */
+.clients-line {
+  overflow: hidden;
+  margin-bottom: var(--gap);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-line-head,
+.clients-product {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.1rem;
+}
+
+.clients-line-head {
+  background: var(--page);
+}
+
+.clients-line-head strong {
+  font-size: 1.0625rem;
+}
+
+.clients-product + .clients-product {
+  border-top: 1px solid var(--line);
+}
+
+/* Open, the head is ruled off from the products under it; closed, the card is only its head. */
+.clients-line.is-open .clients-line-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.clients-line-empty {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* A line's products sit inside it: indented to its name, along a faint guide, the way a folder's
+   files sit under the folder. */
+.clients-line-products {
+  position: relative;
+}
+
+.clients-line-products::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0.9rem;
+  left: 1.75rem;
+  border-left: 1px solid var(--line);
+}
+
+.clients-line-products .clients-product {
+  padding-left: 2.85rem;
+}
+
+/* The way to add a product, inside the line it goes into. */
+.clients-add-to-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.65rem 1.1rem 0.65rem 2.85rem;
+  border: 0;
+  border-top: 1px dashed var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.clients-add-to-line:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.clients-add-to-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.clients-add-to-line svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* How many lines and products, and opening or closing them all at once. */
+.clients-lines-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.clients-lines-bar p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* A line's chevron and name: one button that opens and closes it. */
+.clients-line-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: -0.4rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.3rem;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.clients-line-toggle:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.clients-line-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.clients-line-toggle svg {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--ink-faint);
+  transition: transform 150ms ease-out;
+}
+
+.clients-line-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clients-line-toggle svg {
+    transition: none;
+  }
+}
+
+.clients-setup-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* The pencil beside a name: there to be found, and quiet until it is wanted. */
+.clients-edit-name.iconic {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: -0.3rem;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.clients-edit-name.iconic svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.clients-edit-name.iconic:hover:not(:disabled),
+.clients-edit-name.iconic:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A name being edited where it stands: the box, a tick and a cross, the sentence under it. */
+.clients-inline-name {
+  display: flex;
+  flex: 1 1 18rem;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 30rem;
+}
+
+.clients-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.clients-inline-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border-color: var(--accent);
+}
+
+.clients-inline-name.is-line .clients-inline-row input {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.clients-inline-name.has-error .clients-inline-row input {
+  border-color: var(--warn);
+}
+
+.clients-inline-row .iconic {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+}
+
+.clients-inline-save.iconic {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.clients-inline-cancel.iconic {
+  border-color: transparent;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.clients-inline-cancel.iconic:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.clients-setup-name small {
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+.clients-setup-buttons button {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.875rem;
+}
+
+.clients-retired {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.clients-line.is-retired .clients-line-head strong,
+.clients-product:has(.clients-retired) .clients-setup-name {
+  color: var(--ink-soft);
+}
+
+.clients-ask {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+/* The heading's info icon, and its text: shown on hover, on focus, and once tapped. */
+.clients-setup-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clients-info {
+  position: relative;
+  display: inline-flex;
+}
+
+.clients-info-button {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.clients-info-button:hover:not(:disabled),
+.clients-info-button:focus-visible,
+.clients-info.is-open .clients-info-button {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.clients-info-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.clients-info-button svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.clients-info-tip {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: -0.5rem;
+  z-index: 20;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 3rem));
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--card);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    visibility 0s linear 120ms;
+}
+
+/* A little pointer up to the icon. */
+.clients-info-tip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 1.05rem;
+  border: 6px solid transparent;
+  border-bottom-color: var(--ink);
+}
+
+.clients-info:hover .clients-info-tip,
+.clients-info-button:focus-visible + .clients-info-tip,
+.clients-info.is-open .clients-info-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clients-info-tip {
+    transition: none;
+  }
+}
+
+/* The + button, and the menu of what it adds. */
+.clients-add {
+  position: relative;
+}
+
+.clients-add-button {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.clients-add-plus {
+  display: grid;
+  place-items: center;
+}
+
+.clients-add-plus {
+  padding: 0.45rem 0.6rem;
+}
+
+.clients-add-plus svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+/* The icon draws its own line; a bolder plus is set on the line itself. */
+.clients-add-plus path {
+  stroke-width: 2.2;
+}
+
+.clients-add-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  min-width: 7.5rem;
+  padding: 0.25rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  animation: clients-add-in 120ms ease-out;
+}
+
+@keyframes clients-add-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.clients-add-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.4rem 0.65rem;
+  border: 0;
+  border-radius: calc(var(--radius-small) - 2px);
+  background: none;
+  text-align: left;
+}
+
+.clients-add-menu button:hover:not(:disabled),
+.clients-add-menu button:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.clients-add-menu small {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clients-add-menu {
+    animation: none;
+  }
+}
+
+/* Adding a line or a product: a panel over a softly shaded page. */
+.clients-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.22),
+    0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.clients-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.clients-dialog[open] {
+  animation: clients-dialog-in 160ms ease-out;
+}
+
+@keyframes clients-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clients-dialog[open] {
+    animation: none;
+  }
+}
+
+.clients-dialog-panel {
+  padding: 1.5rem 1.5rem 1.25rem;
+}
+
+.clients-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.clients-dialog-head h2 {
+  margin: 0;
+  font-size: 1.375rem;
+}
+
+.clients-dialog-head .iconic {
+  flex: none;
+  margin: -0.35rem -0.5rem 0 0;
+  padding: 0.35rem;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.clients-dialog-head .iconic:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.clients-dialog-head .iconic svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.clients-dialog-panel > .muted {
+  margin: 0.4rem 0 1.25rem;
+}
+
+.clients-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.1rem;
+}
+
+.clients-field label {
+  font-weight: 600;
+}
+
+.clients-field input,
+.clients-field select {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+}
+
+.clients-field input:focus-visible,
+.clients-field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.clients-field-hint {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+.clients-field.has-error input,
+.clients-field.has-error select {
+  border-color: var(--warn);
+}
+
+.clients-field-error {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.clients-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.clients-dialog-foot button {
+  padding: 0.55rem 1rem;
+}
+
+/* ------------------------------------------------------------------- clients, #274 */
+
+.clients .directory-table td small {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+.clients .directory-table td small.clients-gone {
+  color: var(--warn);
+}
+
+/* The person takes the room; the role and the button keep their size. */
+.clients-grant > label:first-child {
+  flex: 3 1 16rem;
+}
+
+.clients-end {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* ------------------------------------------------------ clients themselves, #276 */
+
+/* A field nobody has filled in, said by name in a quieter voice: plainly missing, not blank, and
+   not mistaken for something somebody wrote (CLI 06). */
+.clients-missing {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.clients-field textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.clients-field textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Buttons that carry an icon before their words. */
+.clients-setup-head button,
+.clients-part-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clients-setup-head button svg,
+.clients-part-head button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.clients-list .filter-bar input {
+  width: min(100%, 22rem);
+}
+
+.clients-list .directory-table a {
+  font-weight: 600;
+}
+
+/* One client. */
+.clients-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: var(--gap);
+  color: var(--ink-soft);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.clients-back:hover {
+  color: var(--ink);
+}
+
+.clients-back svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.clients-client .clients-setup-head h2 {
+  overflow-wrap: anywhere;
+}
+
+/* Its owner and note, as a short card of labelled facts. */
+.clients-details {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0 0 var(--gap-lg);
+  padding: 1rem 1.1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-details > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: var(--gap);
+}
+
+.clients-details dt {
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.clients-details dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.clients-note {
+  white-space: pre-line;
+}
+
+/* Contacts, and the products it uses: each a heading and a card of rows. */
+.clients-part {
+  margin-bottom: var(--gap-lg);
+}
+
+.clients-part-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap);
+  margin-bottom: 0.75rem;
+}
+
+.clients-part-head h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.clients-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem var(--gap);
+  padding: 0.8rem 1.1rem;
+}
+
+.clients-row + .clients-row {
+  border-top: 1px solid var(--line);
+}
+
+.clients-row-main,
+.clients-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clients-row-main small {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.clients-row-meta {
+  font-size: 0.9375rem;
+}
+
+.clients-row-meta .tag {
+  align-self: flex-start;
+}
+
+/* A former contact, or a product they stopped using: still there, quieter. */
+.clients-row.is-ended .clients-row-main strong {
+  color: var(--ink-soft);
+}
+
+.clients-row > .notice {
+  grid-column: 1 / -1;
+}
+
+.clients-removed {
+  margin-top: 0.75rem;
+}
+
+.clients-removed summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.clients-removed .clients-rows {
+  margin-top: 0.6rem;
+}
+
+/* ------------------------------------------------------------ the client page, #277 */
+
+/* Laid out as the client page mockup: who the client is and its figures across the top, then
+   its opportunities beside a narrower column of what it uses, who to talk to and the note. */
+
+.clients-client-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--gap);
+  margin-bottom: var(--gap-lg);
+}
+
+/* The name, and the pencil that edits it beside it rather than across the page. */
+.clients-client-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.clients-client-head h2 {
+  margin: 0;
+  font-family: var(--face-display);
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.clients-client-lede {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+/* The figures: a strip across the page, each tile a small capital label over the figure. The
+   chance of closing is one short percentage, so its tile is only as wide as its label, and the
+   count and the values share the rest. */
+.clients-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
+  margin: 0 0 var(--gap-lg);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-figures > div {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+}
+
+.clients-figures > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.clients-figures dt,
+.clients-side-head h3 {
+  color: var(--ink-faint);
+  font-family: var(--face-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.clients-figures dd {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+
+/* Cedis and dollars side by side, never one sum (CLI 75). */
+.clients-figure-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
+}
+
+.clients-figure {
+  font-family: var(--face-figure);
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.clients-figure.is-missing {
+  color: var(--away-ink);
+  font-family: var(--face-text);
+  font-size: 1.125rem;
+}
+
+/* How many open ones a total leaves out (CLI 77). */
+.clients-figure-note {
+  color: var(--away-ink);
+  font-size: 0.8125rem;
+}
+
+/* Two columns, the narrower on the right; one on a phone, opportunities first. */
+.clients-client-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2.6fr) minmax(16rem, 1fr);
+  align-items: start;
+  gap: var(--gap-lg);
+}
+
+.clients-client-main,
+.clients-client-side {
+  display: grid;
+  gap: var(--gap-lg);
+  min-width: 0;
+}
+
+/* A card on the page: the opportunities, and each part of the side column. */
+.clients-panel {
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--gap);
+  padding: 1.1rem 1.25rem 0.9rem;
+}
+
+.clients-panel-head h3 {
+  margin: 0;
+  font-family: var(--face-text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.clients-panel-head .muted {
+  margin: 0.2rem 0 0;
+}
+
+/* The side column's cards: a small capital heading, a short list, a plus to add one. */
+.clients-client-side .clients-panel {
+  padding: 1rem 1.25rem;
+}
+
+.clients-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap);
+  margin-bottom: 0.6rem;
+}
+
+.clients-side-head h3 {
+  margin: 0;
+}
+
+.clients-client-side .muted,
+.clients-client-side .clients-note {
+  margin: 0;
+}
+
+.clients-side-list {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-side-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.25rem 0.75rem;
+}
+
+.clients-side-list > li > div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clients-side-list small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-side-list > li.is-ended strong {
+  color: var(--ink-soft);
+}
+
+.clients-side-list > li > .notice {
+  grid-column: 1 / -1;
+}
+
+/* Email and phone under the name, the card's full width, each on its own line. */
+.clients-contact-ways {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.clients-client-side a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.clients-client-side a:hover {
+  text-decoration: underline;
+}
+
+/* The opportunities table. */
+.clients-deals {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.clients-deals th {
+  padding: 0.6rem 1.25rem;
+  background: color-mix(in srgb, var(--ink) 2%, var(--card));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.clients-deals td {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.clients-deals tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.clients-deals td > small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-deals .is-figure {
+  text-align: right;
+}
+
+/* An amount and its currency, on one line whatever the column's width. */
+.clients-deals td.is-figure > span,
+.clients-deals td.is-figure > small {
+  white-space: nowrap;
+}
+
+.clients-deals td.is-figure > span {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.clients-deals .clients-deals-actions {
+  width: 1%;
+  padding-left: 0;
+  white-space: nowrap;
+}
+
+.clients-deals tr.is-ended strong {
+  color: var(--ink-soft);
+}
+
+/* What the client said, under the product: kept to two lines in the table. */
+.clients-deal-interest {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-style: italic;
+}
+
+/* An opportunity's buttons: how it ended, its past values, and edit. */
+.clients-deal-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.clients-deal-buttons .tag {
+  margin-right: 0.35rem;
+}
+
+.action-icon.is-history {
+  color: var(--ink-soft);
+}
+
+.action-icon.is-history:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Its past values, newest first: the figures, then who and when. What moved is the darker. */
+.clients-history {
+  display: grid;
+  gap: 0;
+  margin: 0 0 var(--gap);
+  padding: 0;
+  list-style: none;
+}
+
+.clients-history > li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0;
+}
+
+.clients-history > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.clients-history-figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.clients-history-figures .is-moved {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.clients-history small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+/* Nobody has said: amber, and in words, so it reads as a gap to fill (CLI 06). */
+.clients-not-set {
+  color: var(--away-ink);
+  font-family: var(--face-text);
+  font-weight: 500;
+}
+
+.clients-deals td.is-figure > .clients-not-set {
+  font-family: var(--face-text);
+}
+
+/* Ended opportunities, and former contacts: there, folded away. */
+.clients-ended {
+  border-top: 1px solid var(--line);
+}
+
+.clients-ended > summary {
+  padding: 0.8rem 1.25rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.clients-client-side .clients-ended {
+  margin-top: 0.85rem;
+  border-top: 0;
+}
+
+.clients-client-side .clients-ended > summary {
+  padding: 0 0 0.6rem;
+}
+
+@media (max-width: 56rem) {
+  .clients-client-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A phone: the tiles stack, and each opportunity becomes a card of labelled lines. */
+@media (max-width: 40rem) {
+  .clients-figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clients-figures > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .clients-deals thead {
+    display: none;
+  }
+
+  .clients-deals,
+  .clients-deals tbody,
+  .clients-deals tr,
+  .clients-deals td {
+    display: block;
+  }
+
+  .clients-deals tr {
+    position: relative;
+    padding: 0.9rem 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .clients-deals td {
+    padding: 0.2rem 0;
+    border: 0;
+  }
+
+  .clients-deals td[data-label]:not([data-label='Product'])::before {
+    content: attr(data-label) ': ';
+    color: var(--ink-faint);
+    font-size: 0.8125rem;
+  }
+
+  .clients-deals .is-figure {
+    text-align: left;
+  }
+
+  .clients-deals td.is-figure > small {
+    display: inline;
+    margin-left: 0.4rem;
+  }
+
+  .clients-deals .clients-deals-actions {
+    position: absolute;
+    top: 0.75rem;
+    right: 1rem;
+    width: auto;
+  }
+
+  .clients-deals td[data-label='Product'] {
+    padding-right: 3rem;
+  }
+}
+
+/* The new and edit form: a currency and its amount, or a half and its year, on one line. */
+.clients-deal-money,
+.clients-deal-close {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.clients-deal-money select,
+.clients-deal-close select {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.clients-deal-money input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.clients-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.1rem;
+  font-weight: 500;
+}
+
+/* On a phone each row stacks: who, then how to reach them, then the buttons. */
+@media (max-width: 760px) {
+  .clients-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clients-details > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.2rem;
+  }
+}
+
 /* ------------------------------------------------------- HR's Administration tab */
 
 .admin-heading {
@@ -1483,18 +2885,145 @@ a.portal-app:hover {
   border-top: 1px solid var(--line);
 }
 
-.admin-reports label {
+/*
+ * A tick box with its words beside it, read left to right: the reports to move and the team
+ * lead setting. Across rather than down, which the bare `label` rule further on would
+ * otherwise make it, and the text left aligned as text is.
+ */
+.admin-check {
   display: flex;
-  align-items: center;
+  flex-direction: row;
+  align-items: flex-start;
   gap: 0.75rem;
-  min-height: 2.75rem;
+  padding: 0.65rem 0.5rem;
+  border-radius: var(--radius-small);
+  color: var(--ink);
+  font-size: 0.9375rem;
+  text-align: left;
   cursor: pointer;
 }
 
-.admin-reports small {
+.admin-check small {
   display: block;
+  margin-top: 0.1rem;
   color: var(--ink-faint);
   font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.admin-check strong {
+  font-weight: 600;
+}
+
+.admin-reports li:has(.admin-tick:checked) .admin-check {
+  background: var(--accent-soft);
+}
+
+/* The tick box itself, drawn in the brand. No padding: the bare `input` rule's is a text box's. */
+.admin-tick {
+  display: grid;
+  flex: none;
+  place-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0.1rem 0 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--card);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+  appearance: none;
+}
+
+.admin-tick::before {
+  width: 0.7rem;
+  height: 0.7rem;
+  background: var(--accent-ink);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  content: '';
+  transform: scale(0);
+  transition: transform 0.12s ease;
+}
+
+.admin-tick:hover {
+  border-color: var(--accent);
+}
+
+.admin-tick:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.admin-tick:checked::before {
+  transform: scale(1);
+}
+
+.admin-tick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.admin-tick:disabled {
+  cursor: progress;
+}
+
+/* An on/off toggle: a checkbox drawn as a track and a sliding knob, for a setting that saves
+   the moment it is flipped. No padding or border, which the bare `input` rule would give it. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 1.4rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  appearance: none;
+}
+
+.switch::before {
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--brand-white);
+  box-shadow: 0 1px 2px rgb(2 2 2 / 25%);
+  content: '';
+  transition: transform 0.15s ease;
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::before {
+  transform: translateX(1.1rem);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-tick,
+  .admin-tick::before,
+  .switch,
+  .switch::before {
+    transition: none;
+  }
 }
 
 .admin-move label {
@@ -1812,6 +3341,130 @@ a.portal-app:hover {
   color: var(--ink-faint);
   font-size: 0.75rem;
   line-height: 1.3;
+}
+
+/* A team lead and their team. The lead's star is filled and their edge solid; the team's
+   star is outlined and their edge dashed. The words beside each say which. NFR USA 03. */
+.org-card.is-lead {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.org-card.is-lead.is-found {
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.org-card.is-led {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+}
+
+/* The star in the card's top corner: filled on the lead, outlined on their team. */
+.org-card.is-lead,
+.org-card.is-led {
+  position: relative;
+}
+
+/* Above its neighbours while pointed at, so the star's note is never under the next card. */
+.org-card.is-lead:hover,
+.org-card.is-led:hover,
+.org-card.is-lead:focus-visible,
+.org-card.is-led:focus-visible {
+  z-index: 2;
+}
+
+.org-star {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--accent);
+}
+
+.org-star svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.org-star.is-lead {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.org-star.is-lead svg {
+  fill: currentColor;
+}
+
+.org-card .org-star {
+  position: absolute;
+  top: -0.55rem;
+  right: -0.55rem;
+  box-shadow: 0 1px 3px rgb(2 2 2 / 18%);
+  cursor: help;
+}
+
+/* What the star says, pointed at or when the card has the keyboard. Below the star, so the
+   top row of the chart cannot push it out of sight. */
+.org-card .org-star::after {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  box-shadow: var(--shadow);
+  color: var(--card);
+  content: attr(data-says);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.org-card .org-star:hover::after,
+.org-card:focus-visible .org-star::after {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .org-card .org-star::after {
+    transition: none;
+  }
+}
+
+/* What the stars mean, under the chart, only while there is a team lead on it. */
+.org-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  list-style: none;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.org-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .directory .org-card .avatar {
@@ -7110,6 +8763,20 @@ button.linkish.file-name {
 .action-icon.is-edit:hover:not(:disabled) {
   border-color: transparent;
   background: var(--accent-soft);
+}
+
+/* A plus, filled with the accent's tint so that it reads as a button on its own. */
+.iconic.action-icon.is-add {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--card));
+}
+
+.iconic.action-icon.is-add:hover:not(:disabled),
+.iconic.action-icon.is-add:focus-visible {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .action-icon.is-remove {

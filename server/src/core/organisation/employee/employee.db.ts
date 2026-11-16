@@ -252,6 +252,37 @@ export class EmployeeRepository {
     return row === undefined ? undefined : toProfile(row);
   }
 
+  /** Who HR has marked a team lead, whose reports the chart draws beside them. */
+  async teamLeadIds(): Promise<Set<string>> {
+    const rows = await this.db
+      .selectFrom('employee')
+      .select('id')
+      .where('team_lead', '=', true)
+      .execute();
+
+    return new Set(rows.map((row) => row.id));
+  }
+
+  /**
+   * Marks somebody a team lead, or not. Undefined when there is no such record.
+   *
+   * Its own write rather than a field on {@link EmployeeRepository.update}, because it is a
+   * fact about the drawing and nothing else: no rule of the record's turns on it, and nothing
+   * that follows a change of manager should follow this. Audited with the rest of the row.
+   */
+  async setTeamLead(by: Attribution, id: string, teamLead: boolean): Promise<boolean | undefined> {
+    const row = await recording(this.db, by, (on) =>
+      on
+        .updateTable('employee')
+        .set({ team_lead: teamLead })
+        .where('id', '=', id)
+        .returning('team_lead')
+        .executeTakeFirst(),
+    );
+
+    return row?.team_lead;
+  }
+
   /** How many employees report to somebody. FR 02. */
   async countReports(managerId: string): Promise<number> {
     const row = await this.db

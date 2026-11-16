@@ -1,4 +1,4 @@
-/** Edit and remove, drawn the same way everywhere: a blue pencil and a red bin. */
+/** Add, edit and remove, drawn the same way everywhere: a blue plus, a blue pencil and a red bin. */
 
 import { Icon } from './Icon';
 
@@ -21,6 +21,25 @@ export function EditButton({ label, onClick, disabled = false, className }: Acti
       onClick={onClick}
     >
       <Icon name="pencil" />
+      <span className="visually-hidden">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * Adding one more of something, as a plus. Filled with a tint rather than bare like the pencil,
+ * because it usually stands alone at the head of a list and has to read as a button there.
+ */
+export function AddButton({ label, onClick, disabled = false, className }: ActionButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`iconic action-icon is-add${className === undefined ? '' : ` ${className}`}`}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon name="plus" />
       <span className="visually-hidden">{label}</span>
     </button>
   );

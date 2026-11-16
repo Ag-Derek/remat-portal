@@ -47,7 +47,7 @@ import { SignInService } from '../../src/core/identity/sign-in/sign-in.service.j
 import { DirectoryService } from '../../src/apps/directory/directory.service.js';
 import { PhotoRepository } from '../../src/apps/directory/photo.db.js';
 import { EmployeeService } from '../../src/core/organisation/employee/employee.service.js';
-import { dayAfter, dayBefore } from '../../src/core/calendar/time.js';
+import { currentDate, dayAfter, dayBefore } from '../../src/core/calendar/time.js';
 import { recordingMailer } from '../support/recording-mailer.js';
 import { recordingDenials } from '../support/recording-denials.js';
 import { seed } from '../../seeds/seed.mjs';
@@ -77,7 +77,7 @@ const SECRET = 'a-test-signing-secret-of-at-least-32-chars';
 const DOMAINS = ['rematholdings.com'];
 
 /** The day the server judges by, which these tests cannot choose. */
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = currentDate();
 
 let db: Kysely<Database>;
 let admin: Client;
@@ -597,6 +597,132 @@ describe('moving reports', () => {
     expect(await managerOf(people.partTimer)).toBe(people.teamLead);
   });
 });
+
+/* Their reports are drawn beside them on the chart, and nothing else about anybody changes. */
+describe('a team lead', () => {
+  it('has their team drawn beside them, under their manager, while the team still reports to them', async () => {
+    const response = await call(
+      'PUT',
+      `/api/directory/admin/people/${people.teamLead}/team-lead`,
+      people.hrOfficer,
+      { teamLead: true },
+    );
+
+    expect(response.status).toBe(200);
+
+    const record = (await response.json()) as JsonRecord & { teamLead: boolean };
+
+    expect(record.teamLead).toBe(true);
+    expect(record.history[0]?.changes).toEqual([
+      expect.objectContaining({ label: 'Team lead on the chart', from: false, to: true }),
+    ]);
+
+    const chart = (await (
+      await call('GET', '/api/directory/chart', people.officer)
+    ).json()) as JsonChart;
+    const officer = findOnChart(chart, people.officer ?? '');
+
+    expect(officer?.above).toBe(people.opsManager);
+    expect(officer?.person.ledBy?.employeeId).toBe(people.teamLead);
+    expect(findOnChart(chart, people.teamLead ?? '')?.above).toBe(people.opsManager);
+
+    /* Their manager on the record, which approves their leave, is who it was. */
+    expect(await managerOf(people.officer)).toBe(people.teamLead);
+  });
+
+  it('can be taken off again, and the team is drawn beneath them once more', async () => {
+    for (const teamLead of [true, false]) {
+      await call(
+        'PUT',
+        `/api/directory/admin/people/${people.teamLead}/team-lead`,
+        people.headOfHr,
+        {
+          teamLead,
+        },
+      );
+    }
+
+    const chart = (await (
+      await call('GET', '/api/directory/chart', people.officer)
+    ).json()) as JsonChart;
+    const officer = findOnChart(chart, people.officer ?? '');
+
+    expect(officer?.above).toBe(people.teamLead);
+    expect(officer?.person.ledBy).toBeNull();
+  });
+
+  it('refuses anything but true or false, naming the field', async () => {
+    const response = await call(
+      'PUT',
+      `/api/directory/admin/people/${people.teamLead}/team-lead`,
+      people.headOfHr,
+      { teamLead: 'yes' },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ field: 'teamLead' });
+  });
+
+  it('is HR’s alone, and changes nothing when refused', async () => {
+    const response = await call(
+      'PUT',
+      `/api/directory/admin/people/${people.teamLead}/team-lead`,
+      people.teamLead,
+      { teamLead: true },
+    );
+
+    expect(response.status).toBe(403);
+
+    const record = (await (
+      await call('GET', `/api/directory/admin/people/${people.teamLead}`, people.headOfHr)
+    ).json()) as { teamLead: boolean };
+
+    expect(record.teamLead).toBe(false);
+  });
+
+  it('is a 404 for an id that is nobody, once HR is asking', async () => {
+    const response = await call(
+      'PUT',
+      '/api/directory/admin/people/999999/team-lead',
+      people.headOfHr,
+      { teamLead: true },
+    );
+
+    expect(response.status).toBe(404);
+  });
+});
+
+interface JsonChartPerson {
+  employeeId: string;
+  ledBy: { employeeId: string } | null;
+  reports: JsonChartPerson[];
+}
+
+interface JsonChart {
+  lines: { top: JsonChartPerson }[];
+}
+
+/** Somebody on the chart, and whose card theirs hangs from. */
+function findOnChart(
+  chart: JsonChart,
+  employeeId: string,
+): { person: JsonChartPerson; above: string | null } | undefined {
+  const pending: [JsonChartPerson, string | null][] = chart.lines.map((line) => [line.top, null]);
+
+  while (pending.length > 0) {
+    const [person, above] = pending.pop()!;
+
+    if (person.employeeId === employeeId) {
+      return { person, above };
+    }
+
+    pending.push(
+      ...person.reports.map((one): [JsonChartPerson, string] => [one, person.employeeId]),
+    );
+  }
+
+  return undefined;
+}
 
 interface JsonRecord {
   employeeId: string;

@@ -20,7 +20,7 @@ import {
 import { earliestOpenDayOf, type LeaveYear, yearFor } from '../leave-year/leave-year.js';
 import {
   type CalendarDate,
-  calendarDateIn,
+  currentDate,
   formatDay,
   isoWeekdayOf,
 } from '../../../core/calendar/time.js';
@@ -61,7 +61,7 @@ export function holidayRoutes(parts: HolidayRoutes): Router {
           years: years.map(yearAsJson),
           /** FR 22. A year nobody has transcribed the gazette for, before December. */
           yearsAwaitingACalendar: yearsWithoutHolidays(years, found).map(yearAsJson),
-          today: calendarDateIn(new Date(), 'UTC'),
+          today: currentDate(),
           /** Null where nothing has been closed, which is not the same as no check. */
           earliestOpenDay,
           closedYearsInWords: closedYearsInWords(earliestOpenDay),

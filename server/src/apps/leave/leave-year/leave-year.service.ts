@@ -19,7 +19,7 @@ import {
   validateNewLeaveYear,
 } from './leave-year.js';
 import type { LeaveYearListOptions, LeaveYearRepository } from './leave-year.db.js';
-import { type CalendarDate, calendarDateIn } from '../../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../../core/calendar/time.js';
 
 export class LeaveYearService {
   constructor(
@@ -122,7 +122,7 @@ export class LeaveYearService {
 
   /** Today, in UTC, which is the day the database's `current_date` is having. NFR DAT 03. */
   private today(): CalendarDate {
-    return calendarDateIn(new Date(), 'UTC');
+    return currentDate();
   }
 }
 

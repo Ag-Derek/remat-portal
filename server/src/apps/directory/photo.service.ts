@@ -3,7 +3,7 @@
 import type { Actor } from '../../core/auth/actor.js';
 import type { Attribution } from '../../core/audit/audit.js';
 import type { Guard } from '../../core/auth/policy.js';
-import { type CalendarDate, calendarDateIn } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import { EmployeeNotFound } from '../../core/organisation/employee/employee.js';
 import type { EmployeeRepository } from '../../core/organisation/employee/employee.db.js';
 import type { Storage, StoredObject } from '../../core/storage/index.js';
@@ -47,7 +47,7 @@ export class PhotoService {
     /** NFR SEC 04. The only thing that knows where bytes live. */
     private readonly storage: Storage,
     /** Today, in UTC, which is what decides who is current. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   /**

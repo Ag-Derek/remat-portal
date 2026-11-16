@@ -8,6 +8,23 @@ export interface Actor extends Authority {
   employeeId: string | null;
   /** What to call this in the denial log. */
   description: string;
+  /**
+   * Whether this is a portal System Administrator. SRS 2.3 (3), CMP 57.
+   *
+   * The same fact as holding SYS_ADMIN, answered once here so that an app which must not
+   * read the portal's role codes still has it. Compliance is that app: only a System
+   * Administrator grants its roles, and it asks this rather than `roles`, which are Rota's
+   * vocabulary and not its own.
+   *
+   * On the actor and not on {@link Authority}, because it is never borrowed: a delegator
+   * lends their approvals, not the keys to who may hold what. FR 49.
+   */
+  isSysAdmin: boolean;
+}
+
+/** Whether these roles make somebody a portal System Administrator. */
+function isSysAdminBy(roles: readonly RoleCode[]): boolean {
+  return roles.includes('SYS_ADMIN');
 }
 
 /** The actor for somebody who has just signed in. */
@@ -17,6 +34,7 @@ export function signedInAs(employeeId: string, authority: Authority): Actor {
     roles: [...authority.roles],
     isManager: authority.isManager,
     ...(authority.isChiefExecutive === true ? { isChiefExecutive: true } : {}),
+    isSysAdmin: isSysAdminBy(authority.roles),
     description: `employee ${employeeId}`,
   };
 }
@@ -51,10 +69,13 @@ export function signedInAs(employeeId: string, authority: Authority): Actor {
  * that runs unattended, and it should stay short.
  */
 export function theSystem(purpose: string): Actor {
+  const roles: RoleCode[] = ['EMPLOYEE', 'HR_OFFICER', 'HR_ADMIN', 'SYS_ADMIN'];
+
   return {
     employeeId: null,
-    roles: ['EMPLOYEE', 'HR_OFFICER', 'HR_ADMIN', 'SYS_ADMIN'],
+    roles,
     isManager: false,
+    isSysAdmin: isSysAdminBy(roles),
     description: `the system (${purpose})`,
   };
 }

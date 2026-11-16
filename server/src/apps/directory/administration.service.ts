@@ -3,7 +3,7 @@
 import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
 import type { AuditRepository } from '../../core/audit/audit.db.js';
-import { type CalendarDate, calendarDateIn } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import type { WorkPatternRepository } from '../../core/calendar/work-pattern/work-pattern.db.js';
 import type { RoleRepository } from '../../core/identity/role/role.db.js';
 import type { SignInAccountRepository } from '../../core/identity/sign-in/sign-in-account.db.js';
@@ -32,6 +32,7 @@ import {
   readEmployeeChanges,
   readNewEmployee,
   readReassignment,
+  readTeamLead,
   type RecordChange,
   reportsStillHere,
   setsAnExitDate,
@@ -61,6 +62,8 @@ export interface AdministrationRecord extends StaffRecord {
   workPatternName: string;
   /** The people still here who report to them, by surname. */
   reportsStillHere: PersonNamed[];
+  /** Whether the chart draws their reports beside them, under their own manager. */
+  teamLead: boolean;
   /** Every change, newest first. NFR AUD 01. */
   history: RecordChange[];
 }
@@ -101,7 +104,7 @@ export class AdministrationService {
     private readonly roles: RoleRepository,
     private readonly audit: AuditRepository,
     /** Today, in UTC, the day every other "today" on the server is. NFR DAT 03. */
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   /** Everybody with a record, with where they stand and whether they can sign in. */
@@ -143,11 +146,12 @@ export class AdministrationService {
       throw new EmployeeNotFound(employeeId);
     }
 
-    const [[record], departments, patterns, entries] = await Promise.all([
+    const [[record], departments, patterns, entries, teamLeads] = await Promise.all([
       this.staffRecords(everybody, today, [employee]),
       this.departments.list(),
       this.patterns.list(),
       this.audit.forSubjects([{ entity: 'employee', entityId: employee.id }]),
+      this.employees.teamLeadIds(),
     ]);
 
     const names = new Map(everybody.map((one) => [one.id, `${one.firstName} ${one.lastName}`]));
@@ -158,6 +162,7 @@ export class AdministrationService {
       workPatternName:
         patterns.find((one) => one.id === employee.workPatternId)?.name ?? 'Not recorded',
       reportsStillHere: reportsStillHere(employee, everybody, today).map(named).sort(bySurname),
+      teamLead: teamLeads.has(employee.id),
       history: historyOf(
         entries.map((entry) => ({
           ...entry,
@@ -297,6 +302,26 @@ export class AdministrationService {
     }
 
     return { moved: moving.map(named).sort(bySurname), to: named(to) };
+  }
+
+  /**
+   * Marks somebody a team lead, or not: `{ "teamLead": true }`.
+   *
+   * Changes the chart and nothing else. Their reports still report to them, so they still
+   * approve those people's leave; the chart draws the team beside them, under their manager.
+   */
+  async setTeamLead(
+    actor: Actor,
+    employeeId: string,
+    body: unknown,
+  ): Promise<AdministrationRecord> {
+    this.guard.enforce(directoryPolicy.administer(actor, employeeId));
+
+    if ((await this.employees.setTeamLead(actor, employeeId, readTeamLead(body))) === undefined) {
+      throw new EmployeeNotFound(employeeId);
+    }
+
+    return this.record(actor, employeeId);
   }
 
   /**

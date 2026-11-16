@@ -12,7 +12,7 @@ import {
 import type { Employee } from '../../../core/organisation/employee/employee.js';
 import type { LeaveRequest } from './leave-request.js';
 import type { LeavePeriod } from '../leave-calculator/leave-calculator.js';
-import { calendarDateIn } from '../../../core/calendar/time.js';
+import { currentDate } from '../../../core/calendar/time.js';
 import type { BalanceRepository } from '../balance/balance.db.js';
 import type { EmployeeRepository } from '../../../core/organisation/employee/employee.db.js';
 import type { ApprovalDelegationService } from './delegation.service.js';
@@ -108,7 +108,7 @@ export class ApproverQueueService {
               team.map((one) => one.id),
               span,
             ),
-      today: calendarDateIn(new Date(), 'UTC'),
+      today: currentDate(),
       /* Asked through `permits` rather than `enforce`: a name left off a team line is not a
          refused attempt and has no business in the denial log. */
       mayBeNamed: (colleague: Employee) =>

@@ -1,7 +1,7 @@
 /** Moving a leaver's reports to the manager above them, once their last day has passed. */
 
 import type { Actor } from '../../auth/actor.js';
-import { type CalendarDate, calendarDateIn } from '../../calendar/time.js';
+import { type CalendarDate, currentDate } from '../../calendar/time.js';
 import type { EmployeeService } from './employee.service.js';
 import {
   type ReportLeftWhereItIs,
@@ -29,7 +29,7 @@ export interface LeaverReportsRun {
 export class LeaverReports {
   constructor(
     private readonly employees: EmployeeService,
-    private readonly today: () => CalendarDate = () => calendarDateIn(new Date(), 'UTC'),
+    private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
 
   async run(actor: Actor): Promise<LeaverReportsRun> {

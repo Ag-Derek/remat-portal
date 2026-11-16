@@ -582,3 +582,47 @@ describe("Ghana's public holidays are reference data", () => {
     expect(fixtures).not.toMatch(/'(Christmas Day|Independence Day|Eid al-Fitr)'/);
   });
 });
+
+/**
+ * Where compliance's default reminder schedules live. #247, SRS CMP 31–33.
+ *
+ * The same side of the same line as the leave reference data: a production database is
+ * migrated and never seeded, and a register whose new items arrive with no reminders is one
+ * that tells nobody anything.
+ *
+ * What is checked here is the half that needs no database. That the two are really on a
+ * migrated database, and that a repair leaves oversight's edits alone, is
+ * ../integration/compliance-reminder-defaults.test.ts.
+ */
+describe("compliance's default reminder schedules are reference data", () => {
+  const migrations = files.map((file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+
+  const owner = migrations.find((sql) =>
+    /CREATE\s+FUNCTION\s+ensure_compliance_reminder_defaults/i.test(sql),
+  );
+
+  it('are written by a migration, and by one that can be run again', () => {
+    expect(owner).toBeDefined();
+    expect(owner).toMatch(/INSERT\s+INTO\s+compliance_reminder_default\b/i);
+    expect(owner).toMatch(/'EXPIRES'/);
+    expect(owner).toMatch(/'RECURS'/);
+  });
+
+  /* Oversight edits them without a deployment (CMP 31), so a repair that reconciled the rows
+     back to the shipped schedules would undo that the next time it ran. */
+  it('are never rewritten by the migration that puts them back', () => {
+    expect(owner).not.toMatch(/UPDATE\s+compliance_reminder_default\b/i);
+    expect(owner).not.toMatch(/DELETE\s+FROM\s+compliance_reminder_default\b/i);
+    expect(owner).not.toMatch(/ON\s+CONFLICT/i);
+  });
+
+  it('are put back only for a kind that has none', () => {
+    expect(owner).toMatch(/existing\.kind\s*=\s*shipped\.kind/i);
+  });
+
+  it('are not owned by the fixture seed, which no production database runs', () => {
+    const fixtures = readFileSync(join(process.cwd(), 'server', 'seeds', 'seed.mjs'), 'utf8');
+
+    expect(fixtures).not.toMatch(/INSERT\s+INTO\s+compliance_reminder_default\b/i);
+  });
+});

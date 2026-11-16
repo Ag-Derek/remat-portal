@@ -35,6 +35,16 @@ export const AUDITED_ENTITIES = [
   'notification_template',
   /** #226. */
   'leave_cover',
+  /** #293. Clients NFR CLI AUD 01: what clients sells, kept by a BD manager. */
+  'clients_product_line',
+  'clients_product',
+  /** #276. The clients themselves, and the kinds of institution they are. */
+  'clients_client_type',
+  'clients_client',
+  'clients_contact',
+  'clients_client_product',
+  /** #277. A deal: who owns it, what it is worth and how likely it is. */
+  'clients_opportunity',
 ] as const;
 
 export type AuditedEntity = (typeof AUDITED_ENTITIES)[number];
@@ -58,6 +68,13 @@ export const AUDITED_ENTITY_LABELS: Readonly<Record<AuditedEntity, string>> = {
   approval_delegation: 'Delegation',
   leave_cover: 'Cover while away',
   notification_template: 'Email wording',
+  clients_product_line: 'Clients product line',
+  clients_product: 'Clients product',
+  clients_client_type: 'Client type',
+  clients_client: 'Client',
+  clients_contact: 'Client contact',
+  clients_client_product: 'Product a client uses',
+  clients_opportunity: 'Deal',
 };
 
 /**

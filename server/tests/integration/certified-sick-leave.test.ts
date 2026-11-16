@@ -6,7 +6,7 @@ import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { calendarDateIn } from '../../src/core/calendar/time.js';
+import { calendarDateIn, currentDate } from '../../src/core/calendar/time.js';
 import type { LeaveYear } from '../../src/apps/leave/leave-year/leave-year.js';
 import {
   DocumentationNotAttached,
@@ -181,7 +181,7 @@ async function grant(leaveTypeId: string, days: number): Promise<void> {
 
 /** The nth working day from today. FR 21 — a calendar offset lands fixtures on a Saturday. */
 function workingDaysAhead(offset: number): string {
-  const day = new Date();
+  const day = new Date(currentDate());
 
   for (let counted = 0; counted < offset;) {
     day.setUTCDate(day.getUTCDate() + 1);

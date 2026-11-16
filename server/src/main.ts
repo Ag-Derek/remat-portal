@@ -15,6 +15,13 @@ import { ApprovalDelegationRepository } from './apps/leave/leave-request/delegat
 import { AttachmentRepository } from './apps/leave/leave-request/attachment.db.js';
 import { CoverRepository } from './apps/leave/cover/cover.db.js';
 import { PhotoRepository } from './apps/directory/photo.db.js';
+import { ClientsRoleRepository } from './apps/clients/role.db.js';
+import { ClientsClientRepository } from './apps/clients/client.db.js';
+import { ClientsContactRepository } from './apps/clients/contact.db.js';
+import { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.js';
+import { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
+import { ClientsProductRepository } from './apps/clients/product.db.js';
+import { ClientsLeavers, summaryOfLeaversSwept } from './apps/clients/leavers.js';
 import { AttachmentLinkRepository } from './apps/leave/leave-request/attachment-link.db.js';
 import { LeaveDecisionRepository } from './apps/leave/leave-request/leave-decision.db.js';
 import { LeaveRequestDraftRepository } from './apps/leave/leave-request/draft.db.js';
@@ -53,7 +60,7 @@ import {
 } from './apps/leave/entitlement/entitlement-expiry.job.js';
 import { theSystem } from './core/auth/actor.js';
 import { EntitlementRuleService } from './apps/leave/entitlement/entitlement-rule.service.js';
-import { calendarDateIn } from './core/calendar/time.js';
+import { currentDate } from './core/calendar/time.js';
 import { LeaveYearService } from './apps/leave/leave-year/leave-year.service.js';
 import { AnnualGrant } from './apps/leave/entitlement/annual-grant.job.js';
 import { summaryOf as summaryOfGrant } from './apps/leave/entitlement/annual-grant.js';
@@ -179,12 +186,6 @@ const outbox = new EmailOutbox(new EmailOutboxRepository(db), mailer, guard, und
 });
 
 /**
- * The directory is still being built and is not mounted in production (see app.ts), so its
- * emails, which link to it, are not sent there either until it is.
- */
-const DIRECTORY_IS_OPEN = process.env.NODE_ENV !== 'production';
-
-/**
  * The one place a balance moves. §5.7, FR 37.
  *
  * Built once and handed to both doors below it, so an adjustment posted from the HR screen
@@ -283,9 +284,7 @@ const directoryEmails = new DirectoryEmailService(
   roles,
   new EmailPreferenceRepository(db),
   outbox,
-  /* Asked only where the emails are sent, so a production without APP_URL still starts while
-     the directory is closed there. */
-  portalLinks(DIRECTORY_IS_OPEN ? appUrlFrom(process.env) : (process.env.APP_URL ?? '')),
+  portalLinks(appUrlFrom(process.env)),
 );
 
 /**
@@ -293,6 +292,15 @@ const directoryEmails = new DirectoryEmailService(
  * tab and the job that moves a leaver's reports, so every one of them tells the directory's emails.
  * The leave service is what a moved report's pending requests follow. FR 07.
  */
+/**
+ * #274. Clients, which is still being built and so is nowhere in production: neither its routes
+ * (see app.ts), nor its part in a leaver's exit, nor its hourly sweep. One repository, shared by
+ * all three, so the grants a leaver loses are the grants the routes read.
+ */
+const CLIENTS_IS_OPEN = process.env.NODE_ENV !== 'production';
+const clientsRoles = new ClientsRoleRepository(db);
+const clientsLeavers = new ClientsLeavers(guard, clientsRoles, employees);
+
 const employeeRecords = new EmployeeService(
   employees,
   departments,
@@ -300,7 +308,8 @@ const employeeRecords = new EmployeeService(
   guard,
   leaveRequests,
   {
-    subscribers: DIRECTORY_IS_OPEN ? [directoryEmails] : [],
+    /* CLI 95: a leaver's clients grants end with the change that says they have left. */
+    subscribers: CLIENTS_IS_OPEN ? [directoryEmails, clientsLeavers] : [directoryEmails],
   },
 );
 
@@ -357,6 +366,16 @@ const app = buildApp({
   directoryEmails,
   /** #226. Who covers for somebody on leave. */
   covers: new CoverRepository(db),
+  /** #274. Who holds a clients role. Its routes are mounted outside production only. */
+  clientsRoles,
+  /** #293. */
+  clientsProducts: new ClientsProductRepository(db),
+  /** #276. */
+  clientsClients: new ClientsClientRepository(db),
+  clientsContacts: new ClientsContactRepository(db),
+  clientsProductsInUse: new ClientsProductInUseRepository(db),
+  /** #277. */
+  clientsOpportunities: new ClientsOpportunityRepository(db),
   /* Resolved here as well as inside buildApp, so that a missing secret stops the process
      before a socket is opened rather than while the first request is being served. */
   secret: sessionSecretFrom(),
@@ -462,7 +481,7 @@ function every(intervalMs: number, work: () => Promise<void>): NodeJS.Timeout {
 /** FR 36, §11. Every open year that has ended, oldest first, closed from the day after. */
 async function rollOverFinishedYears(): Promise<string | undefined> {
   const actor = theSystem('the year rollover');
-  const today = calendarDateIn(new Date(), 'UTC');
+  const today = currentDate();
   const finished = (await years.list({ openOnly: true })).filter((year) => year.endDate < today);
   const summaries: string[] = [];
 
@@ -528,6 +547,18 @@ const leaverTimer = every(HOUR_MS, () =>
   ),
 );
 
+/* #274, CLI 95. Hourly, with the leavers' reports: an exit recorded ahead of time ends nothing
+   when it is recorded, so a leaver's clients grants end within the hour after their last day. */
+const clientsLeaversTimer = every(HOUR_MS, () =>
+  runJob('clients-leavers', async () =>
+    CLIENTS_IS_OPEN
+      ? summaryOfLeaversSwept(
+          await clientsLeavers.sweep(theSystem("ending leavers' clients roles")),
+        )
+      : undefined,
+  ),
+);
+
 /* FR 59. Every minute, the shortest backoff. */
 const deliveryTimer = every(MINUTE_MS, () =>
   runJob('notification-retry', async () => {
@@ -541,7 +572,7 @@ const deliveryTimer = every(MINUTE_MS, () =>
    skip a day, and not before the working day starts; nobody is sent the same one twice. */
 const directoryEmailTimer = every(HOUR_MS, () =>
   runJob('directory-emails', async () => {
-    if (!DIRECTORY_IS_OPEN || new Date().getUTCHours() < REMIND_FROM_HOUR_UTC) {
+    if (new Date().getUTCHours() < REMIND_FROM_HOUR_UTC) {
       return undefined;
     }
 
@@ -596,6 +627,7 @@ function shutDown(signal: string): void {
   clearInterval(dailyTimer);
   clearInterval(reminderTimer);
   clearInterval(leaverTimer);
+  clearInterval(clientsLeaversTimer);
   clearInterval(deliveryTimer);
   clearInterval(directoryEmailTimer);
   clearInterval(outboxTimer);
