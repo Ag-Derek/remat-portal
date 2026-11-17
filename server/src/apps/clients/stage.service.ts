@@ -5,7 +5,8 @@
  * and the repository's `move` is the one write that does. The database holds the same ladder
  * whoever writes, so a path that forgot a rule here would still be refused there.
  *
- * Moves made by hand come through {@link StageService.move}. The POC moving its deals in and out
+ * Moves made by hand come through {@link StageService.move}, and a deal marked lost through
+ * {@link StageService.lose} (#279), which ends it where it stands. The POC moving its deals in and out
  * of the POC stage will come through a method of its own, which only the POC service calls (TDD
  * 5), rather than through a flag on a request anybody could send.
  */
@@ -20,21 +21,107 @@ import {
   OpportunityEnded,
   OpportunityNotFound,
 } from './opportunity.js';
-import { type ClientsOpportunityRepository, Ended, MovedMeanwhile } from './opportunity.db.js';
+import {
+  type ClientsOpportunityRepository,
+  Ended,
+  MovedMeanwhile,
+  ReasonRefused,
+} from './opportunity.db.js';
 import { viewOf } from './opportunity.service.js';
 import { clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
+import { type Reason, type ReasonList, readLoss, refusalOfReason } from './reason.js';
+import type { ClientsReasonRepository } from './reason.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
-import { readStageMove, refusalOfMove, type StageChange, StageMovedMeanwhile } from './stage.js';
+import {
+  readStageMove,
+  refusalOfLoss,
+  refusalOfMove,
+  type StageChange,
+  StageMovedMeanwhile,
+} from './stage.js';
 
 export class StageService {
   constructor(
     private readonly guard: Guard,
     private readonly grants: Pick<ClientsRoleRepository, 'rolesOf'>,
-    private readonly opportunities: Pick<ClientsOpportunityRepository, 'find' | 'move' | 'stages'>,
-    /** The company's today, which a won deal is dated (CLI 25). */
+    private readonly opportunities: Pick<
+      ClientsOpportunityRepository,
+      'find' | 'move' | 'end' | 'stages'
+    >,
+    /** The lost and exit reasons a deal ends for (#279). */
+    private readonly lists: Pick<ClientsReasonRepository, 'all' | 'find'>,
+    /** The company's today, which an ended deal is dated (CLI 25). */
     private readonly today: () => CalendarDate = () => currentDate(),
   ) {}
+
+  /**
+   * Marks a deal lost: `{ reasonId, note? }` (CLI 51). Its owner's or a BD manager's (CLI 13),
+   * at any stage before its POC starts; a deal in its POC ends converted or exited instead (CLI
+   * 52). The reason is from the lost list, and not retired (CLI 54). It stays at the stage it
+   * reached, which is how far it came (TDD 1, principle 2).
+   */
+  async lose(actor: Actor, id: string, body: unknown): Promise<DealView> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const deal = await this.opportunityOrRefuse(id);
+    this.guard.enforce(clientsPolicy.changeDeal(actor, access, deal));
+
+    if (deal.outcome !== 'OPEN') {
+      throw new OpportunityEnded(deal.product.name, deal.outcome);
+    }
+
+    const refusal = refusalOfLoss(deal);
+    if (refusal !== null) {
+      throw refusal;
+    }
+
+    const loss = readLoss(body);
+    const notOffered = refusalOfReason(await this.lists.find(loss.reasonId), 'LOST');
+    if (notOffered !== null) {
+      throw notOffered;
+    }
+
+    try {
+      await this.opportunities.end(
+        actor,
+        id,
+        { stage: deal.stage, outcome: 'LOST', reasonId: loss.reasonId, note: loss.note },
+        this.today(),
+      );
+    } catch (error) {
+      if (error instanceof MovedMeanwhile) throw new StageMovedMeanwhile();
+      if (error instanceof Ended) {
+        const now = await this.opportunityOrRefuse(id);
+        throw new OpportunityEnded(now.product.name, now.outcome);
+      }
+      /* Retired between the look and the write. */
+      if (error instanceof ReasonRefused) {
+        throw refusalOfReason(await this.lists.find(loss.reasonId), 'LOST') ?? error;
+      }
+      throw error;
+    }
+
+    return viewOf(actor, access, await this.opportunityOrRefuse(id));
+  }
+
+  /**
+   * The reasons a deal may end for now, on each list, in the order they were added: what the
+   * screen offers when a deal is lost or a POC exited (CLI 51, CLI 52). Anybody with a role's,
+   * since anybody with a role may end their own deals. Retired reasons are left out; the deals
+   * that ended for them still name them.
+   */
+  async reasons(actor: Actor): Promise<Record<ReasonList, Reason[]>> {
+    this.guard.enforce(clientsPolicy.read(actor, await accessOf(actor, this.grants)));
+
+    const current = (await this.lists.all()).filter((reason) => reason.retiredOn === null);
+
+    return {
+      LOST: current.filter((reason) => reason.appliesTo === 'LOST'),
+      EXITED: current.filter((reason) => reason.appliesTo === 'EXITED'),
+    };
+  }
 
   /**
    * Moves a deal to another stage by hand: `{ toStage, note? }`. Its owner's or a BD manager's

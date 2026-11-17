@@ -182,6 +182,15 @@ export function optionsOf(deal: DealOnTheLadder): StageOption[] {
   });
 }
 
+/**
+ * Why an open deal may not be marked lost, or null where it may (CLI 51). Any time before its POC
+ * starts, at any stage; once its POC has started it ends only as converted or exited (CLI 52).
+ * Whether it is open at all the caller asks first, as it does for a move.
+ */
+export function refusalOfLoss(deal: DealOnTheLadder): Error | null {
+  return deal.stage === 'POC' ? new PocEndsIt(deal.product.name) : null;
+}
+
 /** The outcome a deal has after moving to a stage: won at Live, open anywhere else (CLI 25). */
 export function outcomeAt(stage: Stage): Outcome {
   return stage === 'LIVE' ? 'WON' : 'OPEN';
@@ -276,6 +285,17 @@ export class PocDecides extends Error {
         'moved there by hand.',
     );
     this.name = 'PocDecides';
+  }
+}
+
+/** TDD's POC_DECIDES for marking lost (CLI 52): a deal in a started POC is converted or exited. */
+export class PocEndsIt extends Error {
+  constructor(productName: string) {
+    super(
+      `The ${productName} deal is in its POC, so it ends by the POC converting or exiting. It ` +
+        'is not marked lost.',
+    );
+    this.name = 'PocEndsIt';
   }
 }
 

@@ -1,10 +1,10 @@
 /**
- * Products and lines, and client types, kept by a BD manager. #293, #276, Clients SRS CLI 07,
- * CLI 08, TDD 3.
+ * Products and lines, client types, and the lost and exit reasons, kept by a BD manager. #293,
+ * #276, #279, Clients SRS CLI 07, CLI 08, CLI 54, TDD 3.
  *
  * Every method asks `clientsPolicy.setUp` first, before reading the request or looking anything
- * up, so somebody refused learns nothing from what they sent. Checklists and reasons join this
- * service when they are built.
+ * up, so somebody refused learns nothing from what they sent. Checklists join this service when
+ * they are built.
  */
 
 import type { Actor } from '../../core/auth/actor.js';
@@ -25,6 +25,14 @@ import {
   readName,
 } from './product.js';
 import type { ClientsProductRepository } from './product.db.js';
+import {
+  type ReasonInSetup,
+  ReasonInUse,
+  ReasonNotFound,
+  readNewReason,
+  readReasonLabel,
+} from './reason.js';
+import type { ClientsReasonRepository } from './reason.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
 
 export class SetupService {
@@ -36,6 +44,11 @@ export class SetupService {
     private readonly clientTypesFrom: Pick<
       ClientsClientRepository,
       'types' | 'findType' | 'addType' | 'renameType' | 'retireType' | 'restoreType'
+    >,
+    /** #279. Why deals are lost and POCs exited. */
+    private readonly reasons: Pick<
+      ClientsReasonRepository,
+      'inSetup' | 'find' | 'add' | 'reword' | 'retire' | 'restore' | 'delete'
     >,
   ) {}
 
@@ -156,6 +169,81 @@ export class SetupService {
     await this.clientTypeOrRefuse(id);
 
     await this.clientTypesFrom.restoreType(actor, id);
+  }
+
+  /* ---------------------------------------------------- lost and exit reasons, #279 */
+
+  /** Both lists, retired reasons included and marked, and which a deal has ended for (CLI 54). */
+  async reasonLists(actor: Actor): Promise<ReasonInSetup[]> {
+    await this.mustSetUp(actor);
+
+    return this.reasons.inSetup();
+  }
+
+  /** `{ appliesTo, label }`: a new reason on the lost list or the exit list. */
+  async addReason(actor: Actor, body: unknown): Promise<ReasonInSetup> {
+    await this.mustSetUp(actor);
+
+    const { appliesTo, label } = readNewReason(body);
+
+    return this.reasons.add(actor, appliesTo, label);
+  }
+
+  /**
+   * `{ label }`: new words for a reason, while no deal has ended for it. One that a deal has
+   * ended for keeps its words, so that the deal still says what it was told (#279); the database
+   * refuses it too.
+   */
+  async rewordReason(actor: Actor, id: string, body: unknown): Promise<void> {
+    await this.mustSetUp(actor);
+
+    const label = readReasonLabel(body);
+    const reason = await this.reasonOrRefuse(id);
+    if (reason.inUse && label !== reason.label) {
+      throw new ReasonInUse(reason.label, 'reword');
+    }
+
+    await this.reasons.reword(actor, reason, label);
+  }
+
+  /** No longer offered for a new loss or exit. The deals that ended for it keep it (CLI 54). */
+  async retireReason(actor: Actor, id: string): Promise<void> {
+    await this.mustSetUp(actor);
+    await this.reasonOrRefuse(id);
+
+    await this.reasons.retire(actor, id, currentDate());
+  }
+
+  async restoreReason(actor: Actor, id: string): Promise<void> {
+    await this.mustSetUp(actor);
+    await this.reasonOrRefuse(id);
+
+    await this.reasons.restore(actor, id);
+  }
+
+  /**
+   * Gone for good, where no deal has ended for it, a reason added by mistake say. One in use is
+   * retired instead (CLI 54); the database refuses it too.
+   */
+  async deleteReason(actor: Actor, id: string): Promise<void> {
+    await this.mustSetUp(actor);
+
+    const reason = await this.reasonOrRefuse(id);
+    if (reason.inUse) {
+      throw new ReasonInUse(reason.label, 'delete');
+    }
+
+    await this.reasons.delete(actor, reason);
+  }
+
+  private async reasonOrRefuse(id: string): Promise<ReasonInSetup> {
+    const reason = isAnId(id) ? await this.reasons.find(id) : undefined;
+
+    if (reason === undefined) {
+      throw new ReasonNotFound();
+    }
+
+    return reason;
   }
 
   private async clientTypeOrRefuse(id: string): Promise<ClientType> {

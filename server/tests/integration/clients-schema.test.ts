@@ -29,6 +29,8 @@ const TABLES = [
   'clients_value_change',
   'clients_stage_change',
   'clients_client_note',
+  'clients_reason',
+  'clients_next_step',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -781,7 +783,8 @@ describe('an opportunity', () => {
 
     if (refused === null) {
       await admin.query(
-        `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE
+        `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+                reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
           WHERE client_id = $1 AND outcome = 'OPEN'`,
         [adb],
       );
@@ -814,8 +817,30 @@ describe('an opportunity', () => {
       );
     }
 
+    /* #279. Exited only from a started POC, with a reason and which products it ran on. */
+    if (outcome === 'EXITED') {
+      await admin.query(
+        `UPDATE clients_opportunity SET has_poc = true, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
+        [id],
+      );
+      await admin.query(`UPDATE clients_opportunity SET stage = 'POC' WHERE id = $1`, [id]);
+
+      return refusedBy(
+        `UPDATE clients_opportunity SET outcome = 'EXITED', ended_on = CURRENT_DATE,
+                reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'EXITED'),
+                end_note = 'Ran on CreditStudio'
+          WHERE id = $1`,
+        [id],
+      );
+    }
+
+    /* #279. Lost, with a reason from the lost list; anything else is refused as it would be. */
     return refusedBy(
-      'UPDATE clients_opportunity SET outcome = $2, ended_on = CURRENT_DATE WHERE id = $1',
+      `UPDATE clients_opportunity SET outcome = $2::text, ended_on = CURRENT_DATE,
+              reason_id = CASE WHEN $2::text = 'LOST'
+                               THEN (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+                          END
+        WHERE id = $1`,
       [id, outcome],
     );
   }
@@ -1055,6 +1080,8 @@ describe('an opportunity', () => {
     expect(rows.map((row) => row.indexdef)).toEqual([
       expect.stringMatching(/USING btree \(client_id\)$/),
       expect.stringMatching(/USING btree \(owner_id\) WHERE \(\(outcome\)::text = 'OPEN'/),
+      /* #279. Deals ended for a reason, which the reports count and a reason's use is told by. */
+      expect.stringMatching(/USING btree \(reason_id\) WHERE \(reason_id IS NOT NULL\)/),
       /* #278. Open deals at each stage, which the pipeline counts. */
       expect.stringMatching(/USING btree \(stage\) WHERE \(\(outcome\)::text = 'OPEN'/),
     ]);
@@ -1338,9 +1365,13 @@ describe('a deal on the ladder', () => {
       'clients_opportunity_won_is_live',
     );
     expect(await set(`stage = 'LIVE'`)).toBe('clients_opportunity_won_is_live');
-    expect(await set(`stage = 'LIVE', outcome = 'LOST', ended_on = CURRENT_DATE`)).toBe(
-      'clients_opportunity_won_is_live',
-    );
+    /* #279. Lost at Live is refused by TDD's opp_lost_shape too, which is checked first. */
+    expect(
+      await set(
+        `stage = 'LIVE', outcome = 'LOST', ended_on = CURRENT_DATE,
+         reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')`,
+      ),
+    ).toBe('clients_opportunity_lost_shape');
   });
 
   /* CLI 24. Live comes after the contract is signed, never before it. */
@@ -1379,7 +1410,379 @@ describe('a deal on the ladder', () => {
   it('says when it ended, and an open one has not', async () => {
     expect(await set(`outcome = 'LOST'`)).toBe('clients_opportunity_ended_shape');
     expect(await set('ended_on = CURRENT_DATE')).toBe('clients_opportunity_ended_shape');
-    expect(await set(`outcome = 'LOST', ended_on = CURRENT_DATE`)).toBeNull();
+    expect(
+      await set(
+        `outcome = 'LOST', ended_on = CURRENT_DATE,
+         reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')`,
+      ),
+    ).toBeNull();
+  });
+});
+
+/* --------------------------------------------------- ending without winning, #279 */
+
+describe('a deal that ends without winning', () => {
+  let deal: string;
+  let lostFor: Record<string, string>;
+  let exitedFor: Record<string, string>;
+
+  function set(assignments: string): Promise<string | null> {
+    return refusedBy(`UPDATE clients_opportunity SET ${assignments} WHERE id = $1`, [deal]);
+  }
+
+  /** Ends the deal as lost, for a reason, with whatever else is given. */
+  function loseFor(reasonId: string | null, more = ''): Promise<string | null> {
+    return refusedBy(
+      `UPDATE clients_opportunity
+          SET outcome = 'LOST', ended_on = CURRENT_DATE, reason_id = $2 ${more}
+        WHERE id = $1`,
+      [deal, reasonId],
+    );
+  }
+
+  function exitFor(reasonId: string | null, note: string | null): Promise<string | null> {
+    return refusedBy(
+      `UPDATE clients_opportunity
+          SET outcome = 'EXITED', ended_on = CURRENT_DATE, reason_id = $2, end_note = $3
+        WHERE id = $1`,
+      [deal, reasonId, note],
+    );
+  }
+
+  async function intoItsPoc(): Promise<void> {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await set(`stage = 'POC'`)).toBeNull();
+  }
+
+  beforeEach(async () => {
+    const client = await aClient(ama);
+    deal = (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+        [client, ama],
+      )
+    ).rows[0].id;
+
+    const { rows } = await admin.query<{ id: string; applies_to: string; label: string }>(
+      'SELECT id, applies_to, label FROM clients_reason',
+    );
+    lostFor = Object.fromEntries(
+      rows.filter((row) => row.applies_to === 'LOST').map((row) => [row.label, row.id]),
+    );
+    exitedFor = Object.fromEntries(
+      rows.filter((row) => row.applies_to === 'EXITED').map((row) => [row.label, row.id]),
+    );
+  });
+
+  /* CLI 54, TDD 14. A starter set on each list, for the BD manager to edit. */
+  it('has a starter set of reasons on each list', () => {
+    expect(Object.keys(lostFor)).toContain('Chose a competitor');
+    expect(Object.keys(exitedFor)).toContain('Client withdrew');
+  });
+
+  /* CLI 51, TDD's opp_lost_shape, REASON_REQUIRED. */
+  it('is lost only with a reason, and a note if one is given', async () => {
+    expect(await loseFor(null)).toBe('clients_opportunity_lost_shape');
+    expect(await loseFor(lostFor.Price, `, end_note = '  '`)).toBe(
+      'clients_opportunity_end_note_not_blank',
+    );
+    expect(await loseFor(lostFor.Price, `, end_note = 'Went with the incumbent'`)).toBeNull();
+  });
+
+  /* CLI 51. Any time before its POC starts, Contract signed with a POC included. */
+  it('is lost before its POC starts, and not after', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await set(`stage = 'POC'`)).toBeNull();
+
+    expect(await loseFor(lostFor.Price)).toBe('clients_opportunity_lost_shape');
+  });
+
+  it('is lost from Contract signed, its POC not yet started', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+
+    expect(await loseFor(lostFor.Price)).toBeNull();
+  });
+
+  /* CLI 52, TDD's opp_exit_shape. Only from a started POC, with a reason and which products. */
+  it('is exited only from a started POC, with a reason and which products it ran on', async () => {
+    expect(await exitFor(exitedFor['Client withdrew'], 'Ran on CreditStudio')).toBe(
+      'clients_opportunity_exit_shape',
+    );
+
+    await intoItsPoc();
+    expect(await exitFor(null, 'Ran on CreditStudio')).toBe('clients_opportunity_exit_shape');
+    expect(await exitFor(exitedFor['Client withdrew'], null)).toBe(
+      'clients_opportunity_exit_shape',
+    );
+    expect(await exitFor(exitedFor['Client withdrew'], 'Ran on CreditStudio')).toBeNull();
+  });
+
+  /* CLI 51, CLI 52. A lost deal takes a lost reason, an exited one an exit reason. */
+  it('takes a reason from the list for how it ended', async () => {
+    expect(await loseFor(exitedFor['Client withdrew'])).toBe(
+      'clients_opportunity_reason_from_its_list',
+    );
+
+    await intoItsPoc();
+    expect(await exitFor(lostFor.Price, 'Ran on CreditStudio')).toBe(
+      'clients_opportunity_reason_from_its_list',
+    );
+  });
+
+  /* CLI 54. Retired is given to no new deal, and kept by those that ended for it. */
+  it('takes no retired reason, and keeps one retired after it ended', async () => {
+    await admin.query(`UPDATE clients_reason SET retired_on = CURRENT_DATE WHERE id = $1`, [
+      lostFor.Price,
+    ]);
+    expect(await loseFor(lostFor.Price)).toBe('clients_opportunity_reason_in_use');
+
+    expect(await loseFor(lostFor['No budget'])).toBeNull();
+    await admin.query(`UPDATE clients_reason SET retired_on = CURRENT_DATE WHERE id = $1`, [
+      lostFor['No budget'],
+    ]);
+    const { rows } = await admin.query<{ reason_id: string }>(
+      'SELECT reason_id FROM clients_opportunity WHERE id = $1',
+      [deal],
+    );
+    expect(rows[0].reason_id).toBe(lostFor['No budget']);
+  });
+
+  /* A reason and a closing note belong only to a deal that ended without winning. */
+  it('has no reason or closing note while open, or once won', async () => {
+    expect(await set(`reason_id = ${lostFor.Price}`)).toBe(
+      'clients_opportunity_reason_only_when_ended',
+    );
+    expect(await set(`end_note = 'Early days'`)).toBe(
+      'clients_opportunity_end_note_only_when_ended',
+    );
+
+    expect(await set(`has_poc = false, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(
+      await set(`stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE, end_note = 'Signed up'`),
+    ).toBe('clients_opportunity_end_note_only_when_ended');
+  });
+
+  /* CLI 55. Kept as it ended: its reason and note included. */
+  it('keeps its reason and note as they were', async () => {
+    expect(await loseFor(lostFor.Price, `, end_note = 'Too dear'`)).toBeNull();
+
+    expect(await set(`reason_id = ${lostFor['Not a fit']}`)).toBe(
+      'clients_opportunity_ended_is_fixed',
+    );
+    expect(await set(`end_note = 'Something else'`)).toBe('clients_opportunity_ended_is_fixed');
+  });
+
+  /* The history holds no ending the deal itself could not have had. */
+  it('is in the history only as it could have happened', async () => {
+    const ENDING = `INSERT INTO clients_stage_change
+                      (opportunity_id, from_stage, to_stage, to_outcome, changed_by)
+                    VALUES ($1, $2, $2, $3, $4)`;
+
+    expect(await refusedBy(ENDING, [deal, 'POC', 'LOST', ama])).toBe(
+      'clients_stage_change_lost_before_poc',
+    );
+    expect(await refusedBy(ENDING, [deal, 'NEGOTIATION', 'EXITED', ama])).toBe(
+      'clients_stage_change_exited_from_poc',
+    );
+    expect(await refusedBy(ENDING, [deal, 'NEGOTIATION', 'LOST', ama])).toBeNull();
+    expect(await refusedBy(ENDING, [deal, 'POC', 'EXITED', ama])).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------- the reason lists, #279 */
+
+describe('a lost or exit reason', () => {
+  /** Ends a new deal lost for this reason, so that a deal names it. */
+  async function lostFor(reasonId: string): Promise<void> {
+    const client = await aClient(ama, `Bank ${reasonId}`);
+    const { rows } = await admin.query<{ id: string }>(
+      `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+       SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+      [client, ama],
+    );
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE, reason_id = $2
+        WHERE id = $1`,
+      [rows[0].id, reasonId],
+    );
+  }
+
+  /* CLI 54, #279. In use, it is kept as it was: not reworded, not deleted. Retired, yes. */
+  it('is kept as it was once a deal has ended for it, and may still be retired', async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `INSERT INTO clients_reason (applies_to, label) VALUES ('LOST', 'Board said no') RETURNING id`,
+    );
+    const id = rows[0].id;
+    await lostFor(id);
+
+    expect(
+      await refusedBy(`UPDATE clients_reason SET label = 'Board said not yet' WHERE id = $1`, [id]),
+    ).toBe('clients_reason_words_kept_once_used');
+    expect(await refusedBy('DELETE FROM clients_reason WHERE id = $1', [id])).toBe(
+      'clients_opportunity_reason_id_fkey',
+    );
+    expect(
+      await refusedBy('UPDATE clients_reason SET retired_on = CURRENT_DATE WHERE id = $1', [id]),
+    ).toBeNull();
+    expect(
+      await refusedBy('UPDATE clients_reason SET retired_on = NULL WHERE id = $1', [id]),
+    ).toBeNull();
+  });
+
+  /* #279. Unused, it may be reworded and deleted: a typo just added, say. */
+  it('may be reworded and deleted while no deal has ended for it', async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `INSERT INTO clients_reason (applies_to, label) VALUES ('LOST', 'Bord said no') RETURNING id`,
+    );
+
+    expect(
+      await refusedBy(`UPDATE clients_reason SET label = 'Board said no' WHERE id = $1`, [
+        rows[0].id,
+      ]),
+    ).toBeNull();
+    expect(await refusedBy('DELETE FROM clients_reason WHERE id = $1', [rows[0].id])).toBeNull();
+  });
+
+  const REASON = 'INSERT INTO clients_reason (applies_to, label) VALUES ($1, $2) RETURNING id';
+
+  /* CLI 54. */
+  it('is on one of the two lists, and says something', async () => {
+    expect(await refusedBy(REASON, ['PAUSED', 'Board said no'])).toBe(
+      'clients_reason_applies_to_known',
+    );
+    expect(await refusedBy(REASON, ['LOST', '  '])).toBe('clients_reason_labelled');
+    expect(await refusedBy(REASON, ['LOST', 'Board said no'])).toBeNull();
+  });
+
+  it('is named once on its list, ignoring case and spaces, and may be on both', async () => {
+    expect(await refusedBy(REASON, ['LOST', ' price '])).toBe('uq_clients_reason_label');
+    expect(await refusedBy(REASON, ['EXITED', 'Price'])).toBeNull();
+  });
+
+  /* NFR CLI AUD 01. */
+  it('is audited', async () => {
+    const { rows } = await admin.query<{ id: string }>(REASON, ['LOST', 'Board said no']);
+    await admin.query(`UPDATE clients_reason SET retired_on = CURRENT_DATE WHERE id = $1`, [
+      rows[0].id,
+    ]);
+
+    const audit = await admin.query<{ action: string }>(
+      `SELECT action FROM audit_log WHERE entity = 'clients_reason' AND entity_id = $1
+        ORDER BY id`,
+      [rows[0].id],
+    );
+    expect(audit.rows.map((row) => row.action)).toEqual(['CREATE', 'UPDATE']);
+  });
+});
+
+/* ------------------------------------------------------------ a next step, #279 */
+
+describe('a next step', () => {
+  const STEP = `INSERT INTO clients_next_step
+                  (client_id, opportunity_id, description, due_on, owner_id, source, created_by)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
+  let client: string;
+  let deal: string;
+
+  /** A step's values, with `change` over the top. */
+  function aStep(change: Partial<Record<string, unknown>> = {}): unknown[] {
+    const step = {
+      client,
+      deal,
+      description: 'Internal debrief on the Testbank CreditStudio POC exit',
+      dueOn: '2026-11-23',
+      owner: ama,
+      source: 'DEBRIEF',
+      by: kofi,
+      ...change,
+    };
+
+    return [step.client, step.deal, step.description, step.dueOn, step.owner, step.source, step.by];
+  }
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+    deal = (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+        [client, ama],
+      )
+    ).rows[0].id;
+  });
+
+  /* CLI 53, TDD 4.5. */
+  it('records what, by when, whose, from what, and who made it, open', async () => {
+    const { rows } = await admin.query(
+      `${STEP.replace('RETURNING id', '')}
+       RETURNING client_id, opportunity_id, description, due_on::text, owner_id, source,
+                 done_at, done_by, created_by, created_at`,
+      aStep(),
+    );
+
+    expect(rows[0]).toMatchObject({
+      client_id: client,
+      opportunity_id: deal,
+      due_on: '2026-11-23',
+      owner_id: ama,
+      source: 'DEBRIEF',
+      done_at: null,
+      done_by: null,
+      created_by: kofi,
+    });
+    expect(rows[0].created_at).toBeInstanceOf(Date);
+  });
+
+  it('comes from an activity, a review, a debrief, or by hand', async () => {
+    for (const source of ['ACTIVITY', 'REVIEW', 'DEBRIEF', 'MANUAL']) {
+      expect(await refusedBy(STEP, aStep({ source }))).toBeNull();
+    }
+    expect(await refusedBy(STEP, aStep({ source: 'REMINDER' }))).toBe(
+      'clients_next_step_source_known',
+    );
+  });
+
+  it('says what happens next, and when, and whose it is', async () => {
+    expect(await refusedBy(STEP, aStep({ description: '  ' }))).toBe('clients_next_step_described');
+    expect(await refusedBy(STEP, aStep({ description: 'x'.repeat(301) }))).toMatch(/too long/);
+    expect(await refusedBy(STEP, aStep({ dueOn: null }))).toMatch(/due_on/);
+    expect(await refusedBy(STEP, aStep({ owner: null }))).toMatch(/owner_id/);
+    expect(await refusedBy(STEP, aStep({ owner: '987654321' }))).toBe(
+      'clients_next_step_owner_id_fkey',
+    );
+  });
+
+  /* Beyond TDD 4.5: a debrief is about the deal that was exited. Other steps may be the client's. */
+  it("is about a deal where it is a debrief, and may be the client's otherwise", async () => {
+    expect(await refusedBy(STEP, aStep({ deal: null }))).toBe(
+      'clients_next_step_debrief_names_its_deal',
+    );
+    expect(await refusedBy(STEP, aStep({ deal: null, source: 'MANUAL' }))).toBeNull();
+  });
+
+  /* TDD's step_done_pair. */
+  it('is done with who did it, or not at all', async () => {
+    const { rows } = await admin.query<{ id: string }>(STEP, aStep());
+
+    expect(
+      await refusedBy('UPDATE clients_next_step SET done_at = now() WHERE id = $1', [rows[0].id]),
+    ).toBe('clients_next_step_done_pair');
+    expect(
+      await refusedBy('UPDATE clients_next_step SET done_at = now(), done_by = $2 WHERE id = $1', [
+        rows[0].id,
+        ama,
+      ]),
+    ).toBeNull();
+  });
+
+  /* TDD's idx_step_open. */
+  it("is found among somebody's open steps by when it falls due", async () => {
+    const { rows } = await admin.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_clients_next_step_open'`,
+    );
+
+    expect(rows[0].indexdef).toContain('USING btree (owner_id, due_on) WHERE (done_at IS NULL)');
   });
 });
 
@@ -1594,7 +1997,8 @@ describe('a note on a client', () => {
 /* ---------------------------------------------------------- what lms_app may do */
 
 describe('the application role', () => {
-  it('deletes nothing in clients', async () => {
+  /* #279, CLI 54: but for a reason no deal has ended for, which the deal's foreign key holds. */
+  it('deletes nothing in clients but an unused reason', async () => {
     const { rows } = await admin.query<{ table: string }>(
       `SELECT t AS table FROM unnest($1::text[]) AS t
         WHERE has_table_privilege('lms_app', t, 'DELETE')
@@ -1602,7 +2006,14 @@ describe('the application role', () => {
       [TABLES],
     );
 
-    expect(rows).toEqual([]);
+    expect(rows).toEqual([{ table: 'clients_reason' }]);
+    expect(
+      (
+        await admin.query(
+          `SELECT has_table_privilege('lms_app', 'clients_reason', 'TRUNCATE') AS t`,
+        )
+      ).rows[0].t,
+    ).toBe(false);
   });
 
   it('reads and appends to every table', async () => {
@@ -1656,12 +2067,15 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'close_half' },
       { table_name: 'clients_opportunity', column_name: 'close_year' },
       { table_name: 'clients_opportunity', column_name: 'currency' },
+      /* #279. Why it was lost or exited, and what was said, written as it ends. */
+      { table_name: 'clients_opportunity', column_name: 'end_note' },
       /* #278. Its stage, its outcome and the day it ended, moved by the stage service, and
          whether it will have a POC. */
       { table_name: 'clients_opportunity', column_name: 'ended_on' },
       { table_name: 'clients_opportunity', column_name: 'has_poc' },
       { table_name: 'clients_opportunity', column_name: 'outcome' },
       { table_name: 'clients_opportunity', column_name: 'probability' },
+      { table_name: 'clients_opportunity', column_name: 'reason_id' },
       { table_name: 'clients_opportunity', column_name: 'stage' },
       { table_name: 'clients_opportunity', column_name: 'stated_interest' },
       { table_name: 'clients_opportunity', column_name: 'value_minor' },
@@ -1671,6 +2085,9 @@ describe('the application role', () => {
       { table_name: 'clients_product', column_name: 'retired_on' },
       { table_name: 'clients_product_line', column_name: 'name' },
       { table_name: 'clients_product_line', column_name: 'retired_on' },
+      /* #279. A reason is renamed and retired; which list it is on never changes. */
+      { table_name: 'clients_reason', column_name: 'label' },
+      { table_name: 'clients_reason', column_name: 'retired_on' },
       { table_name: 'clients_role', column_name: 'ended_at' },
       { table_name: 'clients_role', column_name: 'ended_by' },
       { table_name: 'clients_role', column_name: 'ended_reason' },

@@ -508,6 +508,16 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   LiveAfterSigning: 409,
   /** Looking again is the fix. */
   StageMovedMeanwhile: 409,
+  /** #279, CLI 52. POC_DECIDES for marking lost: its POC converting or exiting is the fix. */
+  PocEndsIt: 409,
+  /** #279, CLI 52. Moving it on, or marking it lost, is the fix. */
+  NotInItsPoc: 409,
+  /** #279, CLI 51, CLI 54. Choosing a reason the list offers is the fix. */
+  ReasonNotOffered: 400,
+  /** #279, CLI 54. Its list has those words already; others are the fix. */
+  ReasonLabelTaken: 409,
+  /** #279, CLI 54. A deal ended for it; retiring it is the fix. */
+  ReasonInUse: 409,
   /** #278. A note is archived; bringing it back is the fix. */
   NoteArchived: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */

@@ -13,6 +13,7 @@
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Person } from './client.js';
 import { isAnId } from './product.js';
+import type { Ending } from './reason.js';
 import type { Stage, StageOption } from './stage.js';
 
 /** Ghana cedis and US dollars, the two the department prices in (CLI 74). */
@@ -68,6 +69,8 @@ export interface Opportunity {
   hasPoc: boolean | null;
   /** The day it was won, lost or exited; null while it is open (CLI 25). */
   endedOn: CalendarDate | null;
+  /** Why it was lost or exited, and any note (CLI 55). Null while open, and once won (#279). */
+  ending: Ending | null;
   /** Null while nobody knows what it is worth. */
   value: Money | null;
   /** A whole percentage, or null while nobody has said (CLI 14). */
@@ -112,6 +115,8 @@ export interface DealPermissions {
   move: boolean;
   /** Answering whether it will have a POC: the same people, until its contract is signed. */
   decidePoc: boolean;
+  /** Marking it lost: the same people, while it is open and its POC has not started (#279). */
+  lose: boolean;
 }
 
 /**

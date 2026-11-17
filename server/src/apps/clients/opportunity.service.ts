@@ -33,7 +33,7 @@ import { type ClientsAccess, clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
 import type { ClientsProductInUseRepository } from './product-in-use.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
-import { isSigned, optionsOf, PocDecisionFixed } from './stage.js';
+import { isSigned, optionsOf, PocDecisionFixed, refusalOfLoss } from './stage.js';
 
 export class OpportunityService {
   constructor(
@@ -190,7 +190,8 @@ export class OpportunityService {
 /**
  * A deal, with the policy's answers about it for the screen to offer. Editing an ended deal is
  * offered to nobody, since the database refuses it whoever asks; nor is moving a deal in its POC,
- * which its POC moves (CLI 24), nor answering the POC question once it is settled (CLI 19).
+ * which its POC moves (CLI 24), nor answering the POC question once it is settled (CLI 19), nor
+ * marking lost a deal whose POC has started, which ends converted or exited (CLI 52).
  */
 export function viewOf(actor: Actor, access: ClientsAccess, deal: Opportunity): DealView {
   const change = deal.outcome === 'OPEN' && clientsPolicy.changeDeal(actor, access, deal).allowed;
@@ -198,7 +199,12 @@ export function viewOf(actor: Actor, access: ClientsAccess, deal: Opportunity): 
 
   return {
     ...deal,
-    may: { change, move, decidePoc: change && !isSigned(deal.stage) },
+    may: {
+      change,
+      move,
+      decidePoc: change && !isSigned(deal.stage),
+      lose: change && refusalOfLoss(deal) === null,
+    },
     moves: move ? optionsOf(deal) : [],
   };
 }

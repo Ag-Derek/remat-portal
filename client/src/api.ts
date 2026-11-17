@@ -3388,6 +3388,8 @@ export interface Deal {
   hasPoc: boolean | null;
   /** The day it was won, lost or exited, 2026-11-11; null while open. */
   endedOn: string | null;
+  /** Why it was lost or exited, and any note. Null while open, and once won. #279. */
+  ending: { reason: { id: string; label: string }; note: string | null } | null;
   value: Money | null;
   /** A whole percentage. */
   probability: number | null;
@@ -3403,6 +3405,8 @@ export interface Deal {
     move: boolean;
     /** Answering whether it will have a POC: the same, until its contract is signed. */
     decidePoc: boolean;
+    /** Marking it lost: the same, while it is open and its POC has not started. #279. */
+    lose: boolean;
   };
   /** Every stage, where the reader may move it; none where they may not. */
   moves: DealStageOption[];
@@ -3468,6 +3472,27 @@ export async function answerDealPoc(id: string, hasPoc: boolean | null): Promise
 export async function moveDeal(id: string, toStage: DealStage, note: string): Promise<Deal> {
   return request<Deal>('POST', `/api/clients/opportunities/${encodeURIComponent(id)}/stage`, {
     toStage,
+    note,
+  });
+}
+
+/** A reason a deal is lost or a POC exited for, from the lists a BD manager keeps. #279. */
+export interface EndReason {
+  id: string;
+  appliesTo: 'LOST' | 'EXITED';
+  label: string;
+  retiredOn: string | null;
+}
+
+/** The reasons a deal may be lost or a POC exited for now, on each list. */
+export async function endReasons(): Promise<Record<'LOST' | 'EXITED', EndReason[]>> {
+  return request<Record<'LOST' | 'EXITED', EndReason[]>>('GET', '/api/clients/reasons');
+}
+
+/** Marks a deal lost, where it stands, for a reason from the lost list. Before its POC starts. */
+export async function loseDeal(id: string, reasonId: string, note: string): Promise<Deal> {
+  return request<Deal>('POST', `/api/clients/opportunities/${encodeURIComponent(id)}/lose`, {
+    reasonId,
     note,
   });
 }
@@ -3671,4 +3696,41 @@ export async function setupClientTypes(): Promise<ClientType[]> {
 
 export async function addClientType(name: string): Promise<void> {
   await request<unknown>('POST', '/api/clients/setup/client-types', { name });
+}
+
+/* ------------------------------------------------- lost and exit reasons, #279 */
+
+/** A reason as setup shows it, and whether a deal has ended for it (CLI 54). */
+export interface SetupReason extends EndReason {
+  /** A deal ended for it: its words are kept, and it is retired rather than deleted. */
+  inUse: boolean;
+}
+
+/** Both lists, retired reasons included. A BD manager's. */
+export async function setupReasons(): Promise<SetupReason[]> {
+  const { reasons } = await request<{ reasons: SetupReason[] }>(
+    'GET',
+    '/api/clients/setup/reasons',
+  );
+  return reasons;
+}
+
+export async function addReason(appliesTo: EndReason['appliesTo'], label: string): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/reasons', { appliesTo, label });
+}
+
+/** New words, while no deal has ended for it. */
+export async function rewordReason(id: string, label: string): Promise<void> {
+  await request<unknown>('PATCH', `/api/clients/setup/reasons/${encodeURIComponent(id)}`, {
+    label,
+  });
+}
+
+export async function retireOrRestoreReason(id: string, act: 'retire' | 'restore'): Promise<void> {
+  await request<unknown>('POST', `/api/clients/setup/reasons/${encodeURIComponent(id)}/${act}`);
+}
+
+/** Gone for good, while no deal has ended for it. */
+export async function deleteReason(id: string): Promise<void> {
+  await request<unknown>('DELETE', `/api/clients/setup/reasons/${encodeURIComponent(id)}`);
 }

@@ -10,7 +10,10 @@ import {
   DEAL_STAGES,
   type Deal,
   type DealStage,
+  type EndReason,
+  endReasons,
   isNotSignedIn,
+  loseDeal,
   type Money,
   moveDeal,
   offeredProducts,
@@ -18,7 +21,7 @@ import {
   type WaitingOnWhat,
 } from '../../api';
 import { AddButton, EditButton } from '../../ActionButtons';
-import { money } from '../../format';
+import { day, money } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { Dialog, DialogFoot, Field, useSending } from './ui';
@@ -146,6 +149,8 @@ export function ClientDeals({
   const [open, setOpen] = useState<{ deal?: Deal } | null>(null);
   /* The deal being moved to another stage, if any. */
   const [moving, setMoving] = useState<Deal | null>(null);
+  /* The deal being marked lost, if any. #279. */
+  const [losing, setLosing] = useState<Deal | null>(null);
   const close = () => {
     setOpen(null);
   };
@@ -212,8 +217,27 @@ export function ClientDeals({
             onChanged();
           }}
           onAnswered={onChanged}
+          onLose={(deal) => {
+            setMoving(null);
+            setLosing(deal);
+          }}
           onClose={() => {
             setMoving(null);
+          }}
+          onSignedOut={onSignedOut}
+        />
+      )}
+
+      {losing === null ? null : (
+        <LoseDialog
+          deal={losing}
+          clientName={client.name}
+          onLost={() => {
+            setLosing(null);
+            onChanged();
+          }}
+          onClose={() => {
+            setLosing(null);
           }}
           onSignedOut={onSignedOut}
         />
@@ -308,7 +332,10 @@ function DealTable({
             <td className="clients-deals-actions">
               <span className="clients-deal-buttons">
                 {deal.outcome === 'OPEN' ? null : (
-                  <span className="tag">{OUTCOME[deal.outcome]}</span>
+                  <span className="tag">
+                    {OUTCOME[deal.outcome]}
+                    {deal.endedOn === null ? null : ` ${day(deal.endedOn)}`}
+                  </span>
                 )}
                 <button
                   type="button"
@@ -415,7 +442,9 @@ export const STAGE_NAME: Record<DealStage, string> = {
 
 /**
  * Where a deal stands: the stage by name, a ladder of seven steps filled up to it, green once won,
- * and under it whether it will have a POC, or that nobody has said (CLI 06, CLI 19).
+ * and under it whether it will have a POC, or that nobody has said (CLI 06, CLI 19). A deal lost
+ * or exited says why instead, and any note, so the next person to open the client sees what was
+ * tried and why it stopped (CLI 55, #279).
  */
 function StageCell({ deal }: { deal: Deal }) {
   const at = DEAL_STAGES.indexOf(deal.stage);
@@ -429,15 +458,26 @@ function StageCell({ deal }: { deal: Deal }) {
         </span>
       </span>
       <Ladder deal={deal} />
-      <small>
-        {deal.hasPoc === null ? (
-          <NotSet what="POC not decided" />
-        ) : deal.hasPoc ? (
-          'With a POC'
-        ) : (
-          'No POC'
-        )}
-      </small>
+      {deal.ending === null ? (
+        <small>
+          {deal.hasPoc === null ? (
+            <NotSet what="POC not decided" />
+          ) : deal.hasPoc ? (
+            'With a POC'
+          ) : (
+            'No POC'
+          )}
+        </small>
+      ) : (
+        <>
+          <small className="clients-deal-reason">
+            {OUTCOME[deal.outcome]}: <strong>{deal.ending.reason.label}</strong>
+          </small>
+          {deal.ending.note === null ? null : (
+            <small className="clients-deal-interest">{deal.ending.note}</small>
+          )}
+        </>
+      )}
     </>
   );
 }
@@ -472,6 +512,7 @@ function StageDialog({
   clientName,
   onMoved,
   onAnswered,
+  onLose,
   onClose,
   onSignedOut,
 }: {
@@ -480,6 +521,8 @@ function StageDialog({
   onMoved: () => void;
   /** The POC question was answered, so the page behind is out of date. */
   onAnswered: () => void;
+  /** Mark it lost instead, as it now stands. #279. */
+  onLose: (deal: Deal) => void;
   onClose: () => void;
   onSignedOut: () => void;
 }) {
@@ -651,8 +694,153 @@ function StageDialog({
 
         <Other problem={sending.other(['note'])} />
         <footer className="clients-dialog-foot">
+          {/* Ending it here rather than moving it: any time before its POC starts (CLI 51). */}
+          {deal.may.lose ? (
+            <button
+              type="button"
+              className="linkish is-danger clients-move-lose"
+              disabled={busy}
+              onClick={() => {
+                onLose(deal);
+              }}
+            >
+              Mark as lost…
+            </button>
+          ) : null}
           <button type="button" disabled={busy} onClick={onClose}>
             Cancel
+          </button>
+        </footer>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Marking a deal lost (CLI 51), any time before its POC starts: why, from the lost list the BD
+ * manager keeps (CLI 54), and optionally a note. It stays at the stage it reached, which is how
+ * far it came, and stays on the client's page with its reason (CLI 55). Re-engaging the client
+ * later is a new deal at Discovery (CLI 56), which the sentence under the button says.
+ */
+function LoseDialog({
+  deal,
+  clientName,
+  onLost,
+  onClose,
+  onSignedOut,
+}: {
+  deal: Deal;
+  clientName: string;
+  onLost: () => void;
+  onClose: () => void;
+  onSignedOut: () => void;
+}) {
+  const [reasons, setReasons] = useState<EndReason[] | null>(null);
+  const [loadProblem, setLoadProblem] = useState<Problem | undefined>(undefined);
+  const [reasonId, setReasonId] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const sending = useSending(onLost, onSignedOut);
+  const reasonLabel = useId();
+
+  useEffect(() => {
+    let current = true;
+
+    endReasons()
+      .then((lists) => {
+        if (current) setReasons(lists.LOST);
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        if (isNotSignedIn(error)) {
+          onSignedOut();
+          return;
+        }
+        setLoadProblem(problemFrom(error));
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [onSignedOut]);
+
+  return (
+    <Dialog title={`Mark the ${deal.product.name} deal lost`} onClose={onClose}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (reasonId !== null) {
+            sending.send(() => loseDeal(deal.id, reasonId, note));
+          }
+        }}
+      >
+        <div className="clients-move-where">
+          <Ladder deal={deal} />
+          <span>
+            Ends at <strong>{STAGE_NAME[deal.stage]}</strong> · {clientName}
+          </span>
+        </div>
+
+        <div className="clients-lose-reasons">
+          <span id={reasonLabel}>Why was it lost?</span>
+          {loadProblem !== undefined ? (
+            <Notice problem={loadProblem} />
+          ) : reasons === null ? (
+            <span className="muted">Loading the reasons…</span>
+          ) : reasons.length === 0 ? (
+            <span className="muted">
+              There are no lost reasons to choose from. A BD manager adds them in Setup.
+            </span>
+          ) : (
+            <div className="clients-move-chips" role="group" aria-labelledby={reasonLabel}>
+              {reasons.map((reason) => (
+                <button
+                  key={reason.id}
+                  type="button"
+                  aria-pressed={reasonId === reason.id}
+                  disabled={sending.busy}
+                  onClick={() => {
+                    setReasonId(reason.id);
+                  }}
+                >
+                  {reason.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {sending.errorFor('reasonId') === undefined ? null : (
+            <p className="clients-field-error" role="alert">
+              {sending.errorFor('reasonId')}
+            </p>
+          )}
+        </div>
+
+        <Field label="Note" hint="Optional. Kept with the deal." error={sending.errorFor('note')}>
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              value={note}
+              rows={3}
+              maxLength={2000}
+              aria-describedby={describedBy}
+              onChange={(event) => {
+                setNote(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        <p className="clients-move-sub">
+          It leaves the pipeline and stays on {clientName}’s page with its reason. Taking it up
+          again later is a new deal, from Discovery.
+        </p>
+
+        <Other problem={sending.other(['reasonId', 'note'])} />
+        <footer className="clients-dialog-foot">
+          <button type="button" disabled={sending.busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="danger" disabled={sending.busy || reasonId === null}>
+            {sending.busy ? 'Marking lost…' : 'Mark as lost'}
           </button>
         </footer>
       </form>
