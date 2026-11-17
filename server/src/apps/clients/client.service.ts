@@ -8,9 +8,13 @@
 
 import type { Actor } from '../../core/auth/actor.js';
 import type { Guard } from '../../core/auth/policy.js';
-import { currentDate } from '../../core/calendar/time.js';
+import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import { accessOf } from './access.js';
-import type { Activity } from './activity.js';
+import { type Activity, type LoggedEntry, newestFirst } from './activity.js';
+import type { ClientsActivityRepository } from './activity.db.js';
+import { viewOfStep } from './activity.service.js';
+import { type LoggedActivity, stillCorrectable } from './logged-activity.js';
+import type { NextStepView } from './next-step.js';
 import {
   type Client,
   ClientNotFound,
@@ -69,6 +73,12 @@ export class ClientService {
     private readonly opportunities: Pick<ClientsOpportunityRepository, 'of' | 'activityOf'>,
     /** #278. Its notes, each with a heading. */
     private readonly notes: ClientsNoteRepository,
+    /** #280. What has been logged there, and its next steps. */
+    private readonly activities: Pick<ClientsActivityRepository, 'activitiesOf' | 'stepsOf'>,
+    /** The company's today, against which a next step is overdue (CLI 64). */
+    private readonly today: () => CalendarDate = () => currentDate(),
+    /** The moment, against which an activity's 24 hours to be corrected run (CLI 62). */
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   /**
@@ -122,15 +132,27 @@ export class ClientService {
   }
 
   /**
-   * Everything that has happened to a client's deals, newest first, each entry naming its deal:
-   * the page's Activity section (CLI 99, #278). Anybody with a role's, as the client is (CLI 90).
+   * Everything that has happened at a client, newest first by the day it happened: what happened
+   * to its deals, each entry naming its deal (#278), and every activity logged there (#280), each
+   * with whether the person reading may still correct it. The page's Activity section (CLI 99).
+   * Anybody with a role's, as the client is (CLI 90).
    */
   async activity(actor: Actor, id: string): Promise<Activity[]> {
-    this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor), id));
+    const access = await this.accessOf(actor);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
 
     await this.clientOrRefuse(id);
 
-    return this.opportunities.activityOf(id);
+    const [deals, logged] = await Promise.all([
+      this.opportunities.activityOf(id),
+      this.activities.activitiesOf(id),
+    ]);
+    const now = this.now();
+
+    return newestFirst([
+      ...deals,
+      ...logged.map((activity) => loggedEntryOf(actor, access, activity, now)),
+    ]);
   }
 
   /** Every client type, retired ones included and marked, for the form to offer. */
@@ -220,13 +242,14 @@ export class ClientService {
     actor: Actor,
     id: string,
   ): Promise<{
-    client: Client & { opportunities: DealView[]; notes: NoteView[] };
+    client: Client & { opportunities: DealView[]; notes: NoteView[]; nextSteps: NextStepView[] };
     may: ClientPermissions;
   }> {
     const access = await this.accessOf(actor);
     this.guard.enforce(clientsPolicy.read(actor, access, id));
 
     const client = await this.clientOrRefuse(id);
+    const [steps, today] = [await this.activities.stepsOf(id), this.today()];
 
     return {
       client: {
@@ -235,6 +258,8 @@ export class ClientService {
         opportunities: client.opportunities.map((deal) => viewOf(actor, access, deal)),
         /* And each note, with whether they may change it. #278. */
         notes: client.notes.map((note) => noteViewOf(actor, access, note)),
+        /* Open first, soonest due, each marked overdue or not today; then closed ones. #280. */
+        nextSteps: steps.map((step) => viewOfStep(actor, access, step, today)),
       },
       may: {
         change: clientsPolicy.changeClient(actor, access, client).allowed,
@@ -449,5 +474,33 @@ function noteViewOf(actor: Actor, access: ClientsAccess, note: ClientNote): Note
     editedAt: note.editedAt,
     archivedAt: note.archivedAt,
     may: { change: clientsPolicy.changeNote(actor, access, note).allowed },
+  };
+}
+
+/**
+ * A logged activity as the Activity section lists it, with whether the person reading may still
+ * correct it: whoever logged it, within 24 hours of logging it (CLI 62).
+ */
+function loggedEntryOf(
+  actor: Actor,
+  access: ClientsAccess,
+  activity: LoggedActivity,
+  now: Date,
+): LoggedEntry {
+  return {
+    kind: 'LOGGED',
+    id: activity.id,
+    deal: activity.deal,
+    activityKind: activity.kind,
+    happenedOn: activity.happenedOn,
+    withWhom: activity.withWhom,
+    outcome: activity.outcome,
+    by: activity.loggedBy,
+    at: activity.loggedAt,
+    may: {
+      correct:
+        stillCorrectable(activity.loggedAt, now) &&
+        clientsPolicy.editActivity(actor, access, activity).allowed,
+    },
   };
 }

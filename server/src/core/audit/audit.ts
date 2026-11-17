@@ -49,6 +49,10 @@ export const AUDITED_ENTITIES = [
   'clients_client_note',
   /** #279. Why deals are lost and POCs exited, kept by a BD manager. */
   'clients_reason',
+  /** #280. A call or meeting logged, and what it said before each correction in its day. */
+  'clients_activity',
+  /** #280. A next step made, closed and reopened, and who did each: reopening clears the close. */
+  'clients_next_step',
 ] as const;
 
 export type AuditedEntity = (typeof AUDITED_ENTITIES)[number];
@@ -81,6 +85,8 @@ export const AUDITED_ENTITY_LABELS: Readonly<Record<AuditedEntity, string>> = {
   clients_opportunity: 'Deal',
   clients_client_note: 'Note on a client',
   clients_reason: 'Lost or exit reason',
+  clients_activity: 'Client activity',
+  clients_next_step: 'Next step',
 };
 
 /**

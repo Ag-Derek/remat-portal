@@ -24,6 +24,8 @@ import { clientsRoutes } from '../../src/apps/clients/routes.js';
 import { SetupService } from '../../src/apps/clients/setup.service.js';
 import { StageService } from '../../src/apps/clients/stage.service.js';
 import { clientsVisibility } from '../../src/apps/clients/visibility.js';
+import { ClientsActivityRepository } from '../../src/apps/clients/activity.db.js';
+import { ActivityService } from '../../src/apps/clients/activity.service.js';
 import type { RecordingDenialLog } from './recording-denials.js';
 
 /**
@@ -74,6 +76,7 @@ export async function startClientsApp(
   const clientRecords = new ClientsClientRepository(db);
   const productsInUse = new ClientsProductInUseRepository(db);
   const opportunities = new ClientsOpportunityRepository(db);
+  const activities = new ClientsActivityRepository(db);
 
   const router = clientsRoutes({
     door: clientsDoor(guard, grants),
@@ -94,6 +97,7 @@ export async function startClientsApp(
       productsInUse,
       opportunities,
       new ClientsNoteRepository(db),
+      activities,
     ),
     opportunities: new OpportunityService(
       guard,
@@ -103,6 +107,7 @@ export async function startClientsApp(
       opportunities,
     ),
     stages: new StageService(guard, grants, opportunities, new ClientsReasonRepository(db)),
+    activities: new ActivityService(guard, grants, clientRecords, activities),
   });
 
   app.use('/api', router);

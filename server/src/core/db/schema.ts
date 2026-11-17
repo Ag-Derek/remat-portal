@@ -860,8 +860,26 @@ export interface ClientsReasonTable {
 }
 
 /**
+ * Something that happened with a client, on a day. #280, Clients SRS CLI 58 to CLI 62, TDD 4.5.
+ * Corrected only within 24 hours of being logged, which a trigger holds; its client, and who
+ * logged it and when, never change, and none is deleted.
+ */
+export interface ClientsActivityTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  /** One of the client's deals, open or ended, where it was about one. */
+  opportunity_id: Nullable<string>;
+  kind: string;
+  happened_on: string;
+  with_whom: Nullable<string>;
+  outcome: Nullable<string>;
+  logged_by: ColumnType<string, string, never>;
+  logged_at: ColumnType<Date, never, never>;
+}
+
+/**
  * What happens next, by when, and whose it is. #279, Clients SRS CLI 53, CLI 63, TDD 4.5. Its
- * client, deal, source and maker never change, and none is deleted; closing one comes with #280.
+ * client, deal, source and maker never change, and none is deleted. Closed by its owner (#280).
  */
 export interface ClientsNextStepTable {
   id: Generated<string>;
@@ -871,6 +889,8 @@ export interface ClientsNextStepTable {
   due_on: string;
   owner_id: string;
   source: ColumnType<string, string, never>;
+  /** The activity it was offered with, where its source is ACTIVITY (#280). */
+  from_activity: ColumnType<string | null, string | null | undefined, never>;
   done_at: ColumnType<Date | null, never, Date | null>;
   done_by: ColumnType<string | null, never, string | null>;
   created_by: ColumnType<string, string, never>;
@@ -890,6 +910,8 @@ export interface Database {
   clients_stage_change: ClientsStageChangeTable;
   /** #279. */
   clients_reason: ClientsReasonTable;
+  /** #280. */
+  clients_activity: ClientsActivityTable;
   /** #279, ahead of #280. */
   clients_next_step: ClientsNextStepTable;
   /** #276. */

@@ -18,9 +18,12 @@ import {
 } from 'express';
 import { actorOf } from '../../core/http/identify.js';
 import { accessOf, viewsOf } from './access.js';
+import type { ActivityService, Logged } from './activity.service.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
 import type { Contact } from './contact.js';
+import type { LoggedActivity } from './logged-activity.js';
+import type { NextStep } from './next-step.js';
 import type { ClientNote } from './note.js';
 import type { Opportunity } from './opportunity.js';
 import type { OpportunityService } from './opportunity.service.js';
@@ -48,6 +51,8 @@ export interface ClientsRoutes {
   opportunities?: OpportunityService;
   /** Moving deals up the ladder. #278. Optional, for the same reason. */
   stages?: StageService;
+  /** Activities and next steps. #280. Optional, for the same reason. */
+  activities?: ActivityService;
 }
 
 export function clientsRoutes({
@@ -58,6 +63,7 @@ export function clientsRoutes({
   clients,
   opportunities,
   stages,
+  activities,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -90,6 +96,10 @@ export function clientsRoutes({
 
   if (stages !== undefined) {
     stageRoutes(routes, stages);
+  }
+
+  if (activities !== undefined) {
+    activityRoutes(routes, activities);
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -288,7 +298,11 @@ function clientRoutes(routes: Router, clients: ClientService): void {
     answer(async (request, response) => {
       const { client, may } = await clients.page(actorOf(response), idOf(request));
 
-      return { ...(clientAsJson(client) as object), may };
+      return {
+        ...(clientAsJson(client) as object),
+        nextSteps: client.nextSteps.map(nextStepAsJson),
+        may,
+      };
     }),
   );
 
@@ -512,6 +526,66 @@ function stageRoutes(routes: Router, stages: StageService): void {
   );
 }
 
+/**
+ * Activities and next steps, under `/clients/activities` and `/clients/next-steps`. #280,
+ * Clients SRS CLI 58 to CLI 64, TDD 11.
+ */
+function activityRoutes(routes: Router, activities: ActivityService): void {
+  /**
+   * `{ clientId, opportunityId?, kind, happenedOn, withWhom?, outcome?, nextStep?: { description,
+   * dueOn, ownerId? } }`: logs it, and the next step with it where one is given, whose is the
+   * client owner's unless somebody else is named. Anybody with a role's, at any client (CLI 60).
+   */
+  routes.post(
+    '/clients/activities',
+    answer(
+      async (request, response) =>
+        loggedAsJson(await activities.log(actorOf(response), request.body)),
+      201,
+    ),
+  );
+
+  /**
+   * `{ opportunityId?, kind?, happenedOn?, withWhom?, outcome? }`: only what is present changes,
+   * and null takes an optional field away. Whoever logged it, within 24 hours (CLI 62).
+   */
+  /**
+   * `{ clientId, opportunityId?, description, dueOn, ownerId? }`: a next step on its own, whose is
+   * the client owner's unless somebody else holding a role is named (CLI 63).
+   */
+  routes.post(
+    '/clients/next-steps',
+    answer(
+      async (request, response) =>
+        nextStepAsJson(await activities.addStep(actorOf(response), request.body)),
+      201,
+    ),
+  );
+
+  /** Closes it. Its owner's alone (CLI 64). */
+  routes.post(
+    '/clients/next-steps/:id/done',
+    answer(async (request, response) =>
+      nextStepAsJson(await activities.closeStep(actorOf(response), idOf(request))),
+    ),
+  );
+
+  /** Opens a closed one again. Its owner's or a BD manager's (#280). */
+  routes.post(
+    '/clients/next-steps/:id/reopen',
+    answer(async (request, response) =>
+      nextStepAsJson(await activities.reopenStep(actorOf(response), idOf(request))),
+    ),
+  );
+
+  routes.patch(
+    '/clients/activities/:id',
+    answer(async (request, response) =>
+      activityAsJson(await activities.correct(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+}
+
 /** Answers with the result, or with nothing where there is nothing to say. */
 function answer(work: (request: Request, response: Response) => Promise<unknown>, status = 200) {
   return (request: Request, response: Response, next: NextFunction) => {
@@ -553,6 +627,25 @@ function noteAsJson(note: ClientNote): unknown {
     writtenAt: note.writtenAt.toISOString(),
     editedAt: note.editedAt?.toISOString() ?? null,
     archivedAt: note.archivedAt?.toISOString() ?? null,
+  };
+}
+
+function loggedAsJson(logged: Logged): unknown {
+  return {
+    activity: activityAsJson(logged.activity),
+    nextStep: logged.nextStep === null ? null : nextStepAsJson(logged.nextStep),
+  };
+}
+
+function activityAsJson(activity: LoggedActivity): unknown {
+  return { ...activity, loggedAt: activity.loggedAt.toISOString() };
+}
+
+function nextStepAsJson(step: NextStep): unknown {
+  return {
+    ...step,
+    done: step.done === null ? null : { ...step.done, at: step.done.at.toISOString() },
+    createdAt: step.createdAt.toISOString(),
   };
 }
 
