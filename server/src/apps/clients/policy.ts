@@ -83,7 +83,7 @@ export interface ActivitySubject {
   loggedBy: Named;
 }
 
-/** A next step, as closing it needs it. */
+/** A next step, as closing and reopening it need it. */
 export interface NextStepSubject {
   id: string;
   owner: Named;
@@ -295,9 +295,42 @@ export const clientsPolicy = {
         );
   },
 
-  /** Closing a next step: its owner's or a BD manager's (CLI 64). */
+  /**
+   * Closing a next step: its owner's, and nobody else's, a BD manager included (CLI 64, #280).
+   * SRS CLI 64 over TDD 11's "its owner, BD manager", which the user settled for the SRS.
+   */
   closeNextStep(actor: Actor, access: ClientsAccess, step: NextStepSubject): Decision {
-    return ownerOrBdManager(actor, access, 'closeNextStep', step.id, step.owner, 'next step');
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'closeNextStep', step.id);
+    }
+
+    return isSelfNamed(actor, step.owner)
+      ? about.allow(actor, 'closeNextStep', step.id)
+      : about.refuseOpenly(
+          actor,
+          'closeNextStep',
+          step.id,
+          'not its owner',
+          `This next step is ${whose(step.owner, 'its owner')}'s. Only they can close it.`,
+        );
+  },
+
+  /** Reopening a closed next step: its owner's or a BD manager's (#280). */
+  reopenNextStep(actor: Actor, access: ClientsAccess, step: NextStepSubject): Decision {
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'reopenNextStep', step.id);
+    }
+
+    return isBdManager(access) || isSelfNamed(actor, step.owner)
+      ? about.allow(actor, 'reopenNextStep', step.id)
+      : about.refuseOpenly(
+          actor,
+          'reopenNextStep',
+          step.id,
+          'not its owner, and not a BD manager',
+          `This next step is ${whose(step.owner, 'its owner')}'s. Only they or a BD manager can ` +
+            'reopen it.',
+        );
   },
 
   /**

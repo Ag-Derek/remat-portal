@@ -3332,7 +3332,35 @@ export interface ClientPage extends ClientSummary {
   products: ClientProductInUse[];
   /** Open first, then ended, each newest first. #277. */
   opportunities: Deal[];
+  /** Open first, soonest due first, then closed ones, the last closed first. #280. */
+  nextSteps: ClientNextStep[];
   may: ClientPermissions;
+}
+
+/* ------------------------------------------------- activities and next steps, #280 */
+
+/** A call, a meeting, a demo or a note (CLI 59, for now). */
+export type ActivityKind = 'CALL' | 'MEETING' | 'DEMO' | 'NOTE';
+
+/** What happens next, by when, and whose it is. CLI 63, CLI 64. */
+export interface ClientNextStep {
+  id: string;
+  clientId: string;
+  /** The deal it is about, or null where it is about the client. */
+  deal: ActivityDeal | null;
+  description: string;
+  dueOn: string;
+  owner: ClientsNamed;
+  source: 'ACTIVITY' | 'REVIEW' | 'DEBRIEF' | 'MANUAL';
+  fromActivity: string | null;
+  /** Who closed it and when, or null while it is open. */
+  done: { at: string; by: ClientsNamed } | null;
+  createdBy: ClientsNamed;
+  createdAt: string;
+  /** Open and due before today. Worked out by the server, never stored. */
+  overdue: boolean;
+  /** Closing it is its owner's alone; reopening its owner's or a BD manager's. */
+  may: { close: boolean; reopen: boolean };
 }
 
 /* ---------------------------------------------------------------- deals, #277 */
@@ -3523,7 +3551,7 @@ export interface ActivityDeal {
   productName: string;
 }
 
-/** Something that happened to one of a client's deals. #278. */
+/** Something that happened to one of a client's deals (#278), or something logged there (#280). */
 export type ClientActivityEntry =
   | {
       kind: 'STAGE';
@@ -3546,6 +3574,23 @@ export type ClientActivityEntry =
       opening: boolean;
       by: ClientsNamed;
       at: string;
+    }
+  | {
+      /** A call, a meeting, a demo or a note somebody logged. #280. */
+      kind: 'LOGGED';
+      id: string;
+      /** The deal it was about, or null where it was about the client. */
+      deal: ActivityDeal | null;
+      activityKind: ActivityKind;
+      /** The day it happened, which may be long before it was logged. */
+      happenedOn: string;
+      withWhom: string | null;
+      outcome: string | null;
+      by: ClientsNamed;
+      /** When it was logged. */
+      at: string;
+      /** Whoever logged it, within 24 hours of logging it. */
+      may: { correct: boolean };
     };
 
 /** Everything that has happened to a client's deals, newest first. */
@@ -3618,6 +3663,62 @@ export async function archiveClientNote(id: string, archived: boolean): Promise<
   return request<ClientNote>(
     'POST',
     `/api/clients/notes/${encodeURIComponent(id)}/${archived ? 'archive' : 'restore'}`,
+  );
+}
+
+/** A next step as a form sends it. `ownerId` left out makes it the client owner's. */
+export interface NextStepDetails {
+  description: string;
+  dueOn: string;
+  ownerId?: string;
+}
+
+/** A call, meeting, demo or note as a form sends it: null for anything not said. */
+export interface ActivityDetails {
+  opportunityId: string | null;
+  kind: ActivityKind;
+  happenedOn: string;
+  withWhom: string | null;
+  outcome: string | null;
+}
+
+/** Logs a call, meeting, demo or note, with a next step if one is given. CLI 58, CLI 63. #280. */
+export async function logActivity(
+  clientId: string,
+  activity: ActivityDetails,
+  nextStep: NextStepDetails | null,
+): Promise<unknown> {
+  return request<unknown>('POST', '/api/clients/activities', { clientId, ...activity, nextStep });
+}
+
+/** Corrects an activity: whoever logged it, within 24 hours. CLI 62. */
+export async function correctActivity(id: string, activity: ActivityDetails): Promise<unknown> {
+  return request<unknown>('PATCH', `/api/clients/activities/${encodeURIComponent(id)}`, activity);
+}
+
+/** Adds a next step on its own, about the client or one of its deals. CLI 63. */
+export async function addNextStep(
+  clientId: string,
+  opportunityId: string | null,
+  step: NextStepDetails,
+): Promise<ClientNextStep> {
+  return request<ClientNextStep>('POST', '/api/clients/next-steps', {
+    clientId,
+    opportunityId,
+    ...step,
+  });
+}
+
+/** Closes a next step: its owner alone. CLI 64. */
+export async function closeNextStep(id: string): Promise<ClientNextStep> {
+  return request<ClientNextStep>('POST', `/api/clients/next-steps/${encodeURIComponent(id)}/done`);
+}
+
+/** Opens a closed next step again: its owner or a BD manager. */
+export async function reopenNextStep(id: string): Promise<ClientNextStep> {
+  return request<ClientNextStep>(
+    'POST',
+    `/api/clients/next-steps/${encodeURIComponent(id)}/reopen`,
   );
 }
 

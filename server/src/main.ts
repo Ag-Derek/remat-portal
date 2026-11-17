@@ -22,6 +22,7 @@ import { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.
 import { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
 import { ClientsNoteRepository } from './apps/clients/note.db.js';
 import { ClientsReasonRepository } from './apps/clients/reason.db.js';
+import { ClientsActivityRepository } from './apps/clients/activity.db.js';
 import { ClientsProductRepository } from './apps/clients/product.db.js';
 import { ClientsLeavers, summaryOfLeaversSwept } from './apps/clients/leavers.js';
 import { AttachmentLinkRepository } from './apps/leave/leave-request/attachment-link.db.js';
@@ -381,6 +382,8 @@ const app = buildApp({
   clientsNotes: new ClientsNoteRepository(db),
   /** #279. */
   clientsReasons: new ClientsReasonRepository(db),
+  /** #280. */
+  clientsActivities: new ClientsActivityRepository(db),
   /* Resolved here as well as inside buildApp, so that a missing secret stops the process
      before a socket is opened rather than while the first request is being served. */
   secret: sessionSecretFrom(),

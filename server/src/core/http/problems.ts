@@ -518,6 +518,11 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   ReasonLabelTaken: 409,
   /** #279, CLI 54. A deal ended for it; retiring it is the fix. */
   ReasonInUse: 409,
+  /** #280, CLI 62. TDD 11's ACTIVITY_LOCKED: a day has passed, and a further note is the fix. */
+  ActivityLocked: 409,
+  /** #280, CLI 64. Closed already, or open already: nothing to do. */
+  NextStepAlreadyClosed: 409,
+  NextStepNotClosed: 409,
   /** #278. A note is archived; bringing it back is the fix. */
   NoteArchived: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */

@@ -141,7 +141,8 @@ describe('creating a client', () => {
     const response = await app.send('GET', `/api/clients/clients/${client.id}`, bdManager);
     expect([response.status, await response.json()]).toEqual([
       200,
-      { ...client, may: { change: true, reassign: true, contribute: true } },
+      /* #280. The page also lists its next steps, which a new client has none of. */
+      { ...client, nextSteps: [], may: { change: true, reassign: true, contribute: true } },
     ]);
   });
 

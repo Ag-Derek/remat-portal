@@ -130,15 +130,33 @@ describe('reading and adding (CLI 90, TDD 12.1 rows two and three)', () => {
 });
 
 describe('changing what somebody owns (CLI 05, CLI 13, CLI 64)', () => {
+  /* CLI 64, #280. The SRS over TDD 11: not a BD manager either. */
+  it('a next step is closed by its owner alone', () => {
+    expect(
+      answers((actor, access) => clientsPolicy.closeNextStep(actor, access, { id: '9', owner })),
+    ).toEqual({
+      owner: 'allowed',
+      otherAssociate: 'refused openly',
+      bdManager: 'refused openly',
+      ...SILENT_FOR_THE_ROLELESS,
+    });
+
+    const [actor, access] = cast.bdManager;
+    expect(clientsPolicy.closeNextStep(actor, access, { id: '9', owner }).told).toBe(
+      "This next step is Ama Owusu's. Only they can close it.",
+    );
+  });
+
   it.each([
     [
       'a client',
       (a: Actor, x: ClientsAccess) => clientsPolicy.changeClient(a, x, { id: '9', owner }),
     ],
     ['a deal', (a: Actor, x: ClientsAccess) => clientsPolicy.changeDeal(a, x, { id: '9', owner })],
+    /* #280. Reopened by its owner or a BD manager, though only its owner closes it. */
     [
-      'a next step',
-      (a: Actor, x: ClientsAccess) => clientsPolicy.closeNextStep(a, x, { id: '9', owner }),
+      'a closed next step, to reopen,',
+      (a: Actor, x: ClientsAccess) => clientsPolicy.reopenNextStep(a, x, { id: '9', owner }),
     ],
   ])('%s is its owner’s or a BD manager’s', (_thing, ask) => {
     expect(answers(ask)).toEqual({
@@ -398,6 +416,7 @@ describe('somebody with no clients role', () => {
       clientsPolicy.tickCheck(actor, access, { id: '1', on: 'DEAL', owner }),
       clientsPolicy.editActivity(actor, access, { id: '1', loggedBy: owner }),
       clientsPolicy.closeNextStep(actor, access, deal),
+      clientsPolicy.reopenNextStep(actor, access, deal),
       clientsPolicy.reassign(actor, access, 'deal', '1'),
       clientsPolicy.setUp(actor, access),
       clientsPolicy.readMeetingReport(actor, access, { id: '1', author: owner, status: 'SHARED' }),

@@ -31,6 +31,7 @@ const TABLES = [
   'clients_client_note',
   'clients_reason',
   'clients_next_step',
+  'clients_activity',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -40,6 +41,28 @@ async function aClient(owner: string, name = 'Testbank'): Promise<string> {
       `INSERT INTO clients_client (name, type_id, owner_id)
        SELECT $1, id, $2 FROM clients_client_type WHERE name = 'Bank' RETURNING id`,
       [name, owner],
+    )
+  ).rows[0].id;
+}
+
+/** An open CreditStudio deal for `client`, owned by `owner`. */
+async function aDeal(client: string, owner: string): Promise<string> {
+  return (
+    await admin.query<{ id: string }>(
+      `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+       SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
+      [client, owner],
+    )
+  ).rows[0].id;
+}
+
+/** A call with `client` yesterday, logged just now by `by`. */
+async function anActivity(client: string, by: string): Promise<string> {
+  return (
+    await admin.query<{ id: string }>(
+      `INSERT INTO clients_activity (client_id, kind, happened_on, logged_by)
+       VALUES ($1, 'CALL', CURRENT_DATE - 1, $2) RETURNING id`,
+      [client, by],
     )
   ).rows[0].id;
 }
@@ -1676,14 +1699,183 @@ describe('a lost or exit reason', () => {
   });
 });
 
+/* -------------------------------------------------------------- an activity, #280 */
+
+describe('an activity', () => {
+  const ACTIVITY = `INSERT INTO clients_activity
+                      (client_id, opportunity_id, kind, happened_on, with_whom, outcome, logged_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
+  let client: string;
+  let deal: string;
+
+  /** An activity's values, with `change` over the top. */
+  function anActivityOf(change: Partial<Record<string, unknown>> = {}): unknown[] {
+    const activity = {
+      client,
+      deal,
+      kind: 'MEETING',
+      happenedOn: '2026-11-12',
+      withWhom: 'Ama Owusu (CCO) and their IT lead',
+      outcome: 'Wants the archive shown to compliance before the proposal',
+      by: kofi,
+      ...change,
+    };
+
+    return [
+      activity.client,
+      activity.deal,
+      activity.kind,
+      activity.happenedOn,
+      activity.withWhom,
+      activity.outcome,
+      activity.by,
+    ];
+  }
+
+  /** An activity logged `hoursAgo` hours ago. Only a migration or a test can backdate one. */
+  async function loggedHoursAgo(hoursAgo: number): Promise<string> {
+    return (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_activity (client_id, kind, happened_on, logged_by, logged_at)
+         VALUES ($1, 'CALL', CURRENT_DATE - 2, $2, now() - make_interval(hours => $3))
+         RETURNING id`,
+        [client, kofi, hoursAgo],
+      )
+    ).rows[0].id;
+  }
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+    deal = await aDeal(client, ama);
+  });
+
+  /* CLI 58, TDD 4.5. */
+  it('records what, when, with whom, what came of it, about which deal, and who logged it', async () => {
+    const { rows } = await admin.query(
+      `${ACTIVITY.replace('RETURNING id', '')}
+       RETURNING client_id, opportunity_id, kind, happened_on::text, with_whom, outcome,
+                 logged_by, logged_at`,
+      anActivityOf(),
+    );
+
+    expect(rows[0]).toMatchObject({
+      client_id: client,
+      opportunity_id: deal,
+      kind: 'MEETING',
+      happened_on: '2026-11-12',
+      with_whom: 'Ama Owusu (CCO) and their IT lead',
+      outcome: 'Wants the archive shown to compliance before the proposal',
+      logged_by: kofi,
+    });
+    expect(rows[0].logged_at).toBeInstanceOf(Date);
+  });
+
+  /* CLI 59. A review comes with the POC (#285) and a proposal with proposals (#281). */
+  it('is a call, a meeting, a demo or a note, for now', async () => {
+    for (const kind of ['CALL', 'MEETING', 'DEMO', 'NOTE']) {
+      expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBeNull();
+    }
+    for (const kind of ['REVIEW', 'PROPOSAL', 'EMAIL']) {
+      expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBe('clients_activity_kind_known');
+    }
+  });
+
+  /* CLI 58: the client, and only optionally the deal, who it was with and what came of it. */
+  it("needs only its kind, its day and its client, and says nothing it doesn't mean", async () => {
+    expect(
+      await refusedBy(ACTIVITY, anActivityOf({ deal: null, withWhom: null, outcome: null })),
+    ).toBeNull();
+    expect(await refusedBy(ACTIVITY, anActivityOf({ happenedOn: null }))).toMatch(/happened_on/);
+    expect(await refusedBy(ACTIVITY, anActivityOf({ withWhom: ' ' }))).toBe(
+      'clients_activity_with_whom_not_blank',
+    );
+    expect(await refusedBy(ACTIVITY, anActivityOf({ withWhom: 'x'.repeat(201) }))).toMatch(
+      /too long/,
+    );
+    expect(await refusedBy(ACTIVITY, anActivityOf({ outcome: '  ' }))).toBe(
+      'clients_activity_outcome_not_blank',
+    );
+  });
+
+  /* CLI 61. The service refuses a day after today; the table takes any day it is given. */
+  it('happened on any day, however long ago', async () => {
+    expect(await refusedBy(ACTIVITY, anActivityOf({ happenedOn: '2019-03-01' }))).toBeNull();
+  });
+
+  /* #280. Never another client's deal; an ended one of its own is allowed (CLI 55). */
+  it("is about one of its own client's deals", async () => {
+    const othersDeal = await aDeal(await aClient(kofi, 'Otherbank'), kofi);
+
+    expect(await refusedBy(ACTIVITY, anActivityOf({ deal: othersDeal }))).toBe(
+      'clients_activity_deal_is_the_clients',
+    );
+    expect(
+      await refusedBy('UPDATE clients_activity SET opportunity_id = $2 WHERE id = $1', [
+        (await admin.query<{ id: string }>(ACTIVITY, anActivityOf())).rows[0].id,
+        othersDeal,
+      ]),
+    ).toBe('clients_activity_deal_is_the_clients');
+  });
+
+  /* CLI 62, TDD 4.5. */
+  it('may be corrected within 24 hours of being logged', async () => {
+    const id = await loggedHoursAgo(23);
+
+    expect(
+      await refusedBy(
+        `UPDATE clients_activity SET kind = 'MEETING', outcome = 'Agreed a demo' WHERE id = $1`,
+        [id],
+      ),
+    ).toBeNull();
+  });
+
+  /* CLI 62, CLI 57, TDD 4.5. A correction after that is a further note. */
+  it('is fixed after 24 hours, against a change or a removal alike', async () => {
+    const id = await loggedHoursAgo(25);
+
+    expect(
+      await refusedBy(`UPDATE clients_activity SET outcome = 'Agreed a demo' WHERE id = $1`, [id]),
+    ).toBe('clients_activity_fixed_after_a_day');
+    expect(await refusedBy('DELETE FROM clients_activity WHERE id = $1', [id])).toBe(
+      'clients_activity_fixed_after_a_day',
+    );
+  });
+
+  /* What it said before each correction. */
+  it('is audited', async () => {
+    const { rows } = await admin.query<{ id: string }>(ACTIVITY, anActivityOf());
+    await admin.query(`UPDATE clients_activity SET outcome = 'Agreed a demo' WHERE id = $1`, [
+      rows[0].id,
+    ]);
+
+    const audit = await admin.query<{ action: string }>(
+      `SELECT action FROM audit_log WHERE entity = 'clients_activity' AND entity_id = $1
+        ORDER BY id`,
+      [rows[0].id],
+    );
+    expect(audit.rows.map((row) => row.action)).toEqual(['CREATE', 'UPDATE']);
+  });
+
+  /* TDD's idx_act_client. */
+  it("is found among a client's activity by the day it happened", async () => {
+    const { rows } = await admin.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_clients_activity_client'`,
+    );
+
+    expect(rows[0].indexdef).toContain('USING btree (client_id, happened_on DESC)');
+  });
+});
+
 /* ------------------------------------------------------------ a next step, #279 */
 
 describe('a next step', () => {
   const STEP = `INSERT INTO clients_next_step
-                  (client_id, opportunity_id, description, due_on, owner_id, source, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
+                  (client_id, opportunity_id, description, due_on, owner_id, source, created_by,
+                   from_activity)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`;
   let client: string;
   let deal: string;
+  let call: string;
 
   /** A step's values, with `change` over the top. */
   function aStep(change: Partial<Record<string, unknown>> = {}): unknown[] {
@@ -1695,21 +1887,26 @@ describe('a next step', () => {
       owner: ama,
       source: 'DEBRIEF',
       by: kofi,
+      activity: null,
       ...change,
     };
 
-    return [step.client, step.deal, step.description, step.dueOn, step.owner, step.source, step.by];
+    return [
+      step.client,
+      step.deal,
+      step.description,
+      step.dueOn,
+      step.owner,
+      step.source,
+      step.by,
+      step.activity,
+    ];
   }
 
   beforeEach(async () => {
     client = await aClient(ama);
-    deal = (
-      await admin.query<{ id: string }>(
-        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
-         SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
-        [client, ama],
-      )
-    ).rows[0].id;
+    deal = await aDeal(client, ama);
+    call = await anActivity(client, kofi);
   });
 
   /* CLI 53, TDD 4.5. */
@@ -1735,11 +1932,37 @@ describe('a next step', () => {
   });
 
   it('comes from an activity, a review, a debrief, or by hand', async () => {
-    for (const source of ['ACTIVITY', 'REVIEW', 'DEBRIEF', 'MANUAL']) {
+    for (const source of ['REVIEW', 'DEBRIEF', 'MANUAL']) {
       expect(await refusedBy(STEP, aStep({ source }))).toBeNull();
     }
+    expect(await refusedBy(STEP, aStep({ source: 'ACTIVITY', activity: call }))).toBeNull();
     expect(await refusedBy(STEP, aStep({ source: 'REMINDER' }))).toBe(
       'clients_next_step_source_known',
+    );
+  });
+
+  /* #280, CLI 63, TDD 4.5's from_activity. */
+  it('names the activity it was offered with, and only then', async () => {
+    expect(await refusedBy(STEP, aStep({ source: 'ACTIVITY' }))).toBe(
+      'clients_next_step_activity_names_its_activity',
+    );
+    expect(await refusedBy(STEP, aStep({ source: 'MANUAL', activity: call }))).toBe(
+      'clients_next_step_activity_names_its_activity',
+    );
+  });
+
+  /* #280. Never another client's activity or deal. */
+  it("is on its own client's activity and deal", async () => {
+    const other = await aClient(kofi, 'Otherbank');
+
+    expect(
+      await refusedBy(
+        STEP,
+        aStep({ source: 'ACTIVITY', activity: await anActivity(other, kofi), deal: null }),
+      ),
+    ).toBe('clients_next_step_activity_is_the_clients');
+    expect(await refusedBy(STEP, aStep({ deal: await aDeal(other, kofi) }))).toBe(
+      'clients_next_step_deal_is_the_clients',
     );
   });
 
@@ -1774,6 +1997,30 @@ describe('a next step', () => {
         ama,
       ]),
     ).toBeNull();
+  });
+
+  /* #280. Reopening clears who closed it and when; the log keeps them. */
+  it('is audited, so a close survives the step being reopened', async () => {
+    const { rows } = await admin.query<{ id: string }>(STEP, aStep());
+    const id = rows[0].id;
+    await admin.query('UPDATE clients_next_step SET done_at = now(), done_by = $2 WHERE id = $1', [
+      id,
+      ama,
+    ]);
+    await admin.query('UPDATE clients_next_step SET done_at = NULL, done_by = NULL WHERE id = $1', [
+      id,
+    ]);
+
+    const audit = await admin.query<{ action: string; done_by: string | null }>(
+      `SELECT action, after ->> 'done_by' AS done_by FROM audit_log
+        WHERE entity = 'clients_next_step' AND entity_id = $1 ORDER BY id`,
+      [id],
+    );
+    expect(audit.rows).toEqual([
+      { action: 'CREATE', done_by: null },
+      { action: 'UPDATE', done_by: ama },
+      { action: 'UPDATE', done_by: null },
+    ]);
   });
 
   /* TDD's idx_step_open. */
@@ -2044,6 +2291,12 @@ describe('the application role', () => {
       [TABLES],
     );
     expect(columns.rows).toEqual([
+      /* #280, CLI 62. An activity corrected within its day; never its client, logger or when. */
+      { table_name: 'clients_activity', column_name: 'happened_on' },
+      { table_name: 'clients_activity', column_name: 'kind' },
+      { table_name: 'clients_activity', column_name: 'opportunity_id' },
+      { table_name: 'clients_activity', column_name: 'outcome' },
+      { table_name: 'clients_activity', column_name: 'with_whom' },
       { table_name: 'clients_client', column_name: 'name' },
       { table_name: 'clients_client', column_name: 'owner_id' },
       { table_name: 'clients_client', column_name: 'type_id' },
@@ -2063,6 +2316,9 @@ describe('the application role', () => {
       { table_name: 'clients_contact', column_name: 'name' },
       { table_name: 'clients_contact', column_name: 'phone' },
       { table_name: 'clients_contact', column_name: 'removed_at' },
+      /* #280, CLI 64. A step closed, by whom and when; never what, when due or whose. */
+      { table_name: 'clients_next_step', column_name: 'done_at' },
+      { table_name: 'clients_next_step', column_name: 'done_by' },
       /* #277, CLI 13. A deal's figures and words; never its client, product or outcome. */
       { table_name: 'clients_opportunity', column_name: 'close_half' },
       { table_name: 'clients_opportunity', column_name: 'close_year' },
