@@ -85,6 +85,7 @@ import type { ClientsContactRepository } from './apps/clients/contact.db.js';
 import type { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.js';
 import type { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
 import type { ClientsNoteRepository } from './apps/clients/note.db.js';
+import type { ClientsReasonRepository } from './apps/clients/reason.db.js';
 import { OpportunityService } from './apps/clients/opportunity.service.js';
 import { StageService } from './apps/clients/stage.service.js';
 import type { ClientsProductRepository } from './apps/clients/product.db.js';
@@ -234,6 +235,8 @@ export interface Application {
   clientsOpportunities?: ClientsOpportunityRepository;
   /** #278. Notes on a client. */
   clientsNotes?: ClientsNoteRepository;
+  /** #279. Why deals are lost and POCs exited. */
+  clientsReasons?: ClientsReasonRepository;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -570,7 +573,8 @@ export function buildApp(parts: Application): Express {
       parts.clientsContacts === undefined ||
       parts.clientsProductsInUse === undefined ||
       parts.clientsOpportunities === undefined ||
-      parts.clientsNotes === undefined
+      parts.clientsNotes === undefined ||
+      parts.clientsReasons === undefined
         ? undefined
         : {
             clients: parts.clientsClients,
@@ -578,6 +582,7 @@ export function buildApp(parts: Application): Express {
             productsInUse: parts.clientsProductsInUse,
             opportunities: parts.clientsOpportunities,
             notes: parts.clientsNotes,
+            reasons: parts.clientsReasons,
           };
 
     app.use(
@@ -587,13 +592,16 @@ export function buildApp(parts: Application): Express {
         grants: clientsRoles,
         roles: new RoleService(parts.guard, clientsRoles, parts.employees),
         setup:
-          parts.clientsProducts === undefined || parts.clientsClients === undefined
+          parts.clientsProducts === undefined ||
+          parts.clientsClients === undefined ||
+          parts.clientsReasons === undefined
             ? undefined
             : new SetupService(
                 parts.guard,
                 clientsRoles,
                 parts.clientsProducts,
                 parts.clientsClients,
+                parts.clientsReasons,
               ),
         clients:
           clientParts === undefined
@@ -620,7 +628,12 @@ export function buildApp(parts: Application): Express {
         stages:
           clientParts === undefined
             ? undefined
-            : new StageService(parts.guard, clientsRoles, clientParts.opportunities),
+            : new StageService(
+                parts.guard,
+                clientsRoles,
+                clientParts.opportunities,
+                clientParts.reasons,
+              ),
       }),
     );
   }

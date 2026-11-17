@@ -47,6 +47,8 @@ export const AUDITED_ENTITIES = [
   'clients_opportunity',
   /** #278. A note on a client, its words, and its archiving. */
   'clients_client_note',
+  /** #279. Why deals are lost and POCs exited, kept by a BD manager. */
+  'clients_reason',
 ] as const;
 
 export type AuditedEntity = (typeof AUDITED_ENTITIES)[number];
@@ -78,6 +80,7 @@ export const AUDITED_ENTITY_LABELS: Readonly<Record<AuditedEntity, string>> = {
   clients_client_product: 'Product a client uses',
   clients_opportunity: 'Deal',
   clients_client_note: 'Note on a client',
+  clients_reason: 'Lost or exit reason',
 };
 
 /**

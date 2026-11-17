@@ -799,6 +799,10 @@ export interface ClientsOpportunityTable {
   has_poc: Nullable<boolean>;
   /** The day it ended; null while it is open. Set by the stage service (#278). */
   ended_on: ColumnType<string | null, never, string | null>;
+  /** Why it was lost or exited; null otherwise. Set by the stage service as it ends it (#279). */
+  reason_id: ColumnType<string | null, never, string | null>;
+  /** Anything more said as it ended: which products a POC ran on, for an exit (#279). */
+  end_note: ColumnType<string | null, never, string | null>;
   /** BIGINT, which pg hands back as a string. */
   value_minor: Nullable<string, string | number>;
   currency: Nullable<string>;
@@ -844,6 +848,35 @@ export interface ClientsStageChangeTable {
   changed_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * Why a deal was lost, or why a POC was exited. #279, Clients SRS CLI 54, TDD 4.5. Which list it
+ * is on never changes; it is renamed and retired, never deleted.
+ */
+export interface ClientsReasonTable {
+  id: Generated<string>;
+  applies_to: ColumnType<string, string, never>;
+  label: string;
+  retired_on: string | null;
+}
+
+/**
+ * What happens next, by when, and whose it is. #279, Clients SRS CLI 53, CLI 63, TDD 4.5. Its
+ * client, deal, source and maker never change, and none is deleted; closing one comes with #280.
+ */
+export interface ClientsNextStepTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  opportunity_id: ColumnType<string | null, string | null | undefined, never>;
+  description: string;
+  due_on: string;
+  owner_id: string;
+  source: ColumnType<string, string, never>;
+  done_at: ColumnType<Date | null, never, Date | null>;
+  done_by: ColumnType<string | null, never, string | null>;
+  created_by: ColumnType<string, string, never>;
+  created_at: ColumnType<Date, never, never>;
+}
+
 /** A column that may be null, and is left null when an insert leaves it out. */
 type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
 
@@ -855,6 +888,10 @@ export interface Database {
   clients_value_change: ClientsValueChangeTable;
   /** #278. */
   clients_stage_change: ClientsStageChangeTable;
+  /** #279. */
+  clients_reason: ClientsReasonTable;
+  /** #279, ahead of #280. */
+  clients_next_step: ClientsNextStepTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */

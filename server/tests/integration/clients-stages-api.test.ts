@@ -37,7 +37,8 @@ interface DealJson {
   outcome: string;
   hasPoc: boolean | null;
   endedOn: string | null;
-  may: { change: boolean; move: boolean; decidePoc: boolean };
+  may: { change: boolean; move: boolean; decidePoc: boolean; lose: boolean };
+  ending: { reason: { id: string; label: string }; note: string | null } | null;
 }
 
 interface StageJson {
@@ -433,6 +434,7 @@ describe('a deal with a POC', () => {
       change: true,
       move: false,
       decidePoc: false,
+      lose: false,
     });
   });
 });
@@ -699,6 +701,7 @@ describe('who may move a deal', () => {
       change: false,
       move: false,
       decidePoc: false,
+      lose: false,
     });
     expect((await find(deal.id)).stage).toBe('DISCOVERY');
   });

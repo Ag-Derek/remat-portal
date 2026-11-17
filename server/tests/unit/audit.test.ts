@@ -117,6 +117,8 @@ describe('the entities an entry can be about', () => {
       'clients_opportunity',
       /* #278. What the department knows about a client, and who wrote or changed it. */
       'clients_client_note',
+      /* #279. Retiring or renaming a reason changes what every count of lost deals means. */
+      'clients_reason',
     ]);
   });
 });

@@ -227,7 +227,9 @@ describe('opening a deal', () => {
   it('is on its client page, open deals first', async () => {
     const first = await opened(associate, { clientId: adb, productId: products.CreditStudio });
     await admin.query(
-      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+             reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+       WHERE id = $1`,
       [first.id],
     );
     const second = await opened(bdManager, { clientId: adb, productId: products.Cloud9 });
@@ -245,7 +247,7 @@ describe('opening a deal', () => {
     /* The associate reads it, and may not change the BD manager's deal. */
     expect(page.opportunities[0]).toEqual({
       ...second,
-      may: { change: false, move: false, decidePoc: false },
+      may: { change: false, move: false, decidePoc: false, lose: false },
       moves: [],
     });
   });
@@ -288,7 +290,9 @@ describe('a second open deal for the same client and product', () => {
   it('is allowed once the first has ended', async () => {
     const first = await opened(associate, { clientId: adb, productId: products.CreditStudio });
     await admin.query(
-      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+             reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+       WHERE id = $1`,
       [first.id],
     );
 
@@ -439,7 +443,9 @@ describe('editing a deal', () => {
   /* CLI 55, CLI 56. */
   it('is refused once the deal has ended, to its owner and a BD manager alike', async () => {
     await admin.query(
-      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+             reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+       WHERE id = $1`,
       [deal.id],
     );
 
@@ -458,7 +464,8 @@ describe('editing a deal', () => {
       ...deal,
       outcome: 'LOST',
       endedOn: expect.any(String),
-      may: { change: false, move: false, decidePoc: false },
+      ending: { reason: { id: expect.any(String), label: 'Price' }, note: null },
+      may: { change: false, move: false, decidePoc: false, lose: false },
       moves: [],
     });
   });
@@ -687,7 +694,9 @@ describe("a deal's value history", () => {
     expect((await edit(associate, { probability: 101 })).status).toBe(400);
 
     await admin.query(
-      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+             reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+       WHERE id = $1`,
       [deal.id],
     );
     expect((await edit(associate, { probability: 90 })).status).toBe(409);
@@ -699,7 +708,9 @@ describe("a deal's value history", () => {
   it('can still be read once the deal has ended, by anybody with a role', async () => {
     await edit(associate, { probability: 50 });
     await admin.query(
-      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE WHERE id = $1`,
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE,
+             reason_id = (SELECT min(id) FROM clients_reason WHERE applies_to = 'LOST')
+       WHERE id = $1`,
       [deal.id],
     );
 

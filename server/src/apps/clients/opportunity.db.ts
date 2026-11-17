@@ -36,6 +36,25 @@ const ENDED_IS_FIXED = 'clients_opportunity_ended_is_fixed';
 /** The trigger that settles the POC question once the contract is signed (CLI 19). */
 const POC_DECISION_FIXED = 'clients_opportunity_poc_decision_fixed';
 
+/** The internal debriefs an exit gives (CLI 53): what, when, and one for each person named. */
+export interface Debriefs {
+  description: string;
+  dueOn: CalendarDate;
+  ownerIds: readonly string[];
+}
+
+/** The triggers that take only a current reason from the list the ending is for (CLI 54). */
+const REASON_FROM_ITS_LIST = 'clients_opportunity_reason_from_its_list';
+const REASON_IN_USE = 'clients_opportunity_reason_in_use';
+
+/** Refused by the database: the reason is on the other list, or retired. */
+export class ReasonRefused extends Error {
+  constructor() {
+    super('The reason is not one a deal may end for now.');
+    this.name = 'ReasonRefused';
+  }
+}
+
 /** Refused by the database: the POC question is settled. */
 export class PocDecisionSettled extends Error {
   constructor() {
@@ -275,6 +294,94 @@ export class ClientsOpportunityRepository {
   }
 
   /**
+   * Ends a deal without winning it, where it stands: lost before its POC starts, or exited from
+   * a started POC (CLI 51, CLI 52). The other way, beside {@link move}, that a deal's outcome
+   * changes, and only the stage service calls it (TDD 3).
+   *
+   * In one transaction: its outcome, the day it ended, why and any note, and a row in its stage
+   * history from the stage it stood at to the same stage, with the note (CLI 26). Refused with
+   * {@link MovedMeanwhile} where the deal is no longer open at `stage`, and with
+   * {@link ReasonRefused} where the database will not take the reason.
+   *
+   * An exit's debriefs go in the same transaction (CLI 53), one next step for each person named,
+   * so that a deal is never exited without them nor they written for a deal that was not.
+   */
+  async end(
+    by: Attribution,
+    id: string,
+    ending: {
+      stage: Stage;
+      outcome: 'LOST' | 'EXITED';
+      reasonId: string;
+      note: string | null;
+      debriefs?: Debriefs;
+    },
+    today: CalendarDate,
+  ): Promise<void> {
+    const changedBy = writerOf(by);
+
+    try {
+      await recording(this.db, by, async (on) => {
+        const ended = await on
+          .updateTable('clients_opportunity')
+          .set({
+            outcome: ending.outcome,
+            ended_on: today,
+            reason_id: ending.reasonId,
+            end_note: ending.note,
+          })
+          .where('id', '=', id)
+          .where('stage', '=', ending.stage)
+          .where('outcome', '=', 'OPEN')
+          .returning('client_id')
+          .executeTakeFirst();
+
+        if (ended === undefined) {
+          throw new MovedMeanwhile();
+        }
+
+        await on
+          .insertInto('clients_stage_change')
+          .values({
+            opportunity_id: id,
+            from_stage: ending.stage,
+            to_stage: ending.stage,
+            to_outcome: ending.outcome,
+            note: ending.note,
+            changed_by: changedBy,
+          })
+          .execute();
+
+        const debriefs = ending.debriefs;
+        if (debriefs !== undefined && debriefs.ownerIds.length > 0) {
+          await on
+            .insertInto('clients_next_step')
+            .values(
+              debriefs.ownerIds.map((ownerId) => ({
+                client_id: ended.client_id,
+                opportunity_id: id,
+                description: debriefs.description,
+                due_on: debriefs.dueOn,
+                owner_id: ownerId,
+                source: 'DEBRIEF',
+                created_by: changedBy,
+              })),
+            )
+            .execute();
+        }
+      });
+    } catch (error) {
+      const constraint = (error as { constraint?: unknown }).constraint;
+
+      if (constraint === ENDED_IS_FIXED) throw new Ended();
+      if (constraint === REASON_FROM_ITS_LIST || constraint === REASON_IN_USE) {
+        throw new ReasonRefused();
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Everything that has happened to a client's deals, open and ended, newest first: every stage
    * change and every change to a deal's value or chance of closing, each naming its deal. Read in
    * two queries, one per history, and put in order here.
@@ -498,6 +605,7 @@ function deals(db: Kysely<Database>) {
     .innerJoin('clients_product as p', 'p.id', 'o.product_id')
     .innerJoin('clients_product_line as l', 'l.id', 'p.line_id')
     .innerJoin('employee as e', 'e.id', 'o.owner_id')
+    .leftJoin('clients_reason as r', 'r.id', 'o.reason_id')
     .select([
       'o.id',
       'o.client_id',
@@ -511,6 +619,9 @@ function deals(db: Kysely<Database>) {
       'o.outcome',
       'o.has_poc',
       'o.ended_on',
+      'o.reason_id',
+      'r.label as reason_label',
+      'o.end_note',
       'o.value_minor',
       'o.currency',
       'o.probability',
@@ -535,6 +646,10 @@ function opportunityFrom(row: Row): Opportunity {
     outcome: row.outcome as Outcome,
     hasPoc: row.has_poc,
     endedOn: row.ended_on,
+    ending:
+      row.reason_id === null || row.reason_label === null
+        ? null
+        : { reason: { id: row.reason_id, label: row.reason_label }, note: row.end_note },
     value:
       row.value_minor === null || row.currency === null
         ? null

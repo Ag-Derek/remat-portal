@@ -77,6 +77,20 @@ module.exports = {
       to: { path: '^server/src/core/identity/role/' },
     },
     {
+      name: 'clients-poc-moves-only-from-the-poc',
+      comment:
+        'A deal leaves its POC only by the POC ending, converted or exited, and nothing else in ' +
+        'clients may make that move (Clients TDD 5: "PocService.end() is the only caller that ' +
+        'may move an opportunity out of POC"). #279. Checked when the code is built, rather ' +
+        'than trusted to a flag on a request.',
+      severity: 'error',
+      from: {
+        path: '^server/src/apps/clients/',
+        pathNot: '^server/src/apps/clients/(poc\\.service|stage-for-poc)\\.ts$',
+      },
+      to: { path: '^server/src/apps/clients/stage-for-poc\\.ts$' },
+    },
+    {
       name: 'not-to-composition-root',
       comment: 'Only main.ts and app.ts assemble everything; nothing imports them back.',
       severity: 'error',

@@ -1615,6 +1615,36 @@ a.portal-app:hover {
   font-weight: 500;
 }
 
+/* #279. A reason a deal has ended for: its words are kept, so it has no pencil, this instead. */
+.clients-reason-used {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: help;
+}
+
+/* #279. The two reason lists, one above the other, each with its own heading and add button. */
+.clients-reason-list + .clients-reason-list {
+  margin-top: 1.75rem;
+}
+
+.clients-reason-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem var(--gap);
+  margin-bottom: 0.6rem;
+}
+
+.clients-reason-list-head h3 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
 .clients-line.is-retired .clients-line-head strong,
 .clients-product:has(.clients-retired) .clients-setup-name {
   color: var(--ink-soft);
@@ -2902,6 +2932,30 @@ button.clients-pill.is-missing:hover {
 
 .clients-move-add-note {
   margin-top: 0.25rem;
+}
+
+/* #279. Ending the deal instead of moving it: off to the left of the dialog's foot, apart from
+   Cancel, so it is not hit by mistake. */
+.clients-dialog-foot .clients-move-lose {
+  margin-right: auto;
+  padding-left: 0;
+}
+
+/* #279. Why it was lost: the reasons as chips, one to choose. */
+.clients-lose-reasons {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 1.25rem;
+}
+
+.clients-lose-reasons > span:first-child {
+  font-weight: 600;
+}
+
+/* #279. An ended deal's reason, where an open one says whether it will have a POC. */
+.clients-deal-reason strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .clients-move-others + .clients-field,

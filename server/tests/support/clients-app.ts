@@ -17,6 +17,7 @@ import { ClientsOpportunityRepository } from '../../src/apps/clients/opportunity
 import { ClientsNoteRepository } from '../../src/apps/clients/note.db.js';
 import { OpportunityService } from '../../src/apps/clients/opportunity.service.js';
 import { ClientsProductRepository } from '../../src/apps/clients/product.db.js';
+import { ClientsReasonRepository } from '../../src/apps/clients/reason.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { RoleService } from '../../src/apps/clients/role.service.js';
 import { clientsRoutes } from '../../src/apps/clients/routes.js';
@@ -78,7 +79,13 @@ export async function startClientsApp(
     door: clientsDoor(guard, grants),
     grants,
     roles: new RoleService(guard, grants, new EmployeeRepository(db)),
-    setup: new SetupService(guard, grants, new ClientsProductRepository(db), clientRecords),
+    setup: new SetupService(
+      guard,
+      grants,
+      new ClientsProductRepository(db),
+      clientRecords,
+      new ClientsReasonRepository(db),
+    ),
     clients: new ClientService(
       guard,
       grants,
@@ -95,7 +102,7 @@ export async function startClientsApp(
       productsInUse,
       opportunities,
     ),
-    stages: new StageService(guard, grants, opportunities),
+    stages: new StageService(guard, grants, opportunities, new ClientsReasonRepository(db)),
   });
 
   app.use('/api', router);

@@ -216,6 +216,43 @@ function setupRoutes(routes: Router, setup: SetupService): void {
     '/clients/setup/client-types/:id/restore',
     answer((request, response) => setup.restoreClientType(actorOf(response), idOf(request))),
   );
+
+  /* Lost and exit reasons, #279, CLI 54: both lists, and which a deal has ended for. */
+
+  routes.get(
+    '/clients/setup/reasons',
+    answer(async (_request, response) => ({ reasons: await setup.reasonLists(actorOf(response)) })),
+  );
+
+  /** `{ appliesTo: 'LOST' | 'EXITED', label }`. */
+  routes.post(
+    '/clients/setup/reasons',
+    answer((request, response) => setup.addReason(actorOf(response), request.body), 201),
+  );
+
+  /** `{ label }`, while no deal has ended for it. */
+  routes.patch(
+    '/clients/setup/reasons/:id',
+    answer((request, response) =>
+      setup.rewordReason(actorOf(response), idOf(request), request.body),
+    ),
+  );
+
+  routes.post(
+    '/clients/setup/reasons/:id/retire',
+    answer((request, response) => setup.retireReason(actorOf(response), idOf(request))),
+  );
+
+  routes.post(
+    '/clients/setup/reasons/:id/restore',
+    answer((request, response) => setup.restoreReason(actorOf(response), idOf(request))),
+  );
+
+  /** Only while no deal has ended for it; one in use is retired instead. */
+  routes.delete(
+    '/clients/setup/reasons/:id',
+    answer((request, response) => setup.deleteReason(actorOf(response), idOf(request))),
+  );
 }
 
 /**
@@ -444,6 +481,23 @@ function stageRoutes(routes: Router, stages: StageService): void {
     answer(async (request, response) =>
       opportunityAsJson(await stages.move(actorOf(response), idOf(request), request.body)),
     ),
+  );
+
+  /**
+   * `{ reasonId, note? }`: marks the deal lost, where it stands, for a reason from the lost list.
+   * Its owner's or a BD manager's, while it is open and its POC has not started. #279, CLI 51.
+   */
+  routes.post(
+    '/clients/opportunities/:id/lose',
+    answer(async (request, response) =>
+      opportunityAsJson(await stages.lose(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+
+  /** The reasons a deal may be lost or a POC exited for now, on each list. #279, CLI 54. */
+  routes.get(
+    '/clients/reasons',
+    answer((_request, response) => stages.reasons(actorOf(response))),
   );
 
   /** Every stage it has been at, newest first, with who moved it, when, and any note. */
