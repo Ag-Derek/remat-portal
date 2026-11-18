@@ -26,6 +26,7 @@ import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientActivity } from './Activity';
 import { ClientDeals, OpportunityFigures } from './Deals';
+import { ClientDocuments } from './Documents';
 import { ClientNotes } from './Notes';
 import { ClientNextSteps } from './NextSteps';
 import { Dialog, DialogFoot, Field, Missing, useSending } from './ui';
@@ -202,6 +203,10 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
               {/* ------------------------------------------------ next steps, #280 */}
 
               <ClientNextSteps client={client} onChanged={load} onSignedOut={onSignedOut} />
+
+              {/* ------------------------------------------------ documents, #281 */}
+
+              <ClientDocuments client={client} onChanged={load} onSignedOut={onSignedOut} />
 
               {/* ---------------------------------------------- already using */}
 

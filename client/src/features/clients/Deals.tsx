@@ -1300,7 +1300,7 @@ function nextHalfYear(): { half: 'H1' | 'H2'; year: number } {
 }
 
 /** An amount as somebody would type it back: "75600", or "125000.50" where there are pesewas. */
-function amountAsTyped(value: { amountMinor: number }): string {
+export function amountAsTyped(value: { amountMinor: number }): string {
   return value.amountMinor % 100 === 0
     ? String(value.amountMinor / 100)
     : (value.amountMinor / 100).toFixed(2);

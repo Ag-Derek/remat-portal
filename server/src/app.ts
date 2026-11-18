@@ -89,6 +89,8 @@ import type { ClientsReasonRepository } from './apps/clients/reason.db.js';
 import { OpportunityService } from './apps/clients/opportunity.service.js';
 import { StageService } from './apps/clients/stage.service.js';
 import { ActivityService } from './apps/clients/activity.service.js';
+import type { ClientsDocumentRepository } from './apps/clients/document.db.js';
+import { DocumentService } from './apps/clients/document.service.js';
 import type { ClientsActivityRepository } from './apps/clients/activity.db.js';
 import type { ClientsProductRepository } from './apps/clients/product.db.js';
 import { SetupService } from './apps/clients/setup.service.js';
@@ -241,6 +243,8 @@ export interface Application {
   clientsReasons?: ClientsReasonRepository;
   /** #280. Activities and next steps. */
   clientsActivities?: ClientsActivityRepository;
+  /** #281. Documents on activities and deals, whose bytes go to `storage`. */
+  clientsDocuments?: ClientsDocumentRepository;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -649,6 +653,17 @@ export function buildApp(parts: Application): Express {
                 clientsRoles,
                 clientParts.clients,
                 clientParts.activities,
+              ),
+        /* #281. The bytes go to the same storage, and through the same scanner, as leave's. */
+        documents:
+          parts.clientsDocuments === undefined
+            ? undefined
+            : new DocumentService(
+                parts.guard,
+                clientsRoles,
+                parts.clientsDocuments,
+                parts.storage,
+                parts.scanner,
               ),
       }),
     );

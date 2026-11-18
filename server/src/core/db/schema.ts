@@ -873,8 +873,37 @@ export interface ClientsActivityTable {
   happened_on: string;
   with_whom: Nullable<string>;
   outcome: Nullable<string>;
+  /** What a proposal offered, in minor units, with its currency. Only a proposal has one (#281). */
+  amount_minor: Nullable<string, string | number>;
+  currency: Nullable<string>;
   logged_by: ColumnType<string, string, never>;
   logged_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A file on an activity or a deal. #281, Clients SRS CLI 67 to CLI 70, TDD 4.6. Fixed once written
+ * but for its virus scan's verdict, and never deleted.
+ */
+export interface ClientsDocumentTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  activity_id: ColumnType<string | null, string | null | undefined, never>;
+  opportunity_id: ColumnType<string | null, string | null | undefined, never>;
+  original_filename: ColumnType<string, string, never>;
+  storage_key: ColumnType<string, string, never>;
+  content_type: ColumnType<string, string, never>;
+  /** BIGINT, which pg hands back as a string. */
+  size_bytes: ColumnType<string, number, never>;
+  checksum_sha256: ColumnType<string, string, never>;
+  scan_status: string;
+  scan_signature: Nullable<string>;
+  scanned_by: Nullable<string>;
+  scanned_at: Nullable<Date>;
+  uploaded_by: ColumnType<string, string, never>;
+  uploaded_at: ColumnType<Date, never, never>;
+  /** Taken off by whoever attached it, within a day: the bytes gone, the row kept. */
+  removed_at: ColumnType<Date | null, never, Date | null>;
+  removed_by: ColumnType<string | null, never, string | null>;
 }
 
 /**
@@ -912,6 +941,8 @@ export interface Database {
   clients_reason: ClientsReasonTable;
   /** #280. */
   clients_activity: ClientsActivityTable;
+  /** #281. */
+  clients_document: ClientsDocumentTable;
   /** #279, ahead of #280. */
   clients_next_step: ClientsNextStepTable;
   /** #276. */

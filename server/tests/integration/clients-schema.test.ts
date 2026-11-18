@@ -32,6 +32,7 @@ const TABLES = [
   'clients_reason',
   'clients_next_step',
   'clients_activity',
+  'clients_document',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -1201,19 +1202,25 @@ describe("a deal's value history", () => {
     );
   });
 
-  it('says what changed them, and a proposal names the activity that sent it', async () => {
+  /* The financials, which #281 put where TDD 4.2's proposal was, name the activity that sent
+     them; clients-proposals-api.test.ts writes one that does. */
+  it('says what changed them, and the financials name the activity that sent them', async () => {
     for (const source of ['MANUAL', 'CONVERSION', 'IMPORT']) {
       expect(await refusedBy(CHANGE, aChange({ source }))).toBeNull();
     }
-    expect(await refusedBy(CHANGE, aChange({ source: 'GUESS' }))).toBe(
-      'clients_value_change_source_known',
+    for (const source of ['GUESS', 'PROPOSAL']) {
+      expect(await refusedBy(CHANGE, aChange({ source }))).toBe(
+        'clients_value_change_source_known',
+      );
+    }
+    expect(await refusedBy(CHANGE, aChange({ source: 'FINANCIALS' }))).toBe(
+      'clients_value_change_financials_name_them',
     );
-    expect(await refusedBy(CHANGE, aChange({ source: 'PROPOSAL' }))).toBe(
-      'clients_value_change_proposal_names_it',
-    );
-    expect(await refusedBy(CHANGE, aChange({ source: 'PROPOSAL', activity: '7' }))).toBeNull();
     expect(await refusedBy(CHANGE, aChange({ activity: '7' }))).toBe(
-      'clients_value_change_proposal_names_it',
+      'clients_value_change_financials_name_them',
+    );
+    expect(await refusedBy(CHANGE, aChange({ source: 'FINANCIALS', activity: '7' }))).toBe(
+      'clients_value_change_from_an_activity',
     );
   });
 
@@ -1770,12 +1777,17 @@ describe('an activity', () => {
     expect(rows[0].logged_at).toBeInstanceOf(Date);
   });
 
-  /* CLI 59. A review comes with the POC (#285) and a proposal with proposals (#281). */
-  it('is a call, a meeting, a demo or a note, for now', async () => {
-    for (const kind of ['CALL', 'MEETING', 'DEMO', 'NOTE']) {
+  /* CLI 59. A review comes with the POC (#285). The financials also need their amount, which
+     clients-proposals-api.test.ts holds the table to (#281). */
+  it('is a call, a meeting, a demo, a proposal, the financials or a note, for now', async () => {
+    for (const kind of ['CALL', 'MEETING', 'DEMO', 'PROPOSAL', 'NOTE']) {
       expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBeNull();
     }
-    for (const kind of ['REVIEW', 'PROPOSAL', 'EMAIL']) {
+    /* A known kind, refused here only for saying nothing of the amount. */
+    expect(await refusedBy(ACTIVITY, anActivityOf({ kind: 'FINANCIALS' }))).toBe(
+      'clients_activity_financials_say_what_and_for_which_deal',
+    );
+    for (const kind of ['REVIEW', 'EMAIL']) {
       expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBe('clients_activity_kind_known');
     }
   });
@@ -2291,7 +2303,10 @@ describe('the application role', () => {
       [TABLES],
     );
     expect(columns.rows).toEqual([
-      /* #280, CLI 62. An activity corrected within its day; never its client, logger or when. */
+      /* #280, CLI 62. An activity corrected within its day; never its client, logger or when.
+         A proposal's amount too (#281). */
+      { table_name: 'clients_activity', column_name: 'amount_minor' },
+      { table_name: 'clients_activity', column_name: 'currency' },
       { table_name: 'clients_activity', column_name: 'happened_on' },
       { table_name: 'clients_activity', column_name: 'kind' },
       { table_name: 'clients_activity', column_name: 'opportunity_id' },
@@ -2316,6 +2331,13 @@ describe('the application role', () => {
       { table_name: 'clients_contact', column_name: 'name' },
       { table_name: 'clients_contact', column_name: 'phone' },
       { table_name: 'clients_contact', column_name: 'removed_at' },
+      /* #281. A document's scan verdict, and its being taken off; nothing else about it. */
+      { table_name: 'clients_document', column_name: 'removed_at' },
+      { table_name: 'clients_document', column_name: 'removed_by' },
+      { table_name: 'clients_document', column_name: 'scan_signature' },
+      { table_name: 'clients_document', column_name: 'scan_status' },
+      { table_name: 'clients_document', column_name: 'scanned_at' },
+      { table_name: 'clients_document', column_name: 'scanned_by' },
       /* #280, CLI 64. A step closed, by whom and when; never what, when due or whose. */
       { table_name: 'clients_next_step', column_name: 'done_at' },
       { table_name: 'clients_next_step', column_name: 'done_by' },

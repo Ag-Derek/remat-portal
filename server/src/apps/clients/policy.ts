@@ -83,6 +83,12 @@ export interface ActivitySubject {
   loggedBy: Named;
 }
 
+/** A document, as taking it off again needs it (#281). */
+export interface DocumentSubject {
+  id: string;
+  uploadedBy: Named;
+}
+
 /** A next step, as closing and reopening it need it. */
 export interface NextStepSubject {
   id: string;
@@ -205,6 +211,29 @@ export const clientsPolicy = {
   },
 
   /**
+   * Logging a proposal or the financials sent on a deal: its owner's or a BD manager's, as editing
+   * it is (CLI 13, #281). Logging anything else is anybody's with a role (CLI 60).
+   */
+  sendOnDeal(actor: Actor, access: ClientsAccess, deal: DealSubject): Decision {
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'sendOnDeal', deal.id);
+    }
+
+    return isBdManager(access) || isSelfNamed(actor, deal.owner)
+      ? about.allow(actor, 'sendOnDeal', deal.id)
+      : about.refuseOpenly(
+          actor,
+          'sendOnDeal',
+          deal.id,
+          'not the owner, and not a BD manager',
+          deal.owner.name === undefined
+            ? "Only the deal's owner or a BD manager can log a proposal or financials on it."
+            : `This deal is ${deal.owner.name}'s. Only they or a BD manager can log a proposal ` +
+                'or financials on it.',
+        );
+  },
+
+  /**
    * Starting a POC, setting its health, recording usage, extending and ending it: its CS lead's
    * or a BD manager's, whoever owns the deals it covers (CLI 35, CLI 91, AC L23).
    */
@@ -275,6 +304,48 @@ export const clientsPolicy = {
           'did not log it',
           `Only ${whose(activity.loggedBy, 'whoever logged it')} can change this activity. ` +
             'Add a note to correct it instead.',
+        );
+  },
+
+  /**
+   * Attaching a document to an activity: only whoever logged it, and at any time, the 24 hours
+   * notwithstanding, since a file added is not a change to what was logged (#281, the user, 18
+   * November 2026). A document on a deal is anybody's with a role, through `contribute`.
+   */
+  attachToActivity(actor: Actor, access: ClientsAccess, activity: ActivitySubject): Decision {
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'attachToActivity', activity.id);
+    }
+
+    return isSelfNamed(actor, activity.loggedBy)
+      ? about.allow(actor, 'attachToActivity', activity.id)
+      : about.refuseOpenly(
+          actor,
+          'attachToActivity',
+          activity.id,
+          'did not log it',
+          `Only ${whose(activity.loggedBy, 'whoever logged it')} can attach files to this ` +
+            'activity. Attach it to the deal instead.',
+        );
+  },
+
+  /**
+   * Taking a file off again: only whoever attached it (#281, the user, 18 November 2026). The day
+   * it may be done within is held by the table's trigger, whoever asks; this is whose it is.
+   */
+  removeDocument(actor: Actor, access: ClientsAccess, document: DocumentSubject): Decision {
+    if (!holdsARole(access)) {
+      return nothingToSee(actor, 'removeDocument', document.id);
+    }
+
+    return isSelfNamed(actor, document.uploadedBy)
+      ? about.allow(actor, 'removeDocument', document.id)
+      : about.refuseOpenly(
+          actor,
+          'removeDocument',
+          document.id,
+          'did not attach it',
+          `Only ${whose(document.uploadedBy, 'whoever attached it')} can remove this file.`,
         );
   },
 

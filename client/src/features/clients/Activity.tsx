@@ -12,6 +12,7 @@ import { day, moment, money, sentenceCase } from '../../format';
 import { Icon, type IconName } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { NotSet, OUTCOME, STAGE_NAME } from './Deals';
+import { AttachFileDialog } from './AttachFile';
 import { LogActivityDialog } from './LogActivity';
 
 /**
@@ -55,6 +56,8 @@ export function ClientActivity({
 }) {
   /* The dialog open: logging something new, or correcting what was logged. #280. */
   const [logging, setLogging] = useState<{ correcting?: LoggedEntry } | null>(null);
+  /* The activity a file is being attached to, by whoever logged it. #281. */
+  const [attaching, setAttaching] = useState<LoggedEntry | null>(null);
   const [entries, setEntries] = useState<ClientActivityEntry[] | undefined>(undefined);
   const [problem, setProblem] = useState<Problem | undefined>(undefined);
   const [kind, setKind] = useState<Kind>('ALL');
@@ -184,6 +187,20 @@ export function ClientActivity({
                         </button>
                       </>
                     ) : null}
+                    {entry.kind === 'LOGGED' && entry.may.attach ? (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          className="linkish"
+                          onClick={() => {
+                            setAttaching(entry);
+                          }}
+                        >
+                          Attach a file
+                        </button>
+                      </>
+                    ) : null}
                   </small>
                 </div>
               </li>
@@ -217,6 +234,24 @@ export function ClientActivity({
           }}
           onClose={() => {
             setLogging(null);
+          }}
+          onSignedOut={onSignedOut}
+        />
+      )}
+
+      {attaching === null ? null : (
+        <AttachFileDialog
+          target={{
+            kind: 'ACTIVITY',
+            activityId: attaching.id,
+            what: `the ${LOGGED[attaching.activityKind].name.toLowerCase()} on ${onDay(attaching.happenedOn)}`,
+          }}
+          onSaved={() => {
+            setAttaching(null);
+            onChanged();
+          }}
+          onClose={() => {
+            setAttaching(null);
           }}
           onSignedOut={onSignedOut}
         />
@@ -338,26 +373,32 @@ function tell(entry: ClientActivityEntry, named: boolean): Told {
 }
 
 /** What each kind of logged activity is called, and drawn as. */
-const LOGGED: Record<ActivityKind, { name: string; icon: IconName }> = {
+export const LOGGED: Record<ActivityKind, { name: string; icon: IconName }> = {
   CALL: { name: 'Call', icon: 'phone' },
   MEETING: { name: 'Meeting', icon: 'people' },
   DEMO: { name: 'Demo', icon: 'eye' },
+  PROPOSAL: { name: 'Proposal sent', icon: 'send' },
+  FINANCIALS: { name: 'Financials sent', icon: 'report' },
   NOTE: { name: 'Note', icon: 'pencil' },
 };
 
 /**
- * A call, meeting, demo or note: "Call with Ama Owusu (CCO) · CreditStudio", the deal named where
- * every deal is showing and it has one, and what came of it under it.
+ * A call, meeting, demo, proposal, financials or note: "Call with Ama Owusu (CCO) · CreditStudio",
+ * or "Financials sent for USD 75,600 to Ama Owusu (CCO) · CreditStudio", the deal named where every
+ * deal is showing and it has one, and what came of it under it.
  */
 function tellLogged(entry: Extract<ClientActivityEntry, { kind: 'LOGGED' }>, named: boolean): Told {
   const what = LOGGED[entry.activityKind];
-  const withWhom = entry.withWhom === null ? '' : ` with ${entry.withWhom}`;
+  const offered = entry.amount === null ? '' : ` for ${money(entry.amount)}`;
+  const sent = entry.activityKind === 'PROPOSAL' || entry.activityKind === 'FINANCIALS';
+  const withWhom =
+    entry.withWhom === null ? '' : sent ? ` to ${entry.withWhom}` : ` with ${entry.withWhom}`;
   const about = named && entry.deal !== null ? ` · ${entry.deal.productName}` : '';
 
   return {
     icon: what.icon,
     tone: 'logged',
-    headline: `${what.name}${withWhom}${about}`,
+    headline: `${what.name}${offered}${withWhom}${about}`,
     body: entry.outcome,
   };
 }
@@ -365,7 +406,7 @@ function tellLogged(entry: Extract<ClientActivityEntry, { kind: 'LOGGED' }>, nam
 /** How a change came about, where it was not somebody editing the deal. */
 const SOURCE: Record<Extract<ClientActivityEntry, { kind: 'VALUE' }>['source'], string> = {
   MANUAL: '',
-  PROPOSAL: ' from a proposal',
+  FINANCIALS: ' from the financials',
   CONVERSION: ' on its POC converting',
   IMPORT: ' from the workbooks',
 };

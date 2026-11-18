@@ -2,23 +2,28 @@ import { useEffect, useId, useState } from 'react';
 import {
   type ActivityKind,
   addNextStep,
+  attachToActivity,
   type ClientActivityEntry,
   type ClientPage,
   clientsHolders,
   type ClientsNamed,
   correctActivity,
+  type Currency,
+  DOCUMENT_ACCEPT,
   isNotSignedIn,
   logActivity,
   type NextStepDetails,
 } from '../../api';
 import { Icon, type IconName } from '../../Icon';
 import { Notice } from '../../problem';
-import { OUTCOME } from './Deals';
+import { amountAsTyped, OUTCOME } from './Deals';
 import { Dialog, DialogFoot, Field, useSending } from './ui';
 
 /**
- * Logging a call, meeting, demo or note with a client, and what happens next, on one screen and
- * in under a minute (NFR CLI USA 01). #280, Clients SRS CLI 58 to CLI 63.
+ * Logging a call, meeting, demo, proposal, financials or note with a client, and what happens next,
+ * on one screen and in under a minute (NFR CLI USA 01). #280, Clients SRS CLI 58 to CLI 63. A
+ * proposal and the financials need the deal they were sent on, and the financials their amount,
+ * which becomes the deal's value (CLI 65, #281).
  *
  * Built for speed: the kind is one tap on a tile, the day starts at today with yesterday a tap
  * away, the client's contacts are chips that fill in who it was with, and a next step's day has
@@ -35,6 +40,8 @@ const KINDS: { value: ActivityKind; label: string; icon: IconName }[] = [
   { value: 'CALL', label: 'Call', icon: 'phone' },
   { value: 'MEETING', label: 'Meeting', icon: 'people' },
   { value: 'DEMO', label: 'Demo', icon: 'eye' },
+  { value: 'PROPOSAL', label: 'Proposal', icon: 'send' },
+  { value: 'FINANCIALS', label: 'Financials', icon: 'report' },
   { value: 'NOTE', label: 'Note', icon: 'pencil' },
 ];
 
@@ -73,11 +80,30 @@ export function LogActivityDialog({
   const [deal, setDeal] = useState(correcting?.deal?.id ?? dealId ?? '');
   const [withWhom, setWithWhom] = useState(correcting?.withWhom ?? '');
   const [outcome, setOutcome] = useState(correcting?.outcome ?? '');
+  const [amount, setAmount] = useState(
+    correcting?.amount == null ? '' : amountAsTyped(correcting.amount),
+  );
+  const [currency, setCurrency] = useState<Currency>(correcting?.amount?.currency ?? 'GHS');
   const [step, setStep] = useState<StepState>(blankStep(client));
+  /* Files to attach once it is logged, and the activity once it has been (#281). */
+  const [files, setFiles] = useState<File[]>([]);
+  const [loggedId, setLoggedId] = useState<string | null>(null);
   const sending = useSending(onSaved, onSignedOut);
   const kindLabel = useId();
+  /** Sent to the client on one of its deals, which it must then name (#281). */
+  const sent = kind === 'PROPOSAL' || kind === 'FINANCIALS';
+  const financials = kind === 'FINANCIALS';
 
-  const fields = ['kind', 'happenedOn', 'opportunityId', 'withWhom', 'outcome'];
+  const fields = [
+    'kind',
+    'happenedOn',
+    'opportunityId',
+    'withWhom',
+    'outcome',
+    'amount',
+    'file',
+    'filename',
+  ];
   const stepFields = ['nextStep.description', 'nextStep.dueOn', 'nextStep.ownerId'];
   const other = sending.other([...fields, ...stepFields]);
   const asksAStep = correcting === undefined && step.description.trim() !== '';
@@ -93,7 +119,11 @@ export function LogActivityDialog({
       title={correcting === undefined ? 'Log activity' : 'Correct activity'}
       intro={
         correcting === undefined
-          ? `With ${client.name}. Only what it was and when are needed.`
+          ? financials
+            ? `With ${client.name}. The financials need when, the deal and the amount.`
+            : sent
+              ? `With ${client.name}. A proposal needs when and the deal it is for.`
+              : `With ${client.name}. Only what it was and when are needed.`
           : 'You can correct this for 24 hours after logging it.'
       }
       wide
@@ -109,13 +139,28 @@ export function LogActivityDialog({
             happenedOn,
             withWhom: withWhom.trim() === '' ? null : withWhom,
             outcome: outcome.trim() === '' ? null : outcome,
+            ...(financials ? { amount: { amount: amount.trim(), currency } } : {}),
           };
 
-          sending.send(() =>
-            correcting === undefined
-              ? logActivity(client.id, activity, asksAStep ? stepDetails(step, client) : null)
-              : correctActivity(correcting.id, activity),
-          );
+          sending.send(async () => {
+            if (correcting !== undefined) {
+              await correctActivity(correcting.id, activity);
+              return;
+            }
+
+            /* Logged once: where a file then fails, sending again attaches what is left rather
+               than logging the activity a second time. #281. */
+            const id =
+              loggedId ??
+              (await logActivity(client.id, activity, asksAStep ? stepDetails(step, client) : null))
+                .activity.id;
+            setLoggedId(id);
+
+            for (const file of files) {
+              await attachToActivity(id, file);
+              setFiles((left) => left.filter((one) => one !== file));
+            }
+          });
         }}
       >
         {/* ------------------------------------------------------------ what it was */}
@@ -179,7 +224,7 @@ export function LogActivityDialog({
             )}
           </Field>
 
-          <Field label="About" error={sending.errorFor('opportunityId')}>
+          <Field label={sent ? 'For the deal' : 'About'} error={sending.errorFor('opportunityId')}>
             {({ id, describedBy }) => (
               <DealPicker
                 id={id}
@@ -193,9 +238,48 @@ export function LogActivityDialog({
           </Field>
         </div>
 
+        {/* --------------------------------------------- what the financials gave, #281 */}
+
+        {financials ? (
+          <Field
+            label="Amount"
+            hint="Becomes the deal's value. What it was before is kept in its history."
+            error={sending.errorFor('amount')}
+          >
+            {({ id, describedBy }) => (
+              <span className="clients-deal-money">
+                <select
+                  aria-label="Currency"
+                  value={currency}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setCurrency(event.target.value as Currency);
+                  }}
+                >
+                  <option value="GHS">GHS</option>
+                  <option value="USD">USD</option>
+                </select>
+                <input
+                  id={id}
+                  inputMode="decimal"
+                  value={amount}
+                  placeholder="75600"
+                  autoComplete="off"
+                  required
+                  aria-describedby={describedBy}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                  }}
+                />
+              </span>
+            )}
+          </Field>
+        ) : null}
+
         {/* ------------------------------------------------------------- with whom */}
 
-        <Field label="With" error={sending.errorFor('withWhom')}>
+        <Field label={sent ? 'Sent to' : 'With'} error={sending.errorFor('withWhom')}>
           {({ id, describedBy }) => (
             <>
               <input
@@ -258,9 +342,37 @@ export function LogActivityDialog({
           )}
         </Field>
 
-        {/* ------------------------------------------------------------- next step */}
+        {/* ------------------------------------------------------- its files, #281 */}
 
         {correcting === undefined ? (
+          <Field
+            label={sent ? (financials ? 'The financials' : 'The proposal') : 'Files'}
+            hint={
+              loggedId === null
+                ? 'Optional. PDF, Word, Excel, PowerPoint, PNG or JPG, up to 50 MB each.'
+                : 'It is logged. Saving again attaches what is left here.'
+            }
+            error={sending.errorFor('file') ?? sending.errorFor('filename')}
+          >
+            {({ id, describedBy }) => (
+              <input
+                id={id}
+                type="file"
+                multiple
+                accept={DOCUMENT_ACCEPT}
+                aria-describedby={describedBy}
+                disabled={sending.busy}
+                onChange={(event) => {
+                  setFiles(Array.from(event.target.files ?? []));
+                }}
+              />
+            )}
+          </Field>
+        ) : null}
+
+        {/* ------------------------------------------------------------- next step */}
+
+        {correcting === undefined && loggedId === null ? (
           <fieldset className={`clients-step-card${asksAStep ? ' is-set' : ''}`}>
             <legend>
               <span className="clients-step-card-icon" aria-hidden="true">
@@ -285,14 +397,21 @@ export function LogActivityDialog({
 
         <DialogFoot
           busy={sending.busy}
-          disabled={happenedOn === '' || (asksAStep && step.dueOn === '')}
+          disabled={
+            happenedOn === '' ||
+            (asksAStep && step.dueOn === '') ||
+            (sent && deal === '') ||
+            (financials && amount.trim() === '')
+          }
           doing="Saving…"
           done={
-            correcting === undefined
-              ? asksAStep
-                ? 'Log it, with its next step'
-                : 'Log it'
-              : 'Save'
+            correcting !== undefined
+              ? 'Save'
+              : loggedId !== null
+                ? 'Attach the files'
+                : asksAStep
+                  ? 'Log it, with its next step'
+                  : 'Log it'
           }
           onCancel={onClose}
         />
