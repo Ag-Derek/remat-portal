@@ -495,12 +495,14 @@ function loggedEntryOf(
     happenedOn: activity.happenedOn,
     withWhom: activity.withWhom,
     outcome: activity.outcome,
+    amount: activity.amount,
     by: activity.loggedBy,
     at: activity.loggedAt,
     may: {
       correct:
         stillCorrectable(activity.loggedAt, now) &&
         clientsPolicy.editActivity(actor, access, activity).allowed,
+      attach: clientsPolicy.attachToActivity(actor, access, activity).allowed,
     },
   };
 }

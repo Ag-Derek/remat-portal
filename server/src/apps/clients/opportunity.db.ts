@@ -562,12 +562,16 @@ async function addWonProduct(
     .execute();
 }
 
-/** Adds the figures as they now stand to a deal's history, as an edit by a person. */
+/**
+ * Adds the figures as they now stand to a deal's history: as an edit by a person, or as the
+ * financials sent, naming the activity that sent them (#281).
+ */
 async function recordFigures(
   on: Kysely<Database>,
   id: string,
   figures: Figures,
   changedBy: string,
+  financials: string | null = null,
 ): Promise<void> {
   await on
     .insertInto('clients_value_change')
@@ -576,10 +580,71 @@ async function recordFigures(
       value_minor: figures.value_minor,
       currency: figures.currency,
       probability: figures.probability,
-      source: 'MANUAL',
+      source: financials === null ? 'MANUAL' : 'FINANCIALS',
+      activity_id: financials,
       changed_by: changedBy,
     })
     .execute();
+}
+
+/**
+ * Sets a deal's value from the financials sent on it, inside the transaction that logs or corrects
+ * them, and adds it to the deal's history naming them (CLI 65, #281). Its chance of closing is left
+ * as it is. Always a history row, even where the amount is what the deal already said: that the
+ * financials confirmed it is part of the trail.
+ *
+ * TDD 4.2's one write path for a deal's figures, alongside {@link ClientsOpportunityRepository.change}.
+ * Refused with {@link Ended} where the deal has ended, by the database, whoever asks.
+ */
+export async function setValueFromFinancials(
+  on: Kysely<Database>,
+  dealId: string,
+  value: Money | null,
+  financials: string,
+  changedBy: string,
+): Promise<void> {
+  try {
+    const after = await on
+      .updateTable('clients_opportunity')
+      .set({ value_minor: value?.amountMinor ?? null, currency: value?.currency ?? null })
+      .where('id', '=', dealId)
+      .returning(['value_minor', 'currency', 'probability'])
+      .executeTakeFirstOrThrow();
+
+    await recordFigures(on, dealId, after, changedBy, financials);
+  } catch (error) {
+    if ((error as { constraint?: unknown }).constraint === ENDED_IS_FIXED) throw new Ended();
+    throw error;
+  }
+}
+
+/**
+ * What a deal was worth just before the financials first set it, for putting it back when they
+ * turn out to have been something else, or for another deal (#281). Null where it had no value.
+ */
+export async function valueBeforeFinancials(
+  on: Kysely<Database>,
+  dealId: string,
+  financials: string,
+): Promise<Money | null> {
+  const row = await on
+    .selectFrom('clients_value_change as v')
+    .select(['v.value_minor', 'v.currency', 'v.probability'])
+    .where('v.opportunity_id', '=', dealId)
+    .where(
+      'v.id',
+      '<',
+      on
+        .selectFrom('clients_value_change')
+        .select((pick) => pick.fn.min('id').as('first'))
+        .where('opportunity_id', '=', dealId)
+        .where('activity_id', '=', financials),
+    )
+    .orderBy('v.id', 'desc')
+    .limit(1)
+    .executeTakeFirst();
+
+  return row === undefined ? null : moneyFrom(row);
 }
 
 /** Who a change to a deal's figures is put down to: always a person (TDD 4.2's NOT NULL). */

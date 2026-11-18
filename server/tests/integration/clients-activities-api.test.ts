@@ -212,12 +212,13 @@ describe('logging an activity', () => {
     expect((await log(bdManager, aCall())).status).toBe(201);
   });
 
-  /* CLI 59. A review comes with the POC (#285) and a proposal with proposals (#281). */
-  it('is a call, a meeting, a demo or a note, for now', async () => {
+  /* CLI 59. A review comes with the POC (#285). A proposal, which also needs an amount and a
+     deal, is clients-proposals-api.test.ts's (#281). */
+  it('is a call, a meeting, a demo or a note, or a proposal, for now', async () => {
     for (const kind of ['CALL', 'MEETING', 'DEMO', 'NOTE']) {
       expect((await log(associate, aCall({ kind }))).status).toBe(201);
     }
-    for (const kind of ['REVIEW', 'PROPOSAL', 'EMAIL', undefined]) {
+    for (const kind of ['REVIEW', 'EMAIL', undefined]) {
       expect(await refused(await log(associate, aCall({ kind })), 400)).toMatchObject({
         error: 'InvalidActivity',
         field: 'kind',
@@ -878,17 +879,18 @@ describe("the client page's Activity section", () => {
   });
 
   /* CLI 62. Offered only to whoever logged it, and only within its day. */
+  /* And whether they may attach a file to it, which is the logger's at any time (#281). */
   it('says whether the person reading may still correct each one', async () => {
     const mine = (await logged(associate, aCall())).activity;
 
-    expect((await activityAt(associate))[0].may).toEqual({ correct: true });
-    expect((await activityAt(bdManager))[0].may).toEqual({ correct: false });
+    expect((await activityAt(associate))[0].may).toEqual({ correct: true, attach: true });
+    expect((await activityAt(bdManager))[0].may).toEqual({ correct: false, attach: false });
 
     await admin.query(
       `UPDATE clients_activity SET logged_at = now() - interval '25 hours' WHERE id = $1`,
       [mine.id],
     );
-    expect((await activityAt(associate))[0].may).toEqual({ correct: false });
+    expect((await activityAt(associate))[0].may).toEqual({ correct: false, attach: true });
   });
 });
 

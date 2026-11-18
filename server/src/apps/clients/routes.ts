@@ -9,7 +9,7 @@
  * there until it goes live, and the portal home shows no clients card there either.
  */
 
-import {
+import express, {
   type NextFunction,
   type Request,
   type RequestHandler,
@@ -22,6 +22,14 @@ import type { ActivityService, Logged } from './activity.service.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
 import type { Contact } from './contact.js';
+import {
+  DocumentTooLarge,
+  type DocumentView,
+  downloadable,
+  MAX_DOCUMENT_BYTES,
+  type UploadedDocument,
+} from './document.js';
+import type { DocumentService } from './document.service.js';
 import type { LoggedActivity } from './logged-activity.js';
 import type { NextStep } from './next-step.js';
 import type { ClientNote } from './note.js';
@@ -53,6 +61,8 @@ export interface ClientsRoutes {
   stages?: StageService;
   /** Activities and next steps. #280. Optional, for the same reason. */
   activities?: ActivityService;
+  /** Documents on activities and deals. #281. Optional, for the same reason. */
+  documents?: DocumentService;
 }
 
 export function clientsRoutes({
@@ -64,6 +74,7 @@ export function clientsRoutes({
   opportunities,
   stages,
   activities,
+  documents,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -100,6 +111,10 @@ export function clientsRoutes({
 
   if (activities !== undefined) {
     activityRoutes(routes, activities);
+  }
+
+  if (documents !== undefined) {
+    documentRoutes(routes, documents);
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -584,6 +599,174 @@ function activityRoutes(routes: Router, activities: ActivityService): void {
       activityAsJson(await activities.correct(actorOf(response), idOf(request), request.body)),
     ),
   );
+
+  /**
+   * Past proposals and financials, `?type=&product=&kind=`, the latest first, each with its files
+   * to open as a starting point (CLI 66, TDD 11, #281).
+   */
+  routes.get(
+    '/clients/proposals',
+    answer(async (request, response) => ({
+      proposals: await activities.pastProposals(
+        actorOf(response),
+        request.query as Record<string, unknown>,
+      ),
+    })),
+  );
+}
+
+/**
+ * Documents, under the activity or deal they go on, and a client's all together. #281, CLI 67.
+ *
+ * **The body is the file.** One file a call, sent as its bytes with its name in `X-Filename`,
+ * percent encoded since a header is Latin-1 and a name is not: as leave's attachments are, rather
+ * than TDD 11's multipart, which would be a second parser to agree with the limit and a new
+ * dependency (TDD 2.2). The `Content-Type` sent says nothing about what the file is (CLI 69).
+ */
+function documentRoutes(routes: Router, documents: DocumentService): void {
+  routes.post(
+    '/clients/activities/:id/documents',
+    rawUpload,
+    answer(
+      async (request, response) =>
+        documentAsJson(
+          await documents.attachToActivity(actorOf(response), idOf(request), uploadIn(request)),
+        ),
+      201,
+    ),
+  );
+
+  routes.post(
+    '/clients/opportunities/:id/documents',
+    rawUpload,
+    answer(
+      async (request, response) =>
+        documentAsJson(
+          await documents.attachToDeal(actorOf(response), idOf(request), uploadIn(request)),
+        ),
+      201,
+    ),
+  );
+
+  /**
+   * The file itself, after asking on this request whether the person may have it. TDD 11, NFR
+   * CLI SEC 03.
+   *
+   * A 302 to a signed address straight to the file where storage mints one: it expires in
+   * minutes, names one object, and is no use to anybody once it has. Otherwise the bytes, sent so
+   * nothing a browser renders can be served from this origin. Neither is kept by the browser on
+   * the way, and neither leaves this address in a referrer.
+   */
+  routes.get(
+    '/clients/documents/:id/download',
+    (request: Request, response: Response, next: NextFunction) => {
+      void documents
+        .download(actorOf(response), idOf(request))
+        .then((found) => {
+          response.set('Cache-Control', 'no-store').set('Referrer-Policy', 'no-referrer');
+
+          if ('url' in found) {
+            response.status(302).location(found.url).end();
+            return;
+          }
+
+          response
+            .status(200)
+            .set('Content-Type', 'application/octet-stream')
+            .set('X-Content-Type-Options', 'nosniff')
+            .set('X-Document-Content-Type', found.document.contentType)
+            .set('Content-Disposition', dispositionFor(found.document.filename))
+            .send(found.content);
+        })
+        .catch(next);
+    },
+  );
+
+  /**
+   * Takes a file off again: whoever attached it, within a day (#281). A POST rather than a DELETE,
+   * because nothing is deleted but the bytes: the document stays on the record, saying who took it
+   * off and when (CLI 57).
+   */
+  routes.post(
+    '/clients/documents/:id/remove',
+    answer(async (request, response) =>
+      documentAsJson(await documents.remove(actorOf(response), idOf(request))),
+    ),
+  );
+
+  /** Every document at a client, on its activities and its deals, the latest first. */
+  routes.get(
+    '/clients/clients/:id/documents',
+    answer(async (request, response) => ({
+      documents: (await documents.ofClient(actorOf(response), idOf(request))).map(documentAsJson),
+    })),
+  );
+}
+
+/**
+ * The file's bytes, up to the 50 MB a document may be. A body over it is refused by the parser
+ * before any route sees it, and is answered here with clients' own limit rather than leave's.
+ */
+function rawUpload(request: Request, response: Response, next: NextFunction): void {
+  express.raw({ type: () => true, limit: MAX_DOCUMENT_BYTES })(request, response, (error) => {
+    if ((error as { type?: unknown } | undefined)?.type === 'entity.too.large') {
+      next(new DocumentTooLarge(Number((error as { length?: unknown }).length) || 0));
+      return;
+    }
+    next(error);
+  });
+}
+
+function uploadIn(request: Request): UploadedDocument {
+  const sent = request.get('x-filename') ?? '';
+  let filename: string;
+
+  try {
+    filename = decodeURIComponent(sent);
+  } catch {
+    filename = sent;
+  }
+
+  return {
+    filename,
+    content: request.body,
+    claimedContentType: request.get('content-type') ?? '',
+  };
+}
+
+/**
+ * `Content-Disposition` with the name in both forms, as leave's: an ASCII one for clients that
+ * read only that, and `filename*` for what it was actually called. RFC 6266.
+ */
+function dispositionFor(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/** Storage's key stays on the server (CLI 68), and whether it may be opened is worked out here. */
+function documentAsJson(document: DocumentView): unknown {
+  return {
+    id: document.id,
+    clientId: document.clientId,
+    activityId: document.activityId,
+    opportunityId: document.opportunityId,
+    on: document.on,
+    filename: document.filename,
+    contentType: document.contentType,
+    sizeBytes: document.sizeBytes,
+    checksumSha256: document.checksumSha256,
+    scanStatus: document.scanStatus,
+    downloadable: downloadable(document),
+    uploadedBy: document.uploadedBy,
+    uploadedAt: document.uploadedAt.toISOString(),
+    /** #281. Taken off by whoever attached it: the bytes gone, this kept. */
+    removed:
+      document.removed === null
+        ? null
+        : { at: document.removed.at.toISOString(), by: document.removed.by },
+    may: document.may,
+  };
 }
 
 /** Answers with the result, or with nothing where there is nothing to say. */

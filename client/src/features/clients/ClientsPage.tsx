@@ -4,6 +4,7 @@ import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientView } from './ClientView';
 import { ClientsList } from './ClientsList';
+import { ProposalsView } from './ProposalsView';
 import { RolesView } from './RolesView';
 import { SetupView } from './SetupView';
 import { useAddress } from './ui';
@@ -15,8 +16,9 @@ import { useAddress } from './ui';
  * build has no card and sends `#/clients` back to the portal.
  *
  * The views so far: every client at `#/clients`, and one at `#/clients/client/{id}` (#276);
- * setup, a BD manager's, at `#/clients/setup`; and roles, a System Administrator's, at
- * `#/clients/roles`. Which tabs are
+ * setup, a BD manager's, at `#/clients/setup`; roles, a System Administrator's, at
+ * `#/clients/roles`; and past proposals, anybody's with a role, at `#/clients/proposals` (#281).
+ * Which tabs are
  * drawn is the server's answer, from `/api/clients/me`: the page asks rather than decides, and
  * every route refuses whoever it refuses whatever is drawn.
  */
@@ -55,6 +57,7 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
   const showing: ClientsView =
     (view.name === 'setup' && views?.setUp === true) ||
     (view.name === 'roles' && views?.manageRoles === true) ||
+    (view.name === 'proposals' && views?.pastProposals === true) ||
     view.name === 'client'
       ? view.name
       : 'pipeline';
@@ -76,11 +79,20 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
 
         {/* Not on one client's page, which has its own way back to every client and needs the
             room for the client. */}
-        {showing !== 'client' && (views?.setUp === true || views?.manageRoles === true) ? (
+        {showing !== 'client' &&
+        (views?.setUp === true || views?.manageRoles === true || views?.pastProposals === true) ? (
           <nav className="directory-views" aria-label="Clients views">
             <a href="#/clients" aria-current={showing === 'pipeline' ? 'page' : undefined}>
               Clients
             </a>
+            {views.pastProposals ? (
+              <a
+                href="#/clients/proposals"
+                aria-current={showing === 'proposals' ? 'page' : undefined}
+              >
+                Past proposals
+              </a>
+            ) : null}
             {views.setUp ? (
               <a href="#/clients/setup" aria-current={showing === 'setup' ? 'page' : undefined}>
                 Setup
@@ -104,6 +116,8 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
           <SetupView onSignedOut={onSignedOut} />
         ) : showing === 'roles' ? (
           <RolesView onSignedOut={onSignedOut} />
+        ) : showing === 'proposals' ? (
+          <ProposalsView onSignedOut={onSignedOut} />
         ) : showing === 'client' && view.id !== undefined ? (
           <ClientView key={view.id} id={view.id} onSignedOut={onSignedOut} />
         ) : (
@@ -114,7 +128,7 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
   );
 }
 
-type ClientsView = 'pipeline' | 'client' | 'setup' | 'roles';
+type ClientsView = 'pipeline' | 'client' | 'setup' | 'roles' | 'proposals';
 
 /** Which view the address names, and the client for one. Anything else is the clients list. */
 function viewOf(path: string): { name: ClientsView; id?: string } {
@@ -125,6 +139,9 @@ function viewOf(path: string): { name: ClientsView; id?: string } {
   }
   if (path === 'clients/roles') {
     return { name: 'roles' };
+  }
+  if (path === 'clients/proposals') {
+    return { name: 'proposals' };
   }
 
   return path === 'clients/setup' || path.startsWith('clients/setup/')

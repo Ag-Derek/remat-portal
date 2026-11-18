@@ -47,7 +47,7 @@ export interface ValueActivity {
 }
 
 /**
- * A call, a meeting, a demo or a note somebody logged (#280, CLI 58). Dated the day it happened,
+ * A call, a meeting, a demo, a proposal sent or a note somebody logged (#280, #281, CLI 58). Dated the day it happened,
  * which may be long before it was logged; `at` is when it was logged.
  */
 export interface LoggedEntry {
@@ -59,10 +59,16 @@ export interface LoggedEntry {
   happenedOn: CalendarDate;
   withWhom: string | null;
   outcome: string | null;
+  /** What a proposal offered (CLI 65, #281); null on every other kind. */
+  amount: Money | null;
   by: Person;
   at: Date;
   /** Whether the person reading may still correct it: whoever logged it, within its day (CLI 62). */
-  may: { correct: boolean };
+  may: {
+    correct: boolean;
+    /** Attaching a file to it: whoever logged it, at any time (#281). */
+    attach: boolean;
+  };
 }
 
 export type Activity = StageActivity | ValueActivity | LoggedEntry;

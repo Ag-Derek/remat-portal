@@ -47,8 +47,11 @@ export interface Storage {
    * It exists because relaying a file through the application costs a second transfer of it.
    * Whoever mints one has already decided the caller may have the file: this is a faster way
    * to hand over bytes that were being handed over anyway, never a way to reach them.
+   *
+   * `downloadAs`, where given, is the name the browser saves it under, rather than the key.
+   * Clients' documents give one (#281); a driver that mints no address ignores it.
    */
-  linkTo(key: string): Promise<string | undefined>;
+  linkTo(key: string, downloadAs?: string): Promise<string | undefined>;
 
   /**
    * Removes the object. Succeeds whether or not it was there, so the retention

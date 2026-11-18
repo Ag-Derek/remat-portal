@@ -1,7 +1,8 @@
 /**
  * Activities and next steps. #280, Clients SRS CLI 58 to CLI 64, TDD 3's ActivityService.
  *
- * Changes no deal's stage or value: logging something never moves a deal (TDD 3).
+ * Changes no deal's stage: logging something never moves a deal, a proposal included (TDD 3). The
+ * one thing it changes on a deal is its value, from the financials sent on it (CLI 65, #281).
  *
  * Every method asks `clientsPolicy` first, before reading the request or looking anything up, so
  * somebody refused learns nothing from what they sent.
@@ -14,15 +15,22 @@ import { accessOf } from './access.js';
 import type { ClientsActivityRepository, StepToWrite } from './activity.db.js';
 import type { ClientsClientRepository } from './client.db.js';
 import {
+  type ActivityKind,
   ActivityLocked,
   ActivityNotFound,
+  assertSentShape,
   fieldsOf,
   InvalidActivity,
   type LoggedActivity,
+  type PastProposal,
   readActivityChange,
   readNewActivity,
+  readProposalFilters,
+  SENT_ON_A_DEAL,
   stillCorrectable,
 } from './logged-activity.js';
+import { OpportunityEnded } from './opportunity.js';
+import { Ended } from './opportunity.db.js';
 import { isAnId } from './product.js';
 import {
   InvalidNextStep,
@@ -96,8 +104,16 @@ export class ActivityService {
       throw new InvalidActivity('opportunityId', `Choose one of ${client.name}'s deals, or none.`);
     }
 
+    if (activity.opportunityId !== null) {
+      await this.mayBeSentOn(actor, access, activity.kind, client.id, activity.opportunityId);
+    }
+
     const step = asked === null ? null : await this.stepFor(asked, client.owner.id, 'nextStep.');
-    const { activityId, stepId } = await this.activities.log(actor, activity, step);
+    const { activityId, stepId } = await this.endedMeanwhile(
+      client.id,
+      [activity.opportunityId],
+      () => this.activities.log(actor, activity, step),
+    );
 
     return {
       activity: await this.activityOrRefuse(activityId),
@@ -192,6 +208,22 @@ export class ActivityService {
 
     const change = readActivityChange(body, this.today(), activity.clientId);
 
+    /* No longer the financials, so no longer an amount, unless one was sent, which is refused
+       below: the form needs only to change the kind (#281). */
+    if (change.kind !== undefined && change.kind !== 'FINANCIALS' && change.amount === undefined) {
+      change.amount = null;
+    }
+
+    const kind = change.kind ?? activity.kind;
+    const dealId =
+      change.opportunityId === undefined ? (activity.deal?.id ?? null) : change.opportunityId;
+
+    assertSentShape({
+      kind,
+      opportunityId: dealId,
+      amount: change.amount === undefined ? activity.amount : change.amount,
+    });
+
     if (
       change.opportunityId !== undefined &&
       change.opportunityId !== null &&
@@ -200,9 +232,98 @@ export class ActivityService {
       throw new InvalidActivity('opportunityId', "Choose one of the client's deals, or none.");
     }
 
-    await this.activities.correct(actor, id, change);
+    /* Sent on a deal now, where it was not, or on another deal, or for another amount: asked as
+       logging it would be. Correcting only its words or its day asks nothing more. */
+    if (
+      dealId !== null &&
+      (change.kind !== undefined ||
+        change.opportunityId !== undefined ||
+        change.amount !== undefined)
+    ) {
+      await this.mayBeSentOn(actor, access, kind, activity.clientId, dealId);
+    }
+
+    /* The financials taken off their deal put its value back (#281), which is as much a change to
+       that deal as setting it: asked the same. */
+    const leftDeal =
+      activity.kind === 'FINANCIALS' &&
+      activity.deal !== null &&
+      (kind !== 'FINANCIALS' || dealId !== activity.deal.id)
+        ? activity.deal.id
+        : null;
+    if (leftDeal !== null) {
+      await this.mayBeSentOn(actor, access, 'FINANCIALS', activity.clientId, leftDeal);
+    }
+
+    await this.endedMeanwhile(activity.clientId, [leftDeal, dealId], () =>
+      this.activities.correct(actor, id, change),
+    );
 
     return this.activityOrRefuse(id);
+  }
+
+  /**
+   * Past proposals and financials, at every client, the latest first: by the type of client and
+   * the product, so the last one written for a similar client can be opened as a starting point
+   * (CLI 66, TDD 11's `GET /proposals?type=&product=`). Anybody with a role's, as every client is
+   * (CLI 90). `{ type?, product?, kind? }`, from the query string.
+   */
+  async pastProposals(actor: Actor, query: Record<string, unknown>): Promise<PastProposal[]> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access));
+
+    return this.activities.proposals(readProposalFilters(query));
+  }
+
+  /**
+   * A proposal or the financials go on an open deal, sent by its owner or a BD manager (#281).
+   * Anything else asks nothing here: a call may be about any deal, open or ended (CLI 55, CLI 60).
+   */
+  private async mayBeSentOn(
+    actor: Actor,
+    access: ClientsAccess,
+    kind: ActivityKind,
+    clientId: string,
+    dealId: string,
+  ): Promise<void> {
+    if (!SENT_ON_A_DEAL.includes(kind)) {
+      return;
+    }
+
+    const deal = await this.activities.dealSentOn(clientId, dealId);
+    if (deal === undefined) {
+      throw new InvalidActivity('opportunityId', "Choose one of the client's deals.");
+    }
+
+    this.guard.enforce(clientsPolicy.sendOnDeal(actor, access, deal));
+
+    if (deal.outcome !== 'OPEN') {
+      throw new OpportunityEnded(deal.productName, deal.outcome);
+    }
+  }
+
+  /**
+   * Writes, saying which deal and how it ended where one of `deals` ended between the look and the
+   * write, and the database refused to change its value (#281).
+   */
+  private async endedMeanwhile<T>(
+    clientId: string,
+    deals: readonly (string | null)[],
+    write: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await write();
+    } catch (error) {
+      if (!(error instanceof Ended)) throw error;
+
+      for (const id of deals) {
+        const deal = id === null ? undefined : await this.activities.dealSentOn(clientId, id);
+        if (deal !== undefined && deal.outcome !== 'OPEN') {
+          throw new OpportunityEnded(deal.productName, deal.outcome);
+        }
+      }
+      throw error;
+    }
   }
 
   /**

@@ -2964,8 +2964,11 @@ export async function attachToRequest(requestId: string, file: File): Promise<At
   return upload(`/api/requests/${encodeURIComponent(requestId)}/attachments`, file);
 }
 
-/** The one shape both uploads have: bytes as the body, name in a header. FR 12. */
-async function upload(path: string, file: File): Promise<Attachment> {
+/**
+ * The one shape every upload has: bytes as the body, name in a header. FR 12, and clients'
+ * documents (#281).
+ */
+async function upload<T = Attachment>(path: string, file: File): Promise<T> {
   const response = await send(path, {
     method: 'POST',
     credentials: 'same-origin',
@@ -2982,7 +2985,7 @@ async function upload(path: string, file: File): Promise<Attachment> {
     throw errorFrom(response.status, payload);
   }
 
-  return payload as Attachment;
+  return payload as T;
 }
 
 /**
@@ -3186,6 +3189,8 @@ export interface ClientsViews {
   setUp: boolean;
   /** Who holds which role. A portal System Administrator's. */
   manageRoles: boolean;
+  /** Past proposals and financials, to start a new one from. Anybody with a role. #281. */
+  pastProposals: boolean;
 }
 
 export async function clientsViews(): Promise<ClientsViews> {
@@ -3339,8 +3344,12 @@ export interface ClientPage extends ClientSummary {
 
 /* ------------------------------------------------- activities and next steps, #280 */
 
-/** A call, a meeting, a demo or a note (CLI 59, for now). */
-export type ActivityKind = 'CALL' | 'MEETING' | 'DEMO' | 'NOTE';
+/**
+ * A call, a meeting, a demo, a proposal sent, the financials sent, or a note (CLI 59, #281; reviews
+ * come with #285). A proposal and the financials are always about an open deal, and only the
+ * financials carry an amount.
+ */
+export type ActivityKind = 'CALL' | 'MEETING' | 'DEMO' | 'PROPOSAL' | 'FINANCIALS' | 'NOTE';
 
 /** What happens next, by when, and whose it is. CLI 63, CLI 64. */
 export interface ClientNextStep {
@@ -3466,8 +3475,8 @@ export async function openDeal(deal: NewDeal): Promise<Deal> {
 export interface DealValueChange {
   value: Money | null;
   probability: number | null;
-  /** By hand, a proposal, a POC converting, or the workbook import. */
-  source: 'MANUAL' | 'PROPOSAL' | 'CONVERSION' | 'IMPORT';
+  /** By hand, the financials sent (#281), a POC converting, or the workbook import. */
+  source: 'MANUAL' | 'FINANCIALS' | 'CONVERSION' | 'IMPORT';
   changedBy: ClientsNamed;
   changedAt: string;
 }
@@ -3586,11 +3595,16 @@ export type ClientActivityEntry =
       happenedOn: string;
       withWhom: string | null;
       outcome: string | null;
+      /** The amount the financials gave; null on every other kind. #281. */
+      amount: Money | null;
       by: ClientsNamed;
       /** When it was logged. */
       at: string;
-      /** Whoever logged it, within 24 hours of logging it. */
-      may: { correct: boolean };
+      /**
+       * Correcting it: whoever logged it, within 24 hours of logging it. Attaching a file to it:
+       * whoever logged it, at any time (#281).
+       */
+      may: { correct: boolean; attach: boolean };
     };
 
 /** Everything that has happened to a client's deals, newest first. */
@@ -3673,13 +3687,18 @@ export interface NextStepDetails {
   ownerId?: string;
 }
 
-/** A call, meeting, demo or note as a form sends it: null for anything not said. */
+/** A call, meeting, demo, proposal or note as a form sends it: null for anything not said. */
 export interface ActivityDetails {
   opportunityId: string | null;
   kind: ActivityKind;
   happenedOn: string;
   withWhom: string | null;
   outcome: string | null;
+  /**
+   * The amount the financials gave, as typed. Sent with the financials only: leaving FINANCIALS on
+   * a correction drops it on the server. #281.
+   */
+  amount?: { amount: string; currency: Currency };
 }
 
 /** Logs a call, meeting, demo or note, with a next step if one is given. CLI 58, CLI 63. #280. */
@@ -3687,8 +3706,136 @@ export async function logActivity(
   clientId: string,
   activity: ActivityDetails,
   nextStep: NextStepDetails | null,
-): Promise<unknown> {
-  return request<unknown>('POST', '/api/clients/activities', { clientId, ...activity, nextStep });
+): Promise<{ activity: { id: string } }> {
+  return request<{ activity: { id: string } }>('POST', '/api/clients/activities', {
+    clientId,
+    ...activity,
+    nextStep,
+  });
+}
+
+/* ---------------------------------------------------------------- documents, #281 */
+
+/**
+ * What a file may be, for a file picker's `accept`. Only a hint to the browser: the server reads
+ * what each file is from its bytes, whatever it is called (CLI 69).
+ */
+export const DOCUMENT_ACCEPT = '.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg';
+
+/** A file on an activity or a deal. CLI 67. */
+export interface ClientDocument {
+  id: string;
+  clientId: string;
+  activityId: string | null;
+  opportunityId: string | null;
+  /** What it is on, as the page names it. */
+  on:
+    | { kind: 'DEAL'; dealId: string; productName: string }
+    | {
+        kind: 'ACTIVITY';
+        activityId: string;
+        activityKind: ActivityKind;
+        happenedOn: string;
+        productName: string | null;
+      };
+  filename: string;
+  /** What the bytes are, never what the name says. */
+  contentType: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  scanStatus: 'PENDING' | 'CLEAN' | 'INFECTED';
+  /** Scanned and clean, so it may be opened. */
+  downloadable: boolean;
+  uploadedBy: ClientsNamed;
+  uploadedAt: string;
+  /** Taken off by whoever attached it: its file gone, this kept. Null while it is on. */
+  removed: { at: string; by: ClientsNamed } | null;
+  /** Taking it off: whoever attached it, within a day of attaching it. */
+  may: { remove: boolean };
+}
+
+/**
+ * Takes a file off again: whoever attached it, within a day. The file goes; the record of it
+ * stays, saying who took it off and when.
+ */
+export async function removeDocument(id: string): Promise<ClientDocument> {
+  return request<ClientDocument>('POST', `/api/clients/documents/${encodeURIComponent(id)}/remove`);
+}
+
+/** A proposal or the financials sent, as the past proposals list shows it. CLI 66, #281. */
+export interface PastProposal {
+  id: string;
+  kind: 'PROPOSAL' | 'FINANCIALS';
+  happenedOn: string;
+  client: { id: string; name: string; type: { id: string; name: string } };
+  deal: { id: string; productName: string; lineName: string };
+  /** The financials' amount; null on a proposal. */
+  amount: Money | null;
+  withWhom: string | null;
+  outcome: string | null;
+  loggedBy: ClientsNamed;
+  /** Its files still on, to open. */
+  files: {
+    id: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    downloadable: boolean;
+  }[];
+}
+
+/** Past proposals and financials, the latest first, by type of client, product and kind. */
+export async function pastProposals(filters: {
+  typeId: string;
+  productId: string;
+  kind: '' | 'PROPOSAL' | 'FINANCIALS';
+}): Promise<PastProposal[]> {
+  const query = new URLSearchParams();
+  if (filters.typeId !== '') query.set('type', filters.typeId);
+  if (filters.productId !== '') query.set('product', filters.productId);
+  if (filters.kind !== '') query.set('kind', filters.kind);
+
+  const { proposals } = await request<{ proposals: PastProposal[] }>(
+    'GET',
+    `/api/clients/proposals${query.size === 0 ? '' : `?${query.toString()}`}`,
+  );
+
+  return proposals;
+}
+
+/** Every file at a client, on its deals and its activities, the latest first. */
+export async function clientDocuments(clientId: string): Promise<ClientDocument[]> {
+  const { documents } = await request<{ documents: ClientDocument[] }>(
+    'GET',
+    `/api/clients/clients/${encodeURIComponent(clientId)}/documents`,
+  );
+
+  return documents;
+}
+
+/**
+ * Where a document is opened from. A plain link: the server asks on each request whether the
+ * person may have it, then sends the browser to a short lived signed address, or the bytes. Nothing
+ * is fetched into the page. NFR CLI SEC 03.
+ */
+export function documentDownloadPath(id: string): string {
+  return `/api/clients/documents/${encodeURIComponent(id)}/download`;
+}
+
+/** Attaches a file to a deal, open or ended: anybody with a role. */
+export async function attachToDeal(dealId: string, file: File): Promise<ClientDocument> {
+  return upload<ClientDocument>(
+    `/api/clients/opportunities/${encodeURIComponent(dealId)}/documents`,
+    file,
+  );
+}
+
+/** Attaches a file to an activity: whoever logged it, at any time. */
+export async function attachToActivity(activityId: string, file: File): Promise<ClientDocument> {
+  return upload<ClientDocument>(
+    `/api/clients/activities/${encodeURIComponent(activityId)}/documents`,
+    file,
+  );
 }
 
 /** Corrects an activity: whoever logged it, within 24 hours. CLI 62. */

@@ -525,6 +525,18 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   NextStepNotClosed: 409,
   /** #278. A note is archived; bringing it back is the fix. */
   NoteArchived: 409,
+  /** #281, CLI 69. Another file is the fix, as with leave's AttachmentTypeNotAccepted. */
+  DocumentTypeNotAccepted: 400,
+  /** #281. A smaller file is the fix: 413, as the body parser's own refusal and PhotoTooLarge. */
+  DocumentTooLarge: 413,
+  /** #281. Refused by the scanner, as leave's AttachmentIsInfected. */
+  DocumentIsInfected: 409,
+  /** #281. Not cleared yet, as leave's AttachmentNotScanned: waiting is the fix. */
+  DocumentNotScanned: 409,
+  /** #281. Taken off already: nothing to do. */
+  DocumentRemoved: 409,
+  /** #281. Past its day, as ActivityLocked: the right file beside it is the fix. */
+  DocumentFixed: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };
