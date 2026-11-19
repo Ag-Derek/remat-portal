@@ -22,6 +22,7 @@ import type {
   ValueSource,
   WaitingOnWhat,
 } from './opportunity.js';
+import type { PipelineDeal } from './pipeline.js';
 import { outcomeAt, type Stage, type StageChange } from './stage.js';
 
 /** The unique index that holds a client to one open deal per product (CLI 11). */
@@ -113,6 +114,75 @@ export class ClientsOpportunityRepository {
       .execute();
 
     return rows.map(opportunityFrom);
+  }
+
+  /**
+   * Somebody's open deals for My pipeline, in one query (TDD 7): each with its earliest open next
+   * step and the last day the client was contacted about it. Soonest next step first, so what is
+   * overdue is at the top and what is due today next; deals with nothing planned come last, the
+   * longest without contact first.
+   */
+  async pipeline(ownerId: string): Promise<PipelineDeal[]> {
+    const rows = await this.query()
+      .leftJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('clients_next_step as s')
+            .innerJoin('employee as se', 'se.id', 's.owner_id')
+            .select([
+              's.id as step_id',
+              's.description as step_description',
+              sql<CalendarDate>`s.due_on::text`.as('step_due_on'),
+              's.owner_id as step_owner_id',
+              sql<string>`se.first_name || ' ' || se.last_name`.as('step_owner_name'),
+            ])
+            .whereRef('s.opportunity_id', '=', 'o.id')
+            .where('s.done_at', 'is', null)
+            .orderBy('s.due_on')
+            .orderBy('s.id')
+            .limit(1)
+            .as('ns'),
+        (join) => join.onTrue(),
+      )
+      .select([
+        'ns.step_id',
+        'ns.step_description',
+        'ns.step_due_on',
+        'ns.step_owner_id',
+        'ns.step_owner_name',
+        (eb) =>
+          eb
+            .selectFrom('clients_activity as a')
+            .select(sql<CalendarDate | null>`max(a.happened_on)::text`.as('day'))
+            .whereRef('a.opportunity_id', '=', 'o.id')
+            .where('a.kind', '<>', 'NOTE')
+            .as('last_contact'),
+      ])
+      .where('o.owner_id', '=', ownerId)
+      .where('o.outcome', '=', 'OPEN')
+      .orderBy(sql`ns.step_due_on IS NULL`)
+      .orderBy('ns.step_due_on')
+      .orderBy(sql`last_contact NULLS FIRST`)
+      .orderBy('o.id')
+      .execute();
+
+    return rows.map((row) => ({
+      deal: opportunityFrom(row),
+      nextStep:
+        row.step_id === null ||
+        row.step_description === null ||
+        row.step_due_on === null ||
+        row.step_owner_id === null ||
+        row.step_owner_name === null
+          ? null
+          : {
+              id: row.step_id,
+              description: row.step_description,
+              dueOn: row.step_due_on,
+              owner: { id: row.step_owner_id, name: row.step_owner_name },
+            },
+      lastContact: row.last_contact ?? null,
+    }));
   }
 
   /**

@@ -4,6 +4,7 @@ import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientView } from './ClientView';
 import { ClientsList } from './ClientsList';
+import { MyPipeline } from './MyPipeline';
 import { ProposalsView } from './ProposalsView';
 import { RolesView } from './RolesView';
 import { SetupView } from './SetupView';
@@ -121,7 +122,11 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
         ) : showing === 'client' && view.id !== undefined ? (
           <ClientView key={view.id} id={view.id} onSignedOut={onSignedOut} />
         ) : (
-          <ClientsList onSignedOut={onSignedOut} />
+          /* The default view: what I have to do first, then every client (CLI 97). */
+          <>
+            <MyPipeline onSignedOut={onSignedOut} />
+            <ClientsList onSignedOut={onSignedOut} />
+          </>
         )}
       </main>
     </div>

@@ -2789,6 +2789,42 @@ button.clients-pill.is-missing:hover {
   font-size: 0.8125rem;
 }
 
+/* My pipeline: the first thing on Clients, above every client. Built on the deal table, so on a
+   phone each deal is a card of labelled lines as it is on a client's page. */
+.clients-pipeline {
+  container-type: inline-size;
+  margin-bottom: 1.5rem;
+}
+
+.clients-pipeline .clients-panel-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.clients-pipeline-deal {
+  min-width: 9rem;
+  overflow-wrap: normal;
+}
+
+.clients-pipeline-deal a {
+  font-weight: 600;
+}
+
+/* A late deal is marked at its edge, as well as in red words, so it reads at a glance. */
+.clients-pipeline tr.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+@container (max-width: 40rem) {
+  .clients-pipeline tr.is-overdue {
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
+
+  .clients-pipeline tr.is-overdue td:first-child {
+    box-shadow: none;
+  }
+}
+
 /* A client's next steps, #280: when each is due, red once overdue and stressed on the day. */
 .clients-step-when.is-overdue {
   color: var(--warn);

@@ -46,6 +46,7 @@ import {
   readNoteChange,
 } from './note.js';
 import type { ClientsNoteRepository } from './note.db.js';
+import type { PipelineEntry } from './pipeline.js';
 import { type ClientsAccess } from './policy.js';
 import { viewOf } from './opportunity.service.js';
 import { clientsPolicy } from './policy.js';
@@ -70,7 +71,10 @@ export class ClientService {
     private readonly contacts: ClientsContactRepository,
     private readonly productsInUse: ClientsProductInUseRepository,
     /** #277. A client's deals, which its page lists, and what has happened to them (#278). */
-    private readonly opportunities: Pick<ClientsOpportunityRepository, 'of' | 'activityOf'>,
+    private readonly opportunities: Pick<
+      ClientsOpportunityRepository,
+      'of' | 'activityOf' | 'pipeline'
+    >,
     /** #278. Its notes, each with a heading. */
     private readonly notes: ClientsNoteRepository,
     /** #280. What has been logged there, and its next steps. */
@@ -211,6 +215,26 @@ export class ClientService {
     await this.clients.change(actor, id, change);
 
     return this.clientOrRefuse(id);
+  }
+
+  /**
+   * My pipeline: the open deals the person asking owns, soonest next step first, each saying
+   * whether that step is overdue (CLI 97, TDD 7). Anybody with a role's, about their own deals.
+   */
+  async pipeline(actor: Actor): Promise<PipelineEntry[]> {
+    this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor)));
+
+    /* The policy allows only somebody holding a role, who is always a person. */
+    if (actor.employeeId === null) {
+      throw new Error('A pipeline was asked for by nobody.');
+    }
+
+    const today = this.today();
+
+    return (await this.opportunities.pipeline(actor.employeeId)).map((entry) => ({
+      ...entry,
+      overdue: entry.nextStep !== null && entry.nextStep.dueOn < today,
+    }));
   }
 
   /** Every client by name: the clients list. Anybody with a role's (CLI 90). */
