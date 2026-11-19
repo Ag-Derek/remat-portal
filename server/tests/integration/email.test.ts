@@ -586,8 +586,3 @@ describe('what the database guarantees', () => {
     ).rejects.toMatchObject({ code: '23514', constraint: 'email_outbox_sent_says_when' });
   });
 });
-
-/** Later than anything the database has stamped as due. */
-function anHourFromNow(): Date {
-  return new Date(Date.now() + 60 * 60 * 1000);
-}
