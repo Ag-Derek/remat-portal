@@ -2,6 +2,8 @@ import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 
 import {
   ApiError,
   addClientType,
+  addReason,
+  deleteReason,
   addProduct,
   addProductLine,
   type ClientType,
@@ -11,19 +13,23 @@ import {
   productLines,
   renameSetupThing,
   retireOrRestore,
+  retireOrRestoreReason,
+  rewordReason,
+  type SetupReason,
   type SetupThing,
   setupClientTypes,
+  setupReasons,
 } from '../../api';
 import { EditButton } from '../../ActionButtons';
 import { day } from '../../format';
 import { Icon, type IconName } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
-import { Dialog, Field, InfoTip, useAddress } from './ui';
+import { Dialog, Field, InfoTip, useAddress, useSending } from './ui';
 
 /**
  * Setup, for a BD manager: a menu of its sections down the side, and the one chosen beside it.
- * Products and lines so far; checklists and reasons join the menu when they are built.
- * #293, Clients SRS CLI 07, CLI 08, CLI 104.
+ * Products and lines, client types, and the lost and exit reasons; checklists join the menu when
+ * they are built. #293, #276, #279, Clients SRS CLI 07, CLI 08, CLI 54, CLI 104.
  *
  * Drawn only where `/api/clients/me` said this person may set up; every change is refused by the
  * server to anybody else, whatever is drawn.
@@ -32,7 +38,11 @@ export function SetupView({ onSignedOut }: { onSignedOut: () => void }) {
   /* Which section the address names; anything it does not know is products. */
   const address = useAddress();
   const current: SetupSection =
-    address === 'clients/setup/client-types' ? 'client-types' : 'products';
+    address === 'clients/setup/client-types'
+      ? 'client-types'
+      : address === 'clients/setup/reasons'
+        ? 'reasons'
+        : 'products';
 
   return (
     <div className="clients-setup">
@@ -64,6 +74,8 @@ export function SetupView({ onSignedOut }: { onSignedOut: () => void }) {
 
       {current === 'client-types' ? (
         <ClientTypesSection onSignedOut={onSignedOut} />
+      ) : current === 'reasons' ? (
+        <ReasonsSection onSignedOut={onSignedOut} />
       ) : (
         <ProductsSection onSignedOut={onSignedOut} />
       )}
@@ -86,7 +98,7 @@ const SECTIONS: readonly {
   { id: 'products', label: 'Products', icon: 'list', built: true },
   { id: 'client-types', label: 'Client types', icon: 'people', built: true },
   { id: 'checklists', label: 'Checklists', icon: 'checklist', built: false },
-  { id: 'reasons', label: 'Lost and exit reasons', icon: 'exit-reasons', built: false },
+  { id: 'reasons', label: 'Lost and exit reasons', icon: 'exit-reasons', built: true },
 ];
 
 /** Which form at the top is open, if either. */
@@ -522,6 +534,8 @@ function InlineName({
   onSaved,
   onCancel,
   onSignedOut,
+  save: saveName,
+  maxLength = 80,
 }: {
   thing: SetupThing;
   id: string;
@@ -531,6 +545,9 @@ function InlineName({
   onSaved: () => void;
   onCancel: () => void;
   onSignedOut: () => void;
+  /** How the new name is sent, where it is not a line, product or type's rename. #279. */
+  save?: (value: string) => Promise<void>;
+  maxLength?: number;
 }) {
   const [value, setValue] = useState(name);
   const [busy, setBusy] = useState(false);
@@ -546,7 +563,7 @@ function InlineName({
     setBusy(true);
     setError(undefined);
 
-    renameSetupThing(thing, id, value)
+    (saveName === undefined ? renameSetupThing(thing, id, value) : saveName(value))
       .then(onSaved)
       .catch((failure: unknown) => {
         if (isNotSignedIn(failure)) {
@@ -569,7 +586,7 @@ function InlineName({
       <span className="clients-inline-row">
         <input
           value={value}
-          maxLength={80}
+          maxLength={maxLength}
           aria-label={label}
           aria-invalid={error === undefined ? undefined : true}
           aria-describedby={error === undefined ? undefined : errorId}
@@ -1118,6 +1135,344 @@ function AddClientTypeDialog({
           </button>
           <button type="submit" className="primary" disabled={adding.busy || name.trim() === ''}>
             {adding.busy ? 'Adding…' : 'Add type'}
+          </button>
+        </footer>
+      </form>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------- lost and exit reasons, #279 */
+
+const REASON_LISTS: readonly {
+  appliesTo: SetupReason['appliesTo'];
+  title: string;
+  tip: string;
+}[] = [
+  {
+    appliesTo: 'LOST',
+    title: 'Why deals are lost',
+    tip: 'Offered when a deal is marked lost, any time before its POC starts.',
+  },
+  {
+    appliesTo: 'EXITED',
+    title: 'Why POCs are exited',
+    tip: 'Offered when a POC ends without converting.',
+  },
+];
+
+/**
+ * The two lists a deal ends for: why deals are lost, and why POCs are exited (CLI 54). Kept as
+ * data, so the BD manager changes them without a developer, and chosen from rather than typed, so
+ * the reasons can be counted.
+ *
+ * A reason no deal has ended for may be reworded or deleted, a typo just added say. Once a deal
+ * has ended for it, its words are kept so the deal still says what it was told, and it is retired
+ * rather than deleted; retired, it is offered for no new deal, and may be brought back (#279). The
+ * server refuses the rest whatever is drawn.
+ */
+function ReasonsSection({ onSignedOut }: { onSignedOut: () => void }) {
+  const [reasons, setReasons] = useState<SetupReason[] | undefined>(undefined);
+  const [problem, setProblem] = useState<Problem | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<SetupReason['appliesTo'] | null>(null);
+
+  const load = useCallback(() => {
+    setupReasons()
+      .then((found) => {
+        setReasons(found);
+      })
+      .catch((error: unknown) => {
+        if (isNotSignedIn(error)) {
+          onSignedOut();
+          return;
+        }
+        setProblem(problemFrom(error));
+      });
+  }, [onSignedOut]);
+
+  useEffect(load, [load]);
+
+  const act = useCallback(
+    async (change: () => Promise<void>): Promise<boolean> => {
+      setBusy(true);
+      setProblem(undefined);
+
+      try {
+        await change();
+        load();
+        return true;
+      } catch (error: unknown) {
+        if (isNotSignedIn(error)) {
+          onSignedOut();
+        } else {
+          setProblem(problemFrom(error));
+        }
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, onSignedOut],
+  );
+
+  return (
+    <section className="clients-setup-body">
+      <header className="clients-setup-head">
+        <h2>
+          Lost and exit reasons
+          <InfoTip text="Chosen when a deal ends without being won, so the reasons can be counted. Once a deal has ended for a reason its words are kept, and it can be retired but not deleted." />
+        </h2>
+      </header>
+
+      {adding === null ? null : (
+        <AddReasonDialog
+          appliesTo={adding}
+          onAdded={load}
+          onSignedOut={onSignedOut}
+          onClose={() => {
+            setAdding(null);
+          }}
+        />
+      )}
+
+      {problem === undefined ? null : <Notice problem={problem} />}
+
+      {reasons === undefined
+        ? null
+        : REASON_LISTS.map((list) => (
+            <div key={list.appliesTo} className="clients-reason-list">
+              <header className="clients-reason-list-head">
+                <h3>
+                  {list.title}
+                  <InfoTip text={list.tip} />
+                </h3>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setAdding(list.appliesTo);
+                  }}
+                >
+                  <Icon name="plus" />
+                  Add a reason
+                </button>
+              </header>
+              <div className="clients-line is-open">
+                {reasons
+                  .filter((reason) => reason.appliesTo === list.appliesTo)
+                  .map((reason) => (
+                    <ReasonRow
+                      key={reason.id}
+                      reason={reason}
+                      busy={busy}
+                      act={act}
+                      reload={load}
+                      onSignedOut={onSignedOut}
+                    />
+                  ))}
+              </div>
+            </div>
+          ))}
+    </section>
+  );
+}
+
+/**
+ * One reason: its words, which may be edited where they stand while no deal has ended for it, and
+ * on the right retire or restore, and delete while it is unused, asked once before it goes.
+ */
+function ReasonRow({
+  reason,
+  busy,
+  act,
+  reload,
+  onSignedOut,
+}: {
+  reason: SetupReason;
+  busy: boolean;
+  act: Act;
+  reload: () => void;
+  onSignedOut: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [asking, setAsking] = useState(false);
+
+  return (
+    <div className="clients-product">
+      {editing ? (
+        <InlineName
+          thing="client-types"
+          id={reason.id}
+          name={reason.label}
+          label={`Words of the reason ${reason.label}`}
+          isLine={false}
+          maxLength={120}
+          save={(label) => rewordReason(reason.id, label)}
+          onSaved={() => {
+            reload();
+            setEditing(false);
+          }}
+          onCancel={() => {
+            setEditing(false);
+          }}
+          onSignedOut={onSignedOut}
+        />
+      ) : (
+        <span className="clients-setup-name">
+          <span>{reason.label}</span>
+          {reason.inUse ? (
+            <span
+              className="clients-reason-used"
+              title="A deal has ended for this reason, so its words are kept as they are."
+            >
+              In use
+            </span>
+          ) : (
+            <EditButton
+              className="clients-edit-name"
+              label={`Edit the words of the reason ${reason.label}`}
+              disabled={busy}
+              onClick={() => {
+                setEditing(true);
+              }}
+            />
+          )}
+          {reason.retiredOn === null ? null : (
+            <span className="clients-retired">Retired {day(reason.retiredOn)}</span>
+          )}
+        </span>
+      )}
+
+      {editing ? null : (
+        <span className="clients-setup-buttons">
+          {asking ? (
+            <>
+              <span className="clients-ask">Delete this reason for good?</span>
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => {
+                  void act(() => deleteReason(reason.id)).then(() => {
+                    setAsking(false);
+                  });
+                }}
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                className="linkish"
+                disabled={busy}
+                onClick={() => {
+                  setAsking(false);
+                }}
+              >
+                Keep it
+              </button>
+            </>
+          ) : (
+            <>
+              {reason.inUse ? null : (
+                <button
+                  type="button"
+                  className="linkish is-danger"
+                  disabled={busy}
+                  onClick={() => {
+                    setAsking(true);
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void act(() =>
+                    retireOrRestoreReason(
+                      reason.id,
+                      reason.retiredOn === null ? 'retire' : 'restore',
+                    ),
+                  );
+                }}
+              >
+                {reason.retiredOn === null ? 'Retire' : 'Restore'}
+              </button>
+            </>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function AddReasonDialog({
+  appliesTo,
+  onAdded,
+  onClose,
+  onSignedOut,
+}: {
+  appliesTo: SetupReason['appliesTo'];
+  onAdded: () => void;
+  onClose: () => void;
+  onSignedOut: () => void;
+}) {
+  const [label, setLabel] = useState('');
+  const sending = useSending(() => {
+    onAdded();
+    onClose();
+  }, onSignedOut);
+  const lost = appliesTo === 'LOST';
+  const other = sending.other(['label']);
+
+  return (
+    <Dialog
+      title={lost ? 'Add a reason deals are lost' : 'Add a reason POCs are exited'}
+      intro="Once added, it is offered straight away."
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() => addReason(appliesTo, label));
+        }}
+      >
+        <Field
+          label="Reason"
+          hint={
+            lost
+              ? 'Short enough to count by, for example Chose a competitor.'
+              : 'Short enough to count by, for example Usage too low.'
+          }
+          error={sending.errorFor('label')}
+        >
+          {({ id, describedBy }) => (
+            <input
+              id={id}
+              value={label}
+              maxLength={120}
+              autoFocus
+              autoComplete="off"
+              aria-describedby={describedBy}
+              aria-invalid={sending.errorFor('label') === undefined ? undefined : true}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setLabel(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        {other === undefined ? null : <Notice problem={other} />}
+
+        <footer className="clients-dialog-foot">
+          <button type="button" disabled={sending.busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="primary" disabled={sending.busy || label.trim() === ''}>
+            {sending.busy ? 'Adding…' : 'Add reason'}
           </button>
         </footer>
       </form>

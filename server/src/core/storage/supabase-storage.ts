@@ -78,10 +78,12 @@ export class SupabaseStorage implements Storage {
    * the application and sent on again, so a reader waits for the same bytes twice. The URL
    * carries its own signature, expires, and names nothing but this object.
    */
-  async linkTo(key: string): Promise<string | undefined> {
+  async linkTo(key: string, downloadAs?: string): Promise<string | undefined> {
     const { data, error } = await this.#objects().createSignedUrl(
       this.#pathFor(key),
       this.#signedUrlSeconds,
+      /* Saved under the name somebody gave it rather than its key (#281). */
+      downloadAs === undefined ? undefined : { download: downloadAs },
     );
 
     if (error) {

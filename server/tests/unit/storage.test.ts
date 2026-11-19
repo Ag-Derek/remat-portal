@@ -191,6 +191,23 @@ describe('an address the bytes may be fetched from directly', () => {
     expect(calls[1].url).toContain(`/object/sign/attachments/${path}`);
     expect(url).toContain('token=');
   });
+
+  /* #281: a document is saved under the name it was given, not its key. */
+  it('is saved under the name it is given, where one is', async () => {
+    const { storage: supabase } = supabaseStorage((call) =>
+      call.method === 'POST' && call.url.includes('/object/sign/')
+        ? json({ signedURL: '/object/sign/attachments/ab/cd/x?token=y' })
+        : json({ Key: 'stored' }),
+    );
+
+    const stored = await supabase.put(Buffer.from('x'));
+
+    const named = new URL((await supabase.linkTo(stored.key, 'Proposal for ADB.pdf')) ?? '');
+    const unnamed = new URL((await supabase.linkTo(stored.key)) ?? '');
+
+    expect(named.searchParams.get('download')).toBe('Proposal for ADB.pdf');
+    expect(unnamed.searchParams.has('download')).toBe(false);
+  });
 });
 
 describe('the supabase driver', () => {

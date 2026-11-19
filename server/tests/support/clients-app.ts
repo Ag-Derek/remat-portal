@@ -17,12 +17,19 @@ import { ClientsOpportunityRepository } from '../../src/apps/clients/opportunity
 import { ClientsNoteRepository } from '../../src/apps/clients/note.db.js';
 import { OpportunityService } from '../../src/apps/clients/opportunity.service.js';
 import { ClientsProductRepository } from '../../src/apps/clients/product.db.js';
+import { ClientsReasonRepository } from '../../src/apps/clients/reason.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { RoleService } from '../../src/apps/clients/role.service.js';
 import { clientsRoutes } from '../../src/apps/clients/routes.js';
 import { SetupService } from '../../src/apps/clients/setup.service.js';
 import { StageService } from '../../src/apps/clients/stage.service.js';
 import { clientsVisibility } from '../../src/apps/clients/visibility.js';
+import { ClientsActivityRepository } from '../../src/apps/clients/activity.db.js';
+import { ActivityService } from '../../src/apps/clients/activity.service.js';
+import { ClientsDocumentRepository } from '../../src/apps/clients/document.db.js';
+import { DocumentService } from '../../src/apps/clients/document.service.js';
+import { SignatureScanner } from '../../src/core/scanning/signature-scanner.js';
+import { InMemoryStorage } from './in-memory-storage.js';
 import type { RecordingDenialLog } from './recording-denials.js';
 
 /**
@@ -38,7 +45,16 @@ export interface ClientsApp {
   origin: string;
   /** The clients router, as built, so a test can ask it which routes it has. */
   router: Router;
+  /** Where documents' bytes go (#281), for a test that asserts on what was or was not kept. */
+  storage: InMemoryStorage;
+  /** Sends a request, never following a redirect, so a test sees the 302 itself. */
   send(method: string, path: string, as: Asker, body?: unknown): Promise<globalThis.Response>;
+  /** Uploads a file as the screen does: its bytes as the body, its name in `X-Filename`. #281. */
+  sendFile(
+    path: string,
+    as: Asker,
+    file: { content: Buffer; filename?: string; contentType?: string },
+  ): Promise<globalThis.Response>;
   close(): Promise<void>;
 }
 
@@ -51,6 +67,8 @@ export interface Asker {
 export async function startClientsApp(
   db: Kysely<Database>,
   denials: RecordingDenialLog,
+  /** Where documents' bytes go: by default a Map, which, as the local driver, mints no links. */
+  storage: InMemoryStorage = new InMemoryStorage(),
 ): Promise<ClientsApp> {
   const app = express();
   app.use(express.json());
@@ -73,12 +91,19 @@ export async function startClientsApp(
   const clientRecords = new ClientsClientRepository(db);
   const productsInUse = new ClientsProductInUseRepository(db);
   const opportunities = new ClientsOpportunityRepository(db);
+  const activities = new ClientsActivityRepository(db);
 
   const router = clientsRoutes({
     door: clientsDoor(guard, grants),
     grants,
     roles: new RoleService(guard, grants, new EmployeeRepository(db)),
-    setup: new SetupService(guard, grants, new ClientsProductRepository(db), clientRecords),
+    setup: new SetupService(
+      guard,
+      grants,
+      new ClientsProductRepository(db),
+      clientRecords,
+      new ClientsReasonRepository(db),
+    ),
     clients: new ClientService(
       guard,
       grants,
@@ -87,6 +112,7 @@ export async function startClientsApp(
       productsInUse,
       opportunities,
       new ClientsNoteRepository(db),
+      activities,
     ),
     opportunities: new OpportunityService(
       guard,
@@ -95,7 +121,15 @@ export async function startClientsApp(
       productsInUse,
       opportunities,
     ),
-    stages: new StageService(guard, grants, opportunities),
+    stages: new StageService(guard, grants, opportunities, new ClientsReasonRepository(db)),
+    activities: new ActivityService(guard, grants, clientRecords, activities),
+    documents: new DocumentService(
+      guard,
+      grants,
+      new ClientsDocumentRepository(db),
+      storage,
+      new SignatureScanner(),
+    ),
   });
 
   app.use('/api', router);
@@ -115,6 +149,16 @@ export async function startClientsApp(
   return {
     origin,
     router,
+    storage,
+    sendFile(path, as, { content, filename = 'proposal.pdf', contentType = 'application/pdf' }) {
+      const headers: Record<string, string> = {
+        'x-test-employee': as.employeeId,
+        'content-type': contentType,
+        'x-filename': encodeURIComponent(filename),
+      };
+
+      return fetch(`${origin}${path}`, { method: 'POST', headers, body: content });
+    },
     send(method, path, as, body) {
       const headers: Record<string, string> = { 'x-test-employee': as.employeeId };
 
@@ -125,6 +169,7 @@ export async function startClientsApp(
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        redirect: 'manual',
       });
     },
     close() {

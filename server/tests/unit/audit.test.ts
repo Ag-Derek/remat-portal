@@ -117,6 +117,12 @@ describe('the entities an entry can be about', () => {
       'clients_opportunity',
       /* #278. What the department knows about a client, and who wrote or changed it. */
       'clients_client_note',
+      /* #279. Retiring or renaming a reason changes what every count of lost deals means. */
+      'clients_reason',
+      /* #280. A correction within the day replaces what was logged; this keeps what it said. */
+      'clients_activity',
+      /* #280. Reopening a step clears who closed it and when; this keeps them. */
+      'clients_next_step',
     ]);
   });
 });

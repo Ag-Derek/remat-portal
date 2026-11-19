@@ -191,7 +191,7 @@ describe('the columns', () => {
      the rule gives and the date it is due, the day it was done and the day the renewal runs
      to, the day an item was retired, and the day a reminder was for. A permit expires on the
      day printed on it, and a zone would move that day for whoever read it. Compliance TDD 6. */
-  it('the thirty two dates there are today are the ones expected', async () => {
+  it('the thirty nine dates there are today are the ones expected', async () => {
     const dates = (await temporalColumns())
       .filter((column) => column.data_type === 'date')
       .map((column) => `${column.table_name}.${column.column_name}`);
@@ -200,16 +200,22 @@ describe('the columns', () => {
       /** FR 49. The days a delegate answers for somebody. */
       'approval_delegation.ends_on',
       'approval_delegation.starts_on',
+      /** #280. The day a call or meeting happened, which may be long before it was logged. */
+      'clients_activity.happened_on',
       /** #276. When a client started and stopped using a product. */
       'clients_client_product.ended_on',
       'clients_client_product.since_on',
       /** #276. The day a client type stopped being offered for new clients. */
       'clients_client_type.retired_on',
+      /** #279. The day a next step falls due, an exit's debrief the first. */
+      'clients_next_step.due_on',
       /** #278. The day a deal was won, lost or exited. */
       'clients_opportunity.ended_on',
       /** #293. The day a product or a line stopped taking new deals. */
       'clients_product.retired_on',
       'clients_product_line.retired_on',
+      /** #279. The day a lost or exit reason stopped being offered. */
+      'clients_reason.retired_on',
       /** #245. */
       'compliance_completion.completed_on',
       'compliance_completion.new_expiry_on',

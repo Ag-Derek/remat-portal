@@ -42,11 +42,14 @@ export function Missing({ what }: { what: string }) {
 export function Dialog({
   title,
   intro,
+  wide = false,
   onClose,
   children,
 }: {
   title: string;
   intro?: string;
+  /** Room for two fields side by side, as logging an activity wants. */
+  wide?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -68,7 +71,7 @@ export function Dialog({
   return (
     <dialog
       ref={dialog}
-      className="clients-dialog"
+      className={`clients-dialog${wide ? ' is-wide' : ''}`}
       aria-labelledby={titleId}
       onCancel={(event) => {
         /* Escape. Closed by the page, so the page's state and the dialog never disagree. */

@@ -1615,6 +1615,36 @@ a.portal-app:hover {
   font-weight: 500;
 }
 
+/* #279. A reason a deal has ended for: its words are kept, so it has no pencil, this instead. */
+.clients-reason-used {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: help;
+}
+
+/* #279. The two reason lists, one above the other, each with its own heading and add button. */
+.clients-reason-list + .clients-reason-list {
+  margin-top: 1.75rem;
+}
+
+.clients-reason-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem var(--gap);
+  margin-bottom: 0.6rem;
+}
+
+.clients-reason-list-head h3 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
 .clients-line.is-retired .clients-line-head strong,
 .clients-product:has(.clients-retired) .clients-setup-name {
   color: var(--ink-soft);
@@ -2729,6 +2759,11 @@ button.clients-pill.is-missing:hover {
   color: var(--away-ink);
 }
 
+.clients-activity-icon.is-logged {
+  background: color-mix(in srgb, var(--ink) 6%, var(--card));
+  color: var(--ink);
+}
+
 .clients-activity-icon.is-ended {
   background: color-mix(in srgb, var(--ink) 7%, var(--card));
   color: var(--ink-soft);
@@ -2752,6 +2787,216 @@ button.clients-pill.is-missing:hover {
   margin-top: 0.3rem;
   color: var(--ink-faint);
   font-size: 0.8125rem;
+}
+
+/* My pipeline: the first thing on Clients, above every client. Built on the deal table, so on a
+   phone each deal is a card of labelled lines as it is on a client's page. */
+.clients-pipeline {
+  container-type: inline-size;
+  margin-bottom: 1.5rem;
+}
+
+.clients-pipeline .clients-panel-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.clients-pipeline-deal {
+  min-width: 9rem;
+  overflow-wrap: normal;
+}
+
+.clients-pipeline-deal a {
+  font-weight: 600;
+}
+
+/* A late deal is marked at its edge, as well as in red words, so it reads at a glance. */
+.clients-pipeline tr.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+@container (max-width: 40rem) {
+  .clients-pipeline tr.is-overdue {
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
+
+  .clients-pipeline tr.is-overdue td:first-child {
+    box-shadow: none;
+  }
+}
+
+/* A client's next steps, #280: when each is due, red once overdue and stressed on the day. */
+.clients-step-when.is-overdue {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.clients-step-when.is-today {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Logging an activity, #280. Made for speed: the kind is one tap on a tile, days and the
+   client's contacts are chips, and the next step sits in a card of its own on the same screen. */
+.clients-dialog.is-wide {
+  width: min(38rem, calc(100vw - 2rem));
+}
+
+.clients-log .clients-field-label {
+  margin-bottom: 0.1rem;
+}
+
+/* Four tiles, an icon over a word; the one chosen in the accent's tint with an accent edge. */
+.clients-kind-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.clients-kind-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.5rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-weight: 500;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.clients-kind-tile svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.clients-kind-tile:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.clients-kind-tile[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  font-weight: 600;
+}
+
+/* Small rounded chips under a field: the client's contacts, or a few days to pick from. */
+.clients-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.clients-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.clients-chip svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.clients-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.clients-chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* The days under a date input: quieter, as they only fill the box above. */
+.clients-chips.is-quiet .clients-chip {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+/* The next step, a card of its own inside the form: faintly tinted, a little bluer once
+   something is written in it, since then it will be added. */
+.clients-step-card {
+  margin: 0.35rem 0 0;
+  padding: 0.9rem 1rem 0.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--card));
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.clients-step-card.is-set {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--card));
+  background: var(--accent-soft);
+}
+
+.clients-step-card > legend {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  float: left;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0;
+  font-weight: 600;
+}
+
+.clients-step-card > legend + * {
+  clear: both;
+}
+
+.clients-step-card-icon {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.clients-step-card-icon svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.clients-step-card-optional {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.clients-step-card .clients-field input,
+.clients-step-card .clients-field select {
+  background: var(--card);
+}
+
+@media (max-width: 30rem) {
+  .clients-kind-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .clients-activity-more {
@@ -2902,6 +3147,30 @@ button.clients-pill.is-missing:hover {
 
 .clients-move-add-note {
   margin-top: 0.25rem;
+}
+
+/* #279. Ending the deal instead of moving it: off to the left of the dialog's foot, apart from
+   Cancel, so it is not hit by mistake. */
+.clients-dialog-foot .clients-move-lose {
+  margin-right: auto;
+  padding-left: 0;
+}
+
+/* #279. Why it was lost: the reasons as chips, one to choose. */
+.clients-lose-reasons {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 1.25rem;
+}
+
+.clients-lose-reasons > span:first-child {
+  font-weight: 600;
+}
+
+/* #279. An ended deal's reason, where an open one says whether it will have a POC. */
+.clients-deal-reason strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .clients-move-others + .clients-field,

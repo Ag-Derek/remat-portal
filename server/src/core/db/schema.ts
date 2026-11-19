@@ -799,6 +799,10 @@ export interface ClientsOpportunityTable {
   has_poc: Nullable<boolean>;
   /** The day it ended; null while it is open. Set by the stage service (#278). */
   ended_on: ColumnType<string | null, never, string | null>;
+  /** Why it was lost or exited; null otherwise. Set by the stage service as it ends it (#279). */
+  reason_id: ColumnType<string | null, never, string | null>;
+  /** Anything more said as it ended: which products a POC ran on, for an exit (#279). */
+  end_note: ColumnType<string | null, never, string | null>;
   /** BIGINT, which pg hands back as a string. */
   value_minor: Nullable<string, string | number>;
   currency: Nullable<string>;
@@ -844,6 +848,84 @@ export interface ClientsStageChangeTable {
   changed_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * Why a deal was lost, or why a POC was exited. #279, Clients SRS CLI 54, TDD 4.5. Which list it
+ * is on never changes; it is renamed and retired, never deleted.
+ */
+export interface ClientsReasonTable {
+  id: Generated<string>;
+  applies_to: ColumnType<string, string, never>;
+  label: string;
+  retired_on: string | null;
+}
+
+/**
+ * Something that happened with a client, on a day. #280, Clients SRS CLI 58 to CLI 62, TDD 4.5.
+ * Corrected only within 24 hours of being logged, which a trigger holds; its client, and who
+ * logged it and when, never change, and none is deleted.
+ */
+export interface ClientsActivityTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  /** One of the client's deals, open or ended, where it was about one. */
+  opportunity_id: Nullable<string>;
+  kind: string;
+  happened_on: string;
+  with_whom: Nullable<string>;
+  outcome: Nullable<string>;
+  /** What a proposal offered, in minor units, with its currency. Only a proposal has one (#281). */
+  amount_minor: Nullable<string, string | number>;
+  currency: Nullable<string>;
+  logged_by: ColumnType<string, string, never>;
+  logged_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A file on an activity or a deal. #281, Clients SRS CLI 67 to CLI 70, TDD 4.6. Fixed once written
+ * but for its virus scan's verdict, and never deleted.
+ */
+export interface ClientsDocumentTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  activity_id: ColumnType<string | null, string | null | undefined, never>;
+  opportunity_id: ColumnType<string | null, string | null | undefined, never>;
+  original_filename: ColumnType<string, string, never>;
+  storage_key: ColumnType<string, string, never>;
+  content_type: ColumnType<string, string, never>;
+  /** BIGINT, which pg hands back as a string. */
+  size_bytes: ColumnType<string, number, never>;
+  checksum_sha256: ColumnType<string, string, never>;
+  scan_status: string;
+  scan_signature: Nullable<string>;
+  scanned_by: Nullable<string>;
+  scanned_at: Nullable<Date>;
+  uploaded_by: ColumnType<string, string, never>;
+  uploaded_at: ColumnType<Date, never, never>;
+  /** Taken off by whoever attached it, within a day: the bytes gone, the row kept. */
+  removed_at: ColumnType<Date | null, never, Date | null>;
+  removed_by: ColumnType<string | null, never, string | null>;
+}
+
+/**
+ * What happens next, by when, and whose it is. #279, Clients SRS CLI 53, CLI 63, TDD 4.5. Its
+ * client, deal, source and maker never change, and none is deleted. Closed by its owner (#280).
+ */
+export interface ClientsNextStepTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  opportunity_id: ColumnType<string | null, string | null | undefined, never>;
+  description: string;
+  due_on: string;
+  owner_id: string;
+  source: ColumnType<string, string, never>;
+  /** The activity it was offered with, where its source is ACTIVITY (#280). */
+  from_activity: ColumnType<string | null, string | null | undefined, never>;
+  done_at: ColumnType<Date | null, never, Date | null>;
+  done_by: ColumnType<string | null, never, string | null>;
+  created_by: ColumnType<string, string, never>;
+  created_at: ColumnType<Date, never, never>;
+}
+
 /** A column that may be null, and is left null when an insert leaves it out. */
 type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
 
@@ -855,6 +937,14 @@ export interface Database {
   clients_value_change: ClientsValueChangeTable;
   /** #278. */
   clients_stage_change: ClientsStageChangeTable;
+  /** #279. */
+  clients_reason: ClientsReasonTable;
+  /** #280. */
+  clients_activity: ClientsActivityTable;
+  /** #281. */
+  clients_document: ClientsDocumentTable;
+  /** #279, ahead of #280. */
+  clients_next_step: ClientsNextStepTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */

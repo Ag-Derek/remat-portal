@@ -50,7 +50,7 @@ export function ClientsList({ onSignedOut }: { onSignedOut: () => void }) {
     <section className="clients-list">
       <header className="clients-setup-head">
         <div>
-          <h2>Clients</h2>
+          <h2>All clients</h2>
           {clients === undefined ? null : (
             <p className="muted">
               {clients.length === 1 ? '1 client' : `${String(clients.length)} clients`}

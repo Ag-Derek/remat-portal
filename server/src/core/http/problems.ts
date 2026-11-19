@@ -508,8 +508,35 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   LiveAfterSigning: 409,
   /** Looking again is the fix. */
   StageMovedMeanwhile: 409,
+  /** #279, CLI 52. POC_DECIDES for marking lost: its POC converting or exiting is the fix. */
+  PocEndsIt: 409,
+  /** #279, CLI 52. Moving it on, or marking it lost, is the fix. */
+  NotInItsPoc: 409,
+  /** #279, CLI 51, CLI 54. Choosing a reason the list offers is the fix. */
+  ReasonNotOffered: 400,
+  /** #279, CLI 54. Its list has those words already; others are the fix. */
+  ReasonLabelTaken: 409,
+  /** #279, CLI 54. A deal ended for it; retiring it is the fix. */
+  ReasonInUse: 409,
+  /** #280, CLI 62. TDD 11's ACTIVITY_LOCKED: a day has passed, and a further note is the fix. */
+  ActivityLocked: 409,
+  /** #280, CLI 64. Closed already, or open already: nothing to do. */
+  NextStepAlreadyClosed: 409,
+  NextStepNotClosed: 409,
   /** #278. A note is archived; bringing it back is the fix. */
   NoteArchived: 409,
+  /** #281, CLI 69. Another file is the fix, as with leave's AttachmentTypeNotAccepted. */
+  DocumentTypeNotAccepted: 400,
+  /** #281. A smaller file is the fix: 413, as the body parser's own refusal and PhotoTooLarge. */
+  DocumentTooLarge: 413,
+  /** #281. Refused by the scanner, as leave's AttachmentIsInfected. */
+  DocumentIsInfected: 409,
+  /** #281. Not cleared yet, as leave's AttachmentNotScanned: waiting is the fix. */
+  DocumentNotScanned: 409,
+  /** #281. Taken off already: nothing to do. */
+  DocumentRemoved: 409,
+  /** #281. Past its day, as ActivityLocked: the right file beside it is the fix. */
+  DocumentFixed: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };

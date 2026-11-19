@@ -3,6 +3,7 @@
  */
 
 import type { LeaveType } from '../leave-type/leave-type.js';
+import { sniffContentType as sniffBytes } from '../../../core/storage/content-type.js';
 import { type CalendarDate, monthsAfter } from '../../../core/calendar/time.js';
 import { type LeaveRequest, isSettled } from './leave-request.js';
 
@@ -495,87 +496,15 @@ function megabytes(bytes: number): string {
 /* ------------------------------------------------------------------ sniffing */
 
 /**
- * What the bytes actually are, or null. NFR SEC 07.
+ * What the bytes actually are, where leave accepts it, or null. NFR SEC 07.
  *
- * The extension is never consulted. DOCX is a zip, so it is told from the other zips by
- * reading the archive's own list of entries rather than by trusting the name.
+ * The extension is never consulted. Reading the bytes is core's, which clients shares (#281):
+ * a workbook or a deck it can tell apart is still no certificate, and is refused here.
  */
 export function sniffContentType(content: Buffer): AcceptedContentType | null {
-  if (startsWith(content, [0x25, 0x50, 0x44, 0x46, 0x2d])) {
-    return 'application/pdf';
-  }
+  const sniffed = sniffBytes(content);
 
-  if (startsWith(content, [0xff, 0xd8, 0xff])) {
-    return 'image/jpeg';
-  }
-
-  if (startsWith(content, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
-    return 'image/png';
-  }
-
-  if (startsWith(content, [0x50, 0x4b]) && isWordDocument(content)) {
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  }
-
-  return null;
-}
-
-function startsWith(content: Buffer, magic: readonly number[]): boolean {
-  return content.byteLength >= magic.length && magic.every((byte, at) => content[at] === byte);
-}
-
-/** A zip holding `word/`, which is what tells DOCX from XLSX, PPTX and a plain archive. */
-function isWordDocument(content: Buffer): boolean {
-  const names = zipEntryNames(content);
-
-  return names.includes('[Content_Types].xml') && names.some((name) => name.startsWith('word/'));
-}
-
-/**
- * The names in a zip's central directory.
- *
- * Read from the end of the file rather than by walking local headers, which is the only
- * part of a zip that is authoritative about what the archive contains.
- */
-function zipEntryNames(content: Buffer): string[] {
-  const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
-  const CENTRAL_FILE_HEADER = 0x02014b50;
-
-  if (content.byteLength < 22) {
-    return [];
-  }
-
-  /* The record is last, after a comment of up to 64 KB. */
-  const earliest = Math.max(0, content.byteLength - (0xffff + 22));
-  let end = -1;
-
-  for (let at = content.byteLength - 22; at >= earliest; at -= 1) {
-    if (content.readUInt32LE(at) === END_OF_CENTRAL_DIRECTORY) {
-      end = at;
-      break;
-    }
-  }
-
-  if (end === -1) {
-    return [];
-  }
-
-  const entries = content.readUInt16LE(end + 10);
-  let at = content.readUInt32LE(end + 16);
-  const names: string[] = [];
-
-  for (let read = 0; read < entries; read += 1) {
-    if (at + 46 > content.byteLength || content.readUInt32LE(at) !== CENTRAL_FILE_HEADER) {
-      break;
-    }
-
-    const nameLength = content.readUInt16LE(at + 28);
-    const extraLength = content.readUInt16LE(at + 30);
-    const commentLength = content.readUInt16LE(at + 32);
-
-    names.push(content.toString('utf8', at + 46, at + 46 + nameLength));
-    at += 46 + nameLength + extraLength + commentLength;
-  }
-
-  return names;
+  return (ACCEPTED_CONTENT_TYPES as readonly string[]).includes(sniffed ?? '')
+    ? (sniffed as AcceptedContentType)
+    : null;
 }

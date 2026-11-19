@@ -13,6 +13,7 @@
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Person } from './client.js';
 import { isAnId } from './product.js';
+import type { Ending } from './reason.js';
 import type { Stage, StageOption } from './stage.js';
 
 /** Ghana cedis and US dollars, the two the department prices in (CLI 74). */
@@ -68,6 +69,8 @@ export interface Opportunity {
   hasPoc: boolean | null;
   /** The day it was won, lost or exited; null while it is open (CLI 25). */
   endedOn: CalendarDate | null;
+  /** Why it was lost or exited, and any note (CLI 55). Null while open, and once won (#279). */
+  ending: Ending | null;
   /** Null while nobody knows what it is worth. */
   value: Money | null;
   /** A whole percentage, or null while nobody has said (CLI 14). */
@@ -82,10 +85,10 @@ export interface Opportunity {
 }
 
 /**
- * What changed a deal's figures: an owner or BD manager by hand, a proposal sent (#281), a POC
- * converting (#287), or the workbook import (#283). TDD 4.2.
+ * What changed a deal's figures: an owner or BD manager by hand, the financials sent or corrected
+ * (#281, which TDD 4.2 calls a proposal), a POC converting (#287), or the workbook import (#283).
  */
-export type ValueSource = 'MANUAL' | 'PROPOSAL' | 'CONVERSION' | 'IMPORT';
+export type ValueSource = 'MANUAL' | 'FINANCIALS' | 'CONVERSION' | 'IMPORT';
 
 /**
  * A deal's value and probability as they stood after one change to either, and who made it and
@@ -112,6 +115,8 @@ export interface DealPermissions {
   move: boolean;
   /** Answering whether it will have a POC: the same people, until its contract is signed. */
   decidePoc: boolean;
+  /** Marking it lost: the same people, while it is open and its POC has not started (#279). */
+  lose: boolean;
 }
 
 /**
@@ -387,25 +392,38 @@ function readId(value: unknown, field: string, message: string): string {
  * whether the comma is a thousands mark or a decimal one is a guess.
  */
 function readAmount(value: unknown): number {
-  const text =
-    typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  const amountMinor = amountMinorOf(value);
 
-  if (match === null) {
+  if (amountMinor === 'NOT_A_NUMBER') {
     throw new InvalidOpportunity(
       'value',
       'Give what the deal is worth as a number, with at most two figures after the point.',
     );
   }
-
-  const [, whole, fraction = ''] = match;
-  const amountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
-
-  if (amountMinor > MAX_AMOUNT_MINOR) {
+  if (amountMinor === 'TOO_LARGE') {
     throw new InvalidOpportunity('value', 'That is more than any deal could be worth. Check it.');
   }
 
   return amountMinor;
+}
+
+/**
+ * An amount in cedis or dollars, typed as text, in minor units: "75600" is 7,560,000. Or why it
+ * is not one, for the caller to word: a deal's value and a proposal's amount say it differently.
+ */
+export function amountMinorOf(value: unknown): number | 'NOT_A_NUMBER' | 'TOO_LARGE' {
+  const text =
+    typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+
+  if (match === null) {
+    return 'NOT_A_NUMBER';
+  }
+
+  const [, whole, fraction = ''] = match;
+  const amountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+
+  return amountMinor > MAX_AMOUNT_MINOR ? 'TOO_LARGE' : amountMinor;
 }
 
 /** Trimmed text, or null where it was left out or left blank. */

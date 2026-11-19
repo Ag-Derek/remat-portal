@@ -20,12 +20,15 @@ export interface ClientsViews {
   setUp: boolean;
   /** Who holds which role. A portal System Administrator's. */
   manageRoles: boolean;
+  /** Past proposals and financials, to start a new one from (CLI 66, #281). Anybody with a role. */
+  pastProposals: boolean;
 }
 
 export function viewsOf(actor: Actor, access: ClientsAccess): ClientsViews {
   return {
     setUp: clientsPolicy.setUp(actor, access).allowed,
     manageRoles: clientsPolicy.manageRoles(actor, access).allowed,
+    pastProposals: clientsPolicy.read(actor, access).allowed,
   };
 }
 

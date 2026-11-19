@@ -26,7 +26,9 @@ import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientActivity } from './Activity';
 import { ClientDeals, OpportunityFigures } from './Deals';
+import { ClientDocuments } from './Documents';
 import { ClientNotes } from './Notes';
+import { ClientNextSteps } from './NextSteps';
 import { Dialog, DialogFoot, Field, Missing, useSending } from './ui';
 
 /**
@@ -192,11 +194,20 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
                 client={client}
                 dealId={activityDeal}
                 onDealChange={setActivityDeal}
+                onChanged={load}
                 onSignedOut={onSignedOut}
               />
             </div>
 
             <aside className="clients-client-side">
+              {/* ------------------------------------------------ next steps, #280 */}
+
+              <ClientNextSteps client={client} onChanged={load} onSignedOut={onSignedOut} />
+
+              {/* ------------------------------------------------ documents, #281 */}
+
+              <ClientDocuments client={client} onChanged={load} onSignedOut={onSignedOut} />
+
               {/* ---------------------------------------------- already using */}
 
               <section className="clients-panel" aria-labelledby="clients-using-heading">
