@@ -301,6 +301,20 @@ function clientRoutes(routes: Router, clients: ClientService): void {
     ),
   );
 
+  /**
+   * My pipeline: the asker's open deals, soonest next step first, overdue at the top (CLI 97).
+   * Read in one query (TDD 7).
+   */
+  routes.get(
+    '/clients/pipeline',
+    answer(async (_request, response) => ({
+      deals: (await clients.pipeline(actorOf(response))).map((entry) => ({
+        ...entry,
+        deal: opportunityAsJson(entry.deal),
+      })),
+    })),
+  );
+
   /** Every client by name, with its type and owner. */
   routes.get(
     '/clients/clients',

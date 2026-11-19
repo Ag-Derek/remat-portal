@@ -3623,6 +3623,24 @@ export interface ClientsOfferedProduct {
   lineName: string;
 }
 
+/**
+ * One deal on My pipeline: the deal, its earliest open next step whoever's it is, and the last day
+ * a call, meeting, demo, proposal or financials was logged against it (a note is not contact).
+ */
+export interface PipelineEntry {
+  deal: Omit<Deal, 'may' | 'moves'>;
+  nextStep: { id: string; description: string; dueOn: string; owner: ClientsNamed } | null;
+  lastContact: string | null;
+  /** The next step's day has passed. The server's answer, against the company's today. */
+  overdue: boolean;
+}
+
+/** My open deals, soonest next step first: overdue at the top, nothing planned last. */
+export async function myPipeline(): Promise<PipelineEntry[]> {
+  const { deals } = await request<{ deals: PipelineEntry[] }>('GET', '/api/clients/pipeline');
+  return deals;
+}
+
 export async function clientsList(): Promise<ClientSummary[]> {
   const { clients } = await request<{ clients: ClientSummary[] }>('GET', '/api/clients/clients');
   return clients;

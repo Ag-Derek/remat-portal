@@ -391,7 +391,7 @@ export function NotSet({ what }: { what: string }) {
 }
 
 /** "Paperwork", with the note under it; for "other", the note is what it waits on. */
-function WaitingOnCell({ waiting }: { waiting: Deal['waitingOn'] }) {
+export function WaitingOnCell({ waiting }: { waiting: Deal['waitingOn'] }) {
   if (waiting === null) {
     return <span className="muted">Nothing</span>;
   }
