@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { Client } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { databaseForThisFile } from '../setup/test-database.js';
 import type { Kysely } from 'kysely';
 import { type Actor, signedInAs, theSystem } from '../../src/core/auth/actor.js';
@@ -727,7 +727,9 @@ describe('deciding a request', () => {
         reason: 'The wedding is off',
       });
 
-      const granted = await post(`/api/requests/${id}/withdrawal/grant`, people.hrOfficer, {});
+      const granted = await beforeTheWeekStarts(() =>
+        post(`/api/requests/${id}/withdrawal/grant`, people.hrOfficer, {}),
+      );
       expect(granted.status).toBe(200);
 
       expect(await asksFor(people.hrOfficer)).toEqual([]);
@@ -1267,4 +1269,21 @@ async function restoreYears(): Promise<void> {
   }
 
   await admin.query(`SELECT setval('leave_year_id_seq', (SELECT max(id) FROM leave_year))`);
+}
+
+/**
+ * Runs `act` on a day before the fixture week starts. FR 47.
+ *
+ * Granted before its first day, agreed leave is withdrawn whole; from then on it is amended,
+ * which needs a reason. The service reads the wall clock, and the fixture week is fixed.
+ */
+async function beforeTheWeekStarts<T>(act: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-30T09:00:00Z'));
+
+  try {
+    return await act();
+  } finally {
+    vi.useRealTimers();
+  }
 }

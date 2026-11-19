@@ -218,7 +218,7 @@ describe('the queue', () => {
 describe('a send that fails', () => {
   it('is retried a minute later, and the failure is logged', async () => {
     await outbox.queue(ONE);
-    /* After the queueing, which stamps the row due now. A fixed date stops being after it. */
+    /* After the database's now, which stamped the row as due. A fixed date falls behind it. */
     const failedAt = anHourFromNow();
     const aMinuteLater = new Date(failedAt.getTime() + 60_000);
 
@@ -242,9 +242,8 @@ describe('a send that fails', () => {
     });
 
     /* Not yet due. */
-    expect((await outbox.drain(system, new Date(failedAt.getTime() + 30_000))).attempted).toEqual(
-      [],
-    );
+    const halfAMinuteLater = new Date(failedAt.getTime() + 30_000);
+    expect((await outbox.drain(system, halfAMinuteLater)).attempted).toEqual([]);
 
     await outbox.drain(system, aMinuteLater);
 
@@ -263,8 +262,9 @@ describe('a send that fails', () => {
 
     /* A day apart, so each is due whatever its backoff. */
     const first = anHourFromNow();
+
     for (let day = 0; day < 8; day += 1) {
-      await failing.drain(system, new Date(first.getTime() + day * 24 * 60 * 60_000));
+      await failing.drain(system, new Date(first.getTime() + day * 24 * 60 * 60 * 1000));
     }
 
     const [row] = await outboxRows();
