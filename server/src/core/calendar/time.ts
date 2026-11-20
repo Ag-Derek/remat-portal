@@ -115,6 +115,19 @@ export function monthsAfter(day: CalendarDate, months: number): CalendarDate {
  * is one copy of the argument about why it is safe and one thing to read if it is
  * ever doubted.
  */
+/**
+ * The day so many calendar days after this one, every day counted, weekends and public holidays
+ * included. Clients' POC clock counts this way (TDD 6.1): a POC does not pause for a holiday.
+ * Working days are {@link CompanyCalendar.addWorkingDays}.
+ */
+export function daysAfter(day: CalendarDate, days: number): CalendarDate {
+  if (!Number.isInteger(days) || days < 0) {
+    throw new Error(`${String(days)} is not a whole number of days to count forward.`);
+  }
+
+  return shift(day, days);
+}
+
 function shift(day: CalendarDate, days: number): CalendarDate {
   const moved = new Date(`${requireCalendarDate(day)}T00:00:00Z`);
   moved.setUTCDate(moved.getUTCDate() + days);

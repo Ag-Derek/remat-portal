@@ -9660,3 +9660,537 @@ button.linkish.file-name {
   margin: 0;
   padding-left: 1.2rem;
 }
+
+/* ---------------------------------------------------------------- POCs, #285 */
+
+/* A POC's page is laid out as a client's page is: the same head, figures, columns and cards.
+   What is its own is below: the line under the name, the phase pill, four figures, the meter, and
+   the ten weeks drawn as one bar. */
+.clients-poc-sub {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.clients-poc-sub a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* The phase, as a pill in the company blue's family: soft, then stronger as the POC converts. */
+.clients-pill.is-phase {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--card));
+  background: var(--accent-soft);
+  color: var(--agreed);
+  font-weight: 600;
+}
+
+.clients-pill.is-phase.is-converting {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Four cards, each as wide as the others. Two by two on a phone. */
+.clients-poc-figures {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 56rem) {
+  .clients-poc-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.clients-poc-of {
+  color: var(--ink-faint);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.clients-poc-figure-note {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-poc-figure-note.is-late,
+.clients-poc-missed {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* How far through its ten weeks, as a thin bar in the company blue; red once it is late. */
+.clients-poc-meter {
+  display: block;
+  height: 0.375rem;
+  margin: 0.35rem 0 0.15rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--left);
+}
+
+.clients-poc-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.clients-poc-meter.is-late > span {
+  background: var(--warn);
+}
+
+.clients-deals td .clients-poc-meter {
+  max-width: 10rem;
+}
+
+/* The ten weeks: three phases over one line, with the reviews and today on it. */
+.clients-poc-timeline {
+  margin-bottom: var(--gap-lg);
+}
+
+.clients-poc-timeline .clients-panel-head h3 {
+  margin: 0;
+  font-family: var(--face-text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.clients-poc-track {
+  padding: 0 1.25rem 2.6rem;
+}
+
+.clients-poc-phases {
+  display: flex;
+  gap: 4px;
+}
+
+.clients-poc-phases > div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--ink) 4%, var(--card));
+  color: var(--ink-soft);
+}
+
+.clients-poc-phases > div.is-now {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--card));
+  color: var(--agreed);
+}
+
+.clients-poc-phases strong {
+  overflow: hidden;
+  font-size: 0.9375rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clients-poc-phases small {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clients-poc-line {
+  position: relative;
+  height: 0.375rem;
+  margin-top: 1.1rem;
+  border-radius: 999px;
+  background: var(--left);
+}
+
+.clients-poc-done {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+/* A review on the line: a ring, filled green with a tick once it counted, red once late. */
+.clients-poc-review {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -0.6rem);
+}
+
+.clients-poc-review > i {
+  display: grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.clients-poc-review.is-counted > i {
+  border-color: var(--go);
+  background: var(--go);
+  color: var(--brand-white);
+}
+
+.clients-poc-review.is-late > i {
+  border-color: var(--warn);
+}
+
+.clients-poc-review > i svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.clients-poc-review > small {
+  margin-top: 0.3rem;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clients-poc-review.is-late > small {
+  color: var(--warn);
+}
+
+/* On a phone the phases keep their names and lose the weeks, which the figures already say. */
+@media (max-width: 40rem) {
+  .clients-poc-phases small {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------- the Clients head and My pipeline */
+
+/* The page's head, as the mockup has it: the name and today's date at the left, logging an
+   activity and adding a client at the right. Under each other on a phone. */
+.clients-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem var(--gap);
+  margin-bottom: 1rem;
+}
+
+.clients-head > .back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-left: -0.5rem;
+  border-radius: var(--radius-small);
+  color: var(--ink-soft);
+}
+
+.clients-head > .back:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.clients-head > .back svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.clients-head > div:first-of-type {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.clients-head h1 {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.clients-head .muted {
+  margin: 0.15rem 0 0;
+}
+
+.clients-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.clients-head-actions > a,
+.clients-head-actions > button {
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9375rem;
+}
+
+/* `.button-link` comes later in the sheet than `.primary` and would paint it white, so the blue is
+   said again here. */
+.clients-head-actions > a.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.clients-head-actions > a.primary:hover {
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+
+/* The search and the two filters, and how the list is sorted, quietly at the right. */
+.clients-toolbar {
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.clients-toolbar > label:not(.filter-search) {
+  flex: 0 1 11rem;
+}
+
+.clients-toolbar-note {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+}
+
+/* A line under a list saying how much is in it. */
+.clients-footnote {
+  margin: 0.75rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+/* A stage as a small chip, as the mockup draws it. */
+.clients-stage-chip {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--card));
+  border-radius: var(--radius-small);
+  background: var(--accent-soft);
+  color: var(--agreed);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* A gap to fill, in amber (CLI 06): no value, no next step, nobody spoken to for a while. */
+.clients-gap {
+  color: var(--away-ink);
+}
+
+/* Nobody has ever spoken to them about it. */
+.clients-never {
+  color: var(--warn);
+}
+
+/* The next step: what, and under it when; red and stressed once it is late. */
+.clients-pipeline-next {
+  min-width: 11rem;
+}
+
+.clients-pipeline-next > span {
+  display: block;
+}
+
+.clients-pipeline-next > span.is-overdue {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* A late row is tinted as well as edged, so it reads at a glance. */
+.clients-pipeline tr.is-overdue > td {
+  background: color-mix(in srgb, var(--warn) 5%, var(--card));
+}
+
+/* ------------------------------------------------------------- logging, as a page */
+
+.clients-log-page {
+  display: grid;
+  gap: var(--gap-lg);
+  max-width: 56rem;
+}
+
+.clients-log-page > .clients-back {
+  margin-bottom: 0;
+}
+
+.clients-page-title h2 {
+  font-size: clamp(1.9rem, 4vw, 2.3rem);
+  line-height: 1.1;
+}
+
+.clients-page-title .muted {
+  margin: 0.25rem 0 0;
+}
+
+.clients-log-card {
+  display: grid;
+  gap: 1.1rem;
+  padding: 1.5rem;
+}
+
+.clients-log-card > .clients-field select {
+  width: 100%;
+}
+
+.clients-log-card .clients-log {
+  display: grid;
+  gap: 1.1rem;
+}
+
+/* What happened: a row of pills, each a radio with its dot, the one chosen ringed in blue. */
+.clients-kind-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.clients-kind-pills > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem 0.55rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.clients-kind-pills > label:hover {
+  border-color: var(--accent);
+}
+
+.clients-kind-pills > label.is-chosen {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.clients-kind-pills input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.clients-kind-pills > label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The file: a dashed box, saying why it matters, with its button at the right. */
+.clients-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line-strong));
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 3%, var(--card));
+  cursor: pointer;
+}
+
+.clients-dropzone > svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--ink-soft);
+}
+
+.clients-dropzone > span:not(.clients-dropzone-button) {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.clients-dropzone strong {
+  overflow-wrap: anywhere;
+}
+
+.clients-dropzone small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-dropzone-button {
+  flex: none;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  font-weight: 500;
+}
+
+.clients-dropzone:hover .clients-dropzone-button {
+  border-color: var(--ink-faint);
+}
+
+.clients-dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* And then what: set off from the rest by a rule, as the last thing before saving. */
+.clients-log-then {
+  display: grid;
+  gap: 0.6rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.clients-log-then .clients-field-hint {
+  margin: 0;
+}
+
+.clients-log-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.clients-log-foot > button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.2rem;
+}
+
+/* What was sent to clients like this one: a card each, two to a row. */
+.clients-log-past-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0 1.25rem 1.25rem;
+  list-style: none;
+}
+
+.clients-log-past-list > li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+}
+
+.clients-log-past-list small {
+  color: var(--ink-soft);
+}
+
+.clients-log-past-list a {
+  color: var(--accent);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .clients-log-card {
+    padding: 1.1rem;
+  }
+
+  .clients-toolbar-note {
+    margin-left: 0;
+  }
+}

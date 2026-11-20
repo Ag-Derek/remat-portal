@@ -86,10 +86,10 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
       <section className="clients-client">
         <a className="clients-back" href="#/clients">
           <Icon name="back" />
-          All clients
+          My pipeline
         </a>
         <div className="notice plain">
-          <p>No client matches that. It may have been renamed: find it in the list.</p>
+          <p>No client matches that. It may have been renamed, or the link may be wrong.</p>
         </div>
       </section>
     );
@@ -102,7 +102,7 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
     <section className="clients-client">
       <a className="clients-back" href="#/clients">
         <Icon name="back" />
-        All clients
+        My pipeline
       </a>
 
       {problem === undefined ? null : <Notice problem={problem} onRetry={load} />}
@@ -365,7 +365,7 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
 }
 
 /** "AM" for Ama Mensah: the first letters of the first and last names. */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/);
   const first = words[0]?.[0] ?? '';
   const last = words.length > 1 ? (words[words.length - 1]?.[0] ?? '') : '';

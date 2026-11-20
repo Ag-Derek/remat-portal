@@ -520,10 +520,13 @@ function loggedEntryOf(
     withWhom: activity.withWhom,
     outcome: activity.outcome,
     amount: activity.amount,
+    review: activity.review,
     by: activity.loggedBy,
     at: activity.loggedAt,
     may: {
+      /* A review meeting is fixed once recorded (#285). */
       correct:
+        activity.kind !== 'REVIEW' &&
         stillCorrectable(activity.loggedAt, now) &&
         clientsPolicy.editActivity(actor, access, activity).allowed,
       attach: clientsPolicy.attachToActivity(actor, access, activity).allowed,

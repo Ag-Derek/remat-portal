@@ -447,6 +447,9 @@ function activities(db: Kysely<Database>) {
       'a.outcome',
       'a.amount_minor',
       'a.currency',
+      'a.poc_id',
+      'a.review_kind',
+      'a.dm_attended',
       'a.logged_at',
       'o.id as deal_id',
       'p.name as product_name',
@@ -467,6 +470,14 @@ function activityFrom(row: ActivityRow): LoggedActivity {
     withWhom: row.with_whom,
     outcome: row.outcome,
     amount: moneyOf(row.amount_minor, row.currency),
+    review:
+      row.poc_id === null || row.review_kind === null || row.dm_attended === null
+        ? null
+        : {
+            pocId: row.poc_id,
+            kind: row.review_kind as 'DAY7' | 'WEEK6' | 'WEEK9',
+            dmAttended: row.dm_attended,
+          },
     loggedBy: { id: row.logged_by, name: row.logged_by_name },
     loggedAt: row.logged_at,
   };

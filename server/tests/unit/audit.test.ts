@@ -123,6 +123,8 @@ describe('the entities an entry can be about', () => {
       'clients_activity',
       /* #280. Reopening a step clears who closed it and when; this keeps them. */
       'clients_next_step',
+      /* #285. A POC made as its contract is signed, and who moves its CS lead. */
+      'clients_poc',
     ]);
   });
 });

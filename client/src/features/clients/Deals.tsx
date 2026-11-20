@@ -462,6 +462,8 @@ function StageCell({ deal }: { deal: Deal }) {
         <small>
           {deal.hasPoc === null ? (
             <NotSet what="POC not decided" />
+          ) : deal.poc !== null ? (
+            <PocLabel poc={deal.poc} />
           ) : deal.hasPoc ? (
             'With a POC'
           ) : (
@@ -482,8 +484,21 @@ function StageCell({ deal }: { deal: Deal }) {
   );
 }
 
+/**
+ * The POC a deal is in, which its contract's signing started (#285): since when, and the day it is
+ * to be decided by, opening the POC's page.
+ */
+function PocLabel({ poc }: { poc: NonNullable<Deal['poc']> }) {
+  return (
+    <span className="clients-deal-poc">
+      <a href={`#/clients/poc/${poc.id}`}>In a POC</a> since {day(poc.startedOn)} · decision by{' '}
+      {day(poc.decisionOn)}
+    </span>
+  );
+}
+
 /** Seven short steps filled up to where a deal stands: green once won, grey once lost or exited. */
-function Ladder({ deal }: { deal: Deal }) {
+export function Ladder({ deal }: { deal: Pick<Deal, 'stage' | 'outcome'> }) {
   const at = DEAL_STAGES.indexOf(deal.stage);
   const tone = deal.outcome === 'WON' ? ' is-won' : deal.outcome === 'OPEN' ? '' : ' is-ended';
 
@@ -621,6 +636,10 @@ function StageDialog({
             {target.stage === 'LIVE' ? (
               <p className="clients-move-sub">
                 Adds {deal.product.name} to what {clientName} uses, from today.
+              </p>
+            ) : target.stage === 'CONTRACT_SIGNED' && deal.hasPoc === true ? (
+              <p className="clients-move-sub">
+                Starts the ten week POC today, with {deal.owner.name} as its CS lead.
               </p>
             ) : null}
           </>

@@ -25,6 +25,7 @@ import {
   type PastProposal,
   readActivityChange,
   readNewActivity,
+  ReviewFixed,
   readProposalFilters,
   SENT_ON_A_DEAL,
   stillCorrectable,
@@ -206,7 +207,21 @@ export class ActivityService {
       throw new ActivityLocked();
     }
 
+    /* A review meeting is fixed once recorded (#285): which review it was, its day and whether the
+       decision maker came decided which step it closed and when it falls due again. */
+    if (activity.kind === 'REVIEW') {
+      throw new ReviewFixed();
+    }
+
     const change = readActivityChange(body, this.today(), activity.clientId);
+
+    if (change.kind === 'REVIEW') {
+      throw new InvalidActivity(
+        'kind',
+        "A review meeting is recorded on its POC's page, which asks whether the senior decision " +
+          'maker was there.',
+      );
+    }
 
     /* No longer the financials, so no longer an amount, unless one was sent, which is refused
        below: the form needs only to change the kind (#281). */

@@ -803,6 +803,8 @@ export interface ClientsOpportunityTable {
   reason_id: ColumnType<string | null, never, string | null>;
   /** Anything more said as it ended: which products a POC ran on, for an exit (#279). */
   end_note: ColumnType<string | null, never, string | null>;
+  /** The POC it is in, set once as its contract is signed, and kept (#285). */
+  poc_id: ColumnType<string | null, never, string>;
   /** BIGINT, which pg hands back as a string. */
   value_minor: Nullable<string, string | number>;
   currency: Nullable<string>;
@@ -876,6 +878,11 @@ export interface ClientsActivityTable {
   /** What a proposal offered, in minor units, with its currency. Only a proposal has one (#281). */
   amount_minor: Nullable<string, string | number>;
   currency: Nullable<string>;
+  /** A review meeting: its POC, which review, and whether the decision maker came (#285). Never
+      corrected. */
+  poc_id: ColumnType<string | null, string | null | undefined, never>;
+  review_kind: ColumnType<string | null, string | null | undefined, never>;
+  dm_attended: ColumnType<boolean | null, boolean | null | undefined, never>;
   logged_by: ColumnType<string, string, never>;
   logged_at: ColumnType<Date, never, never>;
 }
@@ -920,8 +927,29 @@ export interface ClientsNextStepTable {
   source: ColumnType<string, string, never>;
   /** The activity it was offered with, where its source is ACTIVITY (#280). */
   from_activity: ColumnType<string | null, string | null | undefined, never>;
+  /** The POC a review step is for, and which review (#285). */
+  poc_id: ColumnType<string | null, string | null | undefined, never>;
+  review_kind: ColumnType<string | null, string | null | undefined, never>;
   done_at: ColumnType<Date | null, never, Date | null>;
   done_by: ColumnType<string | null, never, string | null>;
+  created_by: ColumnType<string, string, never>;
+  created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A POC, for one client and one product line. #285, Clients SRS CLI 27 to CLI 31, TDD 4.3.
+ * Started as the contract is signed; its client, line, client type and dates never change here,
+ * and none is deleted.
+ */
+export interface ClientsPocTable {
+  id: Generated<string>;
+  client_id: ColumnType<string, string, never>;
+  line_id: ColumnType<string, string, never>;
+  client_type_id: ColumnType<string, string, never>;
+  /** Moved by a BD manager (#285, CLI 92). */
+  cs_lead_id: string;
+  started_on: ColumnType<string, string, never>;
+  decision_on: ColumnType<string, string, never>;
   created_by: ColumnType<string, string, never>;
   created_at: ColumnType<Date, never, never>;
 }
@@ -945,6 +973,8 @@ export interface Database {
   clients_document: ClientsDocumentTable;
   /** #279, ahead of #280. */
   clients_next_step: ClientsNextStepTable;
+  /** #285. */
+  clients_poc: ClientsPocTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */
