@@ -33,6 +33,13 @@ export async function intoItsPocWithin(
     [dealId],
   );
 
+  /* #286. Every POC starts On Track, which the database holds at the commit. */
+  await db.query(
+    `INSERT INTO clients_poc_health (poc_id, health, set_by)
+     SELECT $1, 'ON_TRACK', created_by FROM clients_poc WHERE id = $1`,
+    [rows[0].id],
+  );
+
   await db.query(`UPDATE clients_opportunity SET stage = 'POC', poc_id = $2 WHERE id = $1`, [
     dealId,
     rows[0].id,

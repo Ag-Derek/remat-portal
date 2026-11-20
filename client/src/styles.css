@@ -9707,6 +9707,201 @@ button.linkish.file-name {
   font-weight: 500;
 }
 
+/* Its health (#286): green on track, amber at risk, red stalled. The words say which on their
+   own; the colour is for the eye running down the list. */
+.clients-pill.is-health {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clients-pill.is-health.is-on-track {
+  border-color: color-mix(in srgb, var(--go) 40%, var(--card));
+  background: color-mix(in srgb, var(--go) 12%, var(--card));
+  color: var(--go-ink);
+}
+
+.clients-pill.is-health.is-at-risk {
+  border-color: color-mix(in srgb, var(--away) 45%, var(--card));
+  background: color-mix(in srgb, var(--away) 14%, var(--card));
+  color: var(--away-ink);
+}
+
+.clients-pill.is-health.is-stalled {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--card));
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  color: var(--warn);
+}
+
+/* A health change: the pill, the note under it, then when and who. */
+.clients-poc-health > li > div {
+  display: grid;
+  justify-items: start;
+  gap: 0.25rem;
+}
+
+.clients-poc-health p {
+  margin: 0;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* What was written against a health, set in under it with a rule down the side. */
+.clients-poc-actions {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0;
+  padding: 0 0 0 0.75rem;
+  border-left: 2px solid var(--line-strong);
+  list-style: none;
+}
+
+.clients-poc-actions li {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.clients-poc-actions strong {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* What the health asks for and by when: amber while there is time, red once it is late. */
+.clients-poc-ask {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--away) 45%, var(--card));
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--away) 10%, var(--card));
+  color: var(--away-ink);
+}
+
+.clients-poc-ask p {
+  margin: 0;
+}
+
+.clients-poc-ask.is-late {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--card));
+  background: color-mix(in srgb, var(--warn) 10%, var(--card));
+  color: var(--warn);
+}
+
+.clients-poc-more {
+  margin-top: 0.5rem;
+  color: var(--accent);
+  font-size: 0.875rem;
+}
+
+/* The flags (#286): short red lines, on the list under the health and on the page under its
+   head. Worked out by the server; the words say what each is. */
+.clients-poc-flags {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-poc-flags li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: var(--warn);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.clients-poc-flags svg {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: 0.1rem;
+}
+
+.clients-poc > .clients-poc-flags {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--card));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 8%, var(--card));
+}
+
+/* Usage (#286): the share active in the figures' face, then the readings. */
+.clients-poc-percent {
+  font-family: var(--face-figure);
+  font-weight: 600;
+}
+
+.clients-poc-usage-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 1.25rem 0.75rem;
+  color: var(--ink-soft);
+}
+
+.clients-poc-readings td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The usage targets: one card each, its day and how it stands. Green met, red missed or with
+   no reading by then, plain while it is still to come. A missed target is never a flag. */
+.clients-poc-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem;
+  margin: 0 1.25rem 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-poc-targets li {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+}
+
+.clients-poc-targets small {
+  color: var(--ink-faint);
+}
+
+.clients-poc-targets span {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.clients-poc-targets .is-met {
+  border-color: color-mix(in srgb, var(--go) 40%, var(--card));
+}
+
+.clients-poc-targets .is-met span {
+  color: var(--go-ink);
+}
+
+.clients-poc-targets .is-missed,
+.clients-poc-targets .is-no-reading {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--card));
+}
+
+.clients-poc-targets .is-missed span,
+.clients-poc-targets .is-no-reading span {
+  color: var(--warn);
+}
+
+/* A reading a later one for its day replaced: kept, and faded. */
+.clients-poc-readings tr.is-replaced td {
+  color: var(--ink-faint);
+}
+
 .clients-poc-figure-note {
   color: var(--ink-soft);
   font-size: 0.8125rem;

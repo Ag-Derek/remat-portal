@@ -14,16 +14,27 @@ import type { Guard } from '../../core/auth/policy.js';
 import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import { accessOf } from './access.js';
 import {
+  askOf,
+  asksSomething,
   dayOf,
   daysToDecision,
+  decisionFlagsOf,
+  flagsOf,
+  HealthUnchanged,
   InvalidPocLead,
+  NoActionAsked,
   type Poc,
   type PocPage,
   PocEnded,
   PocNotFound,
   type PocView,
   phaseOf,
+  readAction,
+  readHealth,
   readNewLead,
+  readUsage,
+  targetChecksOf,
+  usageFlagsOf,
   readReview,
 } from './poc.js';
 import type { ClientsPocRepository } from './poc.db.js';
@@ -38,6 +49,8 @@ export class PocService {
     private readonly pocs: ClientsPocRepository,
     /** The company's today, which a POC's phase and days are counted to (TDD 6.1). */
     private readonly today: () => CalendarDate = () => currentDate(),
+    /** This moment, which the 48-hour clock is read against (#286). */
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   /**
@@ -49,8 +62,9 @@ export class PocService {
     this.guard.enforce(clientsPolicy.read(actor, access));
 
     const today = this.today();
+    const now = this.now();
 
-    return (await this.pocs.running()).map((poc) => viewOf(actor, access, poc, today));
+    return (await this.pocs.running()).map((poc) => viewOf(actor, access, poc, today, now));
   }
 
   /** One POC's page: its deal, clock, review meetings and those held (CLI 100). */
@@ -59,12 +73,95 @@ export class PocService {
     this.guard.enforce(clientsPolicy.read(actor, access, id));
 
     const poc = await this.pocOrRefuse(id);
-    const [reviews, held] = await Promise.all([
+    const [reviews, held, healthHistory, usageReadings] = await Promise.all([
       this.pocs.reviewSteps(poc.id),
       this.pocs.reviewsHeld(poc.id),
+      this.pocs.healthHistory(poc.id),
+      this.pocs.usageReadings(poc.id),
     ]);
 
-    return { ...viewOf(actor, access, poc, this.today()), reviews, held };
+    return {
+      ...viewOf(actor, access, poc, this.today(), this.now()),
+      reviews,
+      held,
+      healthHistory,
+      usageReadings,
+      targets: targetChecksOf(poc, usageReadings, this.today()),
+    };
+  }
+
+  /**
+   * Records its usage on a day, `{ measuredOn, enrolled, active }`, from its start to today; the
+   * percentage is worked out (#286). Its CS lead's or a BD manager's. A later reading for the same
+   * day replaces it in the figures, and both are kept.
+   */
+  async recordUsage(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const poc = await this.pocOrRefuse(id);
+    this.guard.enforce(clientsPolicy.updatePoc(actor, access, poc));
+
+    if (poc.deal.outcome !== 'OPEN') {
+      throw new PocEnded(poc.deal.productName);
+    }
+
+    await this.pocs.recordUsage(actor, poc.id, readUsage(body, poc, this.today()));
+
+    return this.page(actor, id);
+  }
+
+  /**
+   * Sets its health, `{ health, note? }`: On Track, At Risk or Stalled, with a note if one is
+   * given (CLI 35). Its CS lead's or a BD manager's (CLI 91). Each is a change: the health it has
+   * already is refused. Kept, every one, in its history.
+   */
+  async setHealth(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const poc = await this.pocOrRefuse(id);
+    this.guard.enforce(clientsPolicy.updatePoc(actor, access, poc));
+
+    if (poc.deal.outcome !== 'OPEN') {
+      throw new PocEnded(poc.deal.productName);
+    }
+
+    const set = readHealth(body);
+    if (set.health === poc.health) {
+      throw new HealthUnchanged(set.health);
+    }
+
+    await this.pocs.setHealth(actor, poc.id, set);
+
+    return this.page(actor, id);
+  }
+
+  /**
+   * Writes what is being done, `{ action }`, against its health now (#286): a corrective action
+   * while At Risk, flagged if none is written 48 hours after the move; a reset while Stalled,
+   * flagged for an exit decision if none is written seven days after. Its CS lead's or a BD
+   * manager's.
+   */
+  async addAction(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const poc = await this.pocOrRefuse(id);
+    this.guard.enforce(clientsPolicy.updatePoc(actor, access, poc));
+
+    if (poc.deal.outcome !== 'OPEN') {
+      throw new PocEnded(poc.deal.productName);
+    }
+
+    const action = readAction(body);
+    if (!asksSomething(poc.health)) {
+      throw new NoActionAsked(poc.health);
+    }
+
+    await this.pocs.addAction(actor, poc.id, action);
+
+    return this.page(actor, id);
   }
 
   /**
@@ -129,8 +226,17 @@ export class PocService {
   }
 }
 
-/** A POC as somebody reads it today: its clock, and what they may do (CLI 32, TDD 6.1). */
-function viewOf(actor: Actor, access: ClientsAccess, poc: Poc, today: CalendarDate): PocView {
+/**
+ * A POC as somebody reads it today: its clock, what they may do (CLI 32, TDD 6.1), and what its
+ * health asks for and the flags, while it runs (#286).
+ */
+function viewOf(
+  actor: Actor,
+  access: ClientsAccess,
+  poc: Poc,
+  today: CalendarDate,
+  now: Date,
+): PocView {
   const running = poc.deal.outcome === 'OPEN';
 
   return {
@@ -142,5 +248,9 @@ function viewOf(actor: Actor, access: ClientsAccess, poc: Poc, today: CalendarDa
       update: running && clientsPolicy.updatePoc(actor, access, poc).allowed,
       moveLead: running && clientsPolicy.reassign(actor, access, 'poc', poc.id).allowed,
     },
+    asks: running ? askOf(poc) : null,
+    flags: running
+      ? [...flagsOf(poc, now), ...usageFlagsOf(poc, today), ...decisionFlagsOf(poc, today)]
+      : [],
   };
 }

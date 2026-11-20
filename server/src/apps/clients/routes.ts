@@ -552,6 +552,43 @@ function pocRoutes(routes: Router, pocs: PocService): void {
     ),
   );
 
+  /**
+   * `{ health, note?, action? }`: sets its health, On Track, At Risk or Stalled, adding to its
+   * history, with the corrective action At Risk or the reset Stalled asks for, if it is written
+   * now. Its CS lead's or a BD manager's (CLI 35, #286).
+   */
+  routes.post(
+    '/clients/pocs/:id/health',
+    answer(
+      (request, response) => pocs.setHealth(actorOf(response), idOf(request), request.body),
+      201,
+    ),
+  );
+
+  /**
+   * `{ action }`: what is being done, written against its health now: a corrective action while
+   * At Risk, a reset while Stalled. Its CS lead's or a BD manager's (#286).
+   */
+  routes.post(
+    '/clients/pocs/:id/actions',
+    answer(
+      (request, response) => pocs.addAction(actorOf(response), idOf(request), request.body),
+      201,
+    ),
+  );
+
+  /**
+   * `{ measuredOn, enrolled, active }`: its usage on a day, the percentage worked out. Its CS
+   * lead's or a BD manager's (#286).
+   */
+  routes.post(
+    '/clients/pocs/:id/usage',
+    answer(
+      (request, response) => pocs.recordUsage(actorOf(response), idOf(request), request.body),
+      201,
+    ),
+  );
+
   /** `{ employeeId }`: hands the POC, and its open review steps, to another CS lead (CLI 92). */
   routes.post(
     '/clients/pocs/:id/lead',

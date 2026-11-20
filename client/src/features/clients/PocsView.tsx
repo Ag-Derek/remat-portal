@@ -1,21 +1,29 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import {
+  addPocAction,
   type ClientsNamed,
   clientsHolders,
   isNotSignedIn,
   movePocLead,
   type Poc,
+  type PocFlag,
+  type PocHealth,
+  type PocHealthChange,
   type PocPage,
   type PocPhase,
   type PocReviewHeld,
   type PocReviewStep,
+  type PocTargetCheck,
+  type PocUsageReading,
   pocPage,
+  recordPocUsage,
   recordReview,
   type ReviewKind,
   runningPocs,
+  setPocHealth,
 } from '../../api';
 import { AddButton, EditButton } from '../../ActionButtons';
-import { day } from '../../format';
+import { day, moment } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { REVIEW_NAME } from './Activity';
@@ -34,7 +42,8 @@ import { Dialog, DialogFoot, Field, useSending } from './ui';
  *
  * A POC starts as its deal's contract is signed. Its phase, day and days to decision are the
  * server's, worked out from the start and today, so they move on their own as the weeks pass.
- * Health, usage, the checklist and the extension join the page with #286, #284 and #287.
+ * Its health is set by its CS lead or a BD manager, and every change is kept (#286). Usage, the
+ * flags, the checklist and the extension join the page with #286, #284 and #287.
  */
 
 const POC_DAYS = 70;
@@ -60,6 +69,72 @@ const REVIEW_SHORT: Record<ReviewKind, string> = {
   WEEK6: 'Week 6',
   WEEK9: 'Week 9',
 };
+
+const HEALTHS: PocHealth[] = ['ON_TRACK', 'AT_RISK', 'STALLED'];
+
+const HEALTH_NAME: Record<PocHealth, string> = {
+  ON_TRACK: 'On Track',
+  AT_RISK: 'At Risk',
+  STALLED: 'Stalled',
+};
+
+/** Its health as a pill: green, amber or red, with the words, which carry it alone. */
+function HealthPill({ health }: { health: PocHealth }) {
+  return (
+    <span className={`clients-pill is-health is-${health.toLowerCase().replace('_', '-')}`}>
+      <span className="visually-hidden">Health: </span>
+      {HEALTH_NAME[health]}
+    </span>
+  );
+}
+
+/** What each flag says. The server raises them; the words are the screen's. */
+const FLAG_NAME: Record<PocFlag['kind'], string> = {
+  NO_CORRECTIVE_ACTION: 'No corrective action 48 hours after At Risk',
+  EXIT_DECISION: 'Stalled seven days with no reset: decide whether to exit',
+  LOW_USAGE: 'Below 50% usage at Day 63: unlikely to convert',
+  NO_USAGE: 'No usage recorded by Day 63',
+  PAST_DECISION: 'Past its decision date',
+};
+
+/** How each target stands, in words. */
+const TARGET_STATUS: Record<PocTargetCheck['status'], string> = {
+  UPCOMING: 'Coming up',
+  MET: 'Met',
+  MISSED: 'Missed',
+  NO_READING: 'No reading by then',
+};
+
+/** What At Risk and Stalled each ask for, as a heading and in a sentence. */
+const ASKED: Record<'AT_RISK' | 'STALLED', { title: string; inSentence: string; within: string }> =
+  {
+    AT_RISK: {
+      title: 'Corrective action',
+      inSentence: 'a corrective action',
+      within: '48 hours',
+    },
+    STALLED: { title: 'Reset', inSentence: 'a reset', within: 'seven days' },
+  };
+
+function askedOf(health: PocHealth) {
+  return health === 'ON_TRACK' ? undefined : ASKED[health];
+}
+
+/** Its flags, each a short red line. Nothing at all where there are none. */
+function Flags({ flags }: { flags: PocFlag[] }) {
+  if (flags.length === 0) return null;
+
+  return (
+    <ul className="clients-poc-flags">
+      {flags.map((flag) => (
+        <li key={flag.kind}>
+          <Icon name="info" />
+          <span>{FLAG_NAME[flag.kind]}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** "33 days to go", "Decision today", or "3 days past its decision date". */
 function decisionInWords(daysToDecision: number): string {
@@ -138,6 +213,8 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
           <thead>
             <tr>
               <th scope="col">POC</th>
+              <th scope="col">Health</th>
+              <th scope="col">Usage</th>
               <th scope="col">Where it stands</th>
               <th scope="col">Decision</th>
               <th scope="col">CS lead</th>
@@ -151,6 +228,23 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
                   <small>
                     {poc.deal.productName} · {poc.lineName}
                   </small>
+                </td>
+                <td data-label="Health">
+                  <HealthPill health={poc.health} />
+                  <Flags flags={poc.flags} />
+                </td>
+                <td data-label="Usage">
+                  {poc.usage === null ? (
+                    <small>None recorded</small>
+                  ) : (
+                    <>
+                      <span className="clients-poc-percent">{String(poc.usage.percent)}%</span>
+                      <small>
+                        {String(poc.usage.active)} of {String(poc.usage.enrolled)} ·{' '}
+                        {day(poc.usage.measuredOn)}
+                      </small>
+                    </>
+                  )}
                 </td>
                 <td data-label="Where it stands">
                   <span>{PHASE_NAME[poc.phase]}</span>
@@ -183,7 +277,9 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
 export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => void }) {
   const [poc, setPoc] = useState<PocPage | undefined>(undefined);
   const [problem, setProblem] = useState<Problem | undefined>(undefined);
-  const [open, setOpen] = useState<'review' | 'lead' | undefined>(undefined);
+  const [open, setOpen] = useState<'review' | 'lead' | 'health' | 'action' | 'usage' | undefined>(
+    undefined,
+  );
 
   const load = useCallback(() => {
     pocPage(id)
@@ -262,8 +358,11 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
               <span className={`clients-pill is-phase is-${poc.phase.toLowerCase()}`}>
                 {PHASE_NAME[poc.phase]}
               </span>
+              <HealthPill health={poc.health} />
             </div>
           </header>
+
+          <Flags flags={poc.flags} />
 
           {/* --------------------------------------------------------- the figures */}
 
@@ -277,6 +376,12 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
             {/* ------------------------------------------------- reviews held */}
 
             <div className="clients-client-main">
+              <UsagePanel
+                poc={poc}
+                onRecord={() => {
+                  setOpen('usage');
+                }}
+              />
               <ReviewsHeld
                 poc={poc}
                 onRecord={() => {
@@ -286,6 +391,15 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
             </div>
 
             <aside className="clients-client-side">
+              <HealthCard
+                poc={poc}
+                onSet={() => {
+                  setOpen('health');
+                }}
+                onAct={() => {
+                  setOpen('action');
+                }}
+              />
               <ReviewsComing reviews={poc.reviews} />
               <DealCard poc={poc} />
             </aside>
@@ -296,6 +410,15 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
           ) : null}
           {open === 'lead' ? (
             <LeadDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
+          {open === 'health' ? (
+            <HealthDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
+          {open === 'action' ? (
+            <ActionDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
+          {open === 'usage' ? (
+            <UsageDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
           ) : null}
         </>
       )}
@@ -420,6 +543,88 @@ function Timeline({ poc }: { poc: PocPage }) {
   );
 }
 
+/**
+ * Its usage: the latest share active, large, with its counts and day, then every reading, the
+ * latest day first. A reading a later one for its day replaced is kept, and says so.
+ */
+function UsagePanel({ poc, onRecord }: { poc: PocPage; onRecord: () => void }) {
+  return (
+    <section className="clients-panel clients-poc-usage" aria-labelledby="clients-poc-usage">
+      <header className="clients-panel-head">
+        <h3 id="clients-poc-usage">Usage</h3>
+        {poc.may.update ? <AddButton label="Record usage" onClick={onRecord} /> : null}
+      </header>
+
+      <ul className="clients-poc-targets" aria-label="Usage targets">
+        {poc.targets.map((target) => (
+          <li key={target.byDay} className={`is-${target.status.toLowerCase().replace('_', '-')}`}>
+            <strong>
+              {String(target.percent)}% by Day {String(target.byDay)}
+            </strong>
+            <small>{day(target.dueOn)}</small>
+            <span>
+              {TARGET_STATUS[target.status]}
+              {target.reading === null ? '' : `: ${String(target.reading.percent)}%`}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {poc.usage === null ? (
+        <p className="muted clients-activity-empty">
+          No usage recorded yet. Record the users enrolled and active on a day; the share active is
+          worked out.
+        </p>
+      ) : (
+        <>
+          <p className="clients-poc-usage-now">
+            <span className="clients-figure">{String(poc.usage.percent)}%</span>
+            <span>
+              active: {String(poc.usage.active)} of {String(poc.usage.enrolled)} enrolled, on{' '}
+              {day(poc.usage.measuredOn)}
+            </span>
+          </p>
+
+          <table className="clients-deals clients-poc-readings">
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">Active</th>
+                <th scope="col">Enrolled</th>
+                <th scope="col">Share</th>
+                <th scope="col">Recorded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {poc.usageReadings.map((reading) => (
+                <UsageRow key={reading.id} reading={reading} />
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
+  );
+}
+
+function UsageRow({ reading }: { reading: PocUsageReading }) {
+  return (
+    <tr className={reading.replaced ? 'is-replaced' : undefined}>
+      <td data-label="Day">{day(reading.measuredOn)}</td>
+      <td data-label="Active">{String(reading.active)}</td>
+      <td data-label="Enrolled">{String(reading.enrolled)}</td>
+      <td data-label="Share">{String(reading.percent)}%</td>
+      <td data-label="Recorded">
+        <span>{reading.recordedBy.name}</span>
+        <small>
+          {moment(reading.recordedAt)}
+          {reading.replaced ? ' · replaced by a later reading' : ''}
+        </small>
+      </td>
+    </tr>
+  );
+}
+
 /** The review meetings recorded, latest first, as the client page's activity is drawn. */
 function ReviewsHeld({ poc, onRecord }: { poc: PocPage; onRecord: () => void }) {
   return (
@@ -533,6 +738,94 @@ function ReviewsComing({ reviews }: { reviews: PocReviewStep[] }) {
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * Its health now, who set it and why, what is being done about it, and every change before,
+ * folded away. While At Risk with no corrective action, it asks for one, and says by when.
+ */
+function HealthCard({ poc, onSet, onAct }: { poc: PocPage; onSet: () => void; onAct: () => void }) {
+  const [latest, ...earlier] = poc.healthHistory;
+  const asked = askedOf(poc.health);
+  const late = poc.flags.some(
+    (flag) => flag.kind === 'NO_CORRECTIVE_ACTION' || flag.kind === 'EXIT_DECISION',
+  );
+
+  return (
+    <section className="clients-panel" aria-labelledby="clients-poc-health">
+      <header className="clients-side-head">
+        <h3 id="clients-poc-health">Health</h3>
+        {poc.may.update ? <EditButton label="Set the health" onClick={onSet} /> : null}
+      </header>
+
+      {latest === undefined ? null : (
+        <ul className="clients-side-list clients-poc-health">
+          <HealthRow change={latest} />
+        </ul>
+      )}
+
+      {poc.asks === null || asked === undefined ? null : (
+        <div className={`clients-poc-ask${late ? ' is-late' : ''}`}>
+          <p>
+            {late
+              ? `${asked.title} was due by `
+              : `${HEALTH_NAME[poc.health]} asks for ${asked.inSentence} by `}
+            {moment(poc.asks.by)}.
+          </p>
+          {poc.may.update ? (
+            <button type="button" onClick={onAct}>
+              Write the {asked.title.toLowerCase()}
+            </button>
+          ) : null}
+        </div>
+      )}
+      {asked !== undefined && poc.asks === null && poc.may.update ? (
+        <button type="button" className="linkish clients-poc-more" onClick={onAct}>
+          Add another {asked.title.toLowerCase()}
+        </button>
+      ) : null}
+
+      {earlier.length === 0 ? null : (
+        <details className="clients-ended">
+          <summary>
+            {earlier.length === 1 ? '1 earlier' : `${String(earlier.length)} earlier`}
+          </summary>
+          <ul className="clients-side-list clients-poc-health">
+            {earlier.map((change) => (
+              <HealthRow key={change.id} change={change} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function HealthRow({ change }: { change: PocHealthChange }) {
+  return (
+    <li>
+      <div>
+        <HealthPill health={change.health} />
+        {change.note === null ? null : <p>{change.note}</p>}
+        <small>
+          {moment(change.setAt)} · {change.setBy.name}
+        </small>
+        {change.actions.length === 0 ? null : (
+          <ul className="clients-poc-actions">
+            {change.actions.map((action) => (
+              <li key={action.id}>
+                <strong>{askedOf(change.health)?.title}</strong>
+                <p>{action.body}</p>
+                <small>
+                  {moment(action.loggedAt)} · {action.loggedBy.name}
+                </small>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -734,6 +1027,269 @@ function ReviewDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
         <DialogFoot
           busy={sending.busy}
           disabled={dmAttended === null}
+          doing="Recording…"
+          done="Record"
+          onCancel={onClose}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
+/** Setting its health, with a note if there is something to say: its CS lead's or a BD manager's. */
+function HealthDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const [health, setHealth] = useState<PocHealth>(poc.health);
+  const [note, setNote] = useState('');
+  const [action, setAction] = useState('');
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(['health', 'note', 'action']);
+  const healthLabel = useId();
+  const asked = askedOf(health);
+
+  return (
+    <Dialog
+      title="Set the health"
+      intro={`${poc.client.name} · ${poc.deal.productName} POC · ${HEALTH_NAME[poc.health]} now`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() =>
+            setPocHealth(poc.id, asked === undefined ? { health, note } : { health, note, action }),
+          );
+        }}
+      >
+        <div className="clients-field">
+          <span id={healthLabel} className="clients-field-label">
+            How is it going?
+          </span>
+          <div className="clients-choice" role="group" aria-labelledby={healthLabel}>
+            {HEALTHS.map((one) => (
+              <button
+                key={one}
+                type="button"
+                aria-pressed={health === one}
+                disabled={sending.busy}
+                onClick={() => {
+                  setHealth(one);
+                }}
+              >
+                {HEALTH_NAME[one]}
+              </button>
+            ))}
+          </div>
+          {sending.errorFor('health') === undefined ? null : (
+            <p className="clients-field-error" role="alert">
+              {sending.errorFor('health')}
+            </p>
+          )}
+        </div>
+
+        <Field label="Note" error={sending.errorFor('note')}>
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              rows={3}
+              value={note}
+              maxLength={2000}
+              placeholder="Why, if there is something to say"
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setNote(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        {asked === undefined ? null : (
+          <Field
+            label={asked.title}
+            hint={`What is being done about it. Asked for within ${asked.within}; leave it blank to write it later.`}
+            error={sending.errorFor('action')}
+          >
+            {({ id, describedBy }) => (
+              <textarea
+                id={id}
+                rows={3}
+                value={action}
+                maxLength={2000}
+                aria-describedby={describedBy}
+                disabled={sending.busy}
+                onChange={(event) => {
+                  setAction(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        )}
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot
+          busy={sending.busy}
+          disabled={health === poc.health}
+          doing="Saving…"
+          done="Save"
+          onCancel={onClose}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Writing what is being done about its health: the corrective action At Risk asks for, or the
+ * reset Stalled asks for. Its CS lead's or a BD manager's.
+ */
+function ActionDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const [action, setAction] = useState('');
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(['action']);
+
+  return (
+    <Dialog
+      title={askedOf(poc.health)?.title ?? 'What is being done'}
+      intro={`${poc.client.name} · ${poc.deal.productName} POC · ${HEALTH_NAME[poc.health]}`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() => addPocAction(poc.id, action));
+        }}
+      >
+        <Field label="What is being done about it" error={sending.errorFor('action')}>
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              rows={4}
+              value={action}
+              maxLength={2000}
+              required
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setAction(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot
+          busy={sending.busy}
+          disabled={action.trim() === ''}
+          doing="Saving…"
+          done="Save"
+          onCancel={onClose}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
+const USAGE_FIELDS = ['measuredOn', 'enrolled', 'active'] as const;
+
+/**
+ * Recording the users enrolled and active on a day, from the start to today. The share is the
+ * server's to work out; nothing here types or reckons it.
+ */
+function UsageDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const today = todayInAccra();
+  const [measuredOn, setMeasuredOn] = useState(today);
+  const [enrolled, setEnrolled] = useState(poc.usage === null ? '' : String(poc.usage.enrolled));
+  const [active, setActive] = useState('');
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(USAGE_FIELDS);
+  const sameDay = poc.usageReadings.some((reading) => reading.measuredOn === measuredOn);
+
+  return (
+    <Dialog
+      title="Record usage"
+      intro={`${poc.client.name} · ${poc.deal.productName} POC`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() =>
+            recordPocUsage(poc.id, {
+              measuredOn,
+              enrolled: Number(enrolled),
+              active: Number(active),
+            }),
+          );
+        }}
+      >
+        <Field
+          label="On"
+          hint={
+            sameDay ? 'That day has a reading already; this one will count instead.' : undefined
+          }
+          error={sending.errorFor('measuredOn')}
+        >
+          {({ id, describedBy }) => (
+            <input
+              id={id}
+              type="date"
+              value={measuredOn}
+              min={poc.startedOn}
+              max={today}
+              required
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setMeasuredOn(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        <div className="clients-field-row">
+          <Field label="Users enrolled" error={sending.errorFor('enrolled')}>
+            {({ id, describedBy }) => (
+              <input
+                id={id}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={enrolled}
+                required
+                aria-describedby={describedBy}
+                disabled={sending.busy}
+                onChange={(event) => {
+                  setEnrolled(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+
+          <Field label="Users active" error={sending.errorFor('active')}>
+            {({ id, describedBy }) => (
+              <input
+                id={id}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={active}
+                required
+                aria-describedby={describedBy}
+                disabled={sending.busy}
+                onChange={(event) => {
+                  setActive(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        </div>
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot
+          busy={sending.busy}
+          disabled={enrolled.trim() === '' || active.trim() === ''}
           doing="Recording…"
           done="Record"
           onCancel={onClose}
