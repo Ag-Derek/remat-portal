@@ -5,6 +5,7 @@ import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientView } from './ClientView';
 import { ClientsList } from './ClientsList';
 import { MyPipeline } from './MyPipeline';
+import { PocsList, PocView } from './PocsView';
 import { ProposalsView } from './ProposalsView';
 import { RolesView } from './RolesView';
 import { SetupView } from './SetupView';
@@ -18,7 +19,8 @@ import { useAddress } from './ui';
  *
  * The views so far: every client at `#/clients`, and one at `#/clients/client/{id}` (#276);
  * setup, a BD manager's, at `#/clients/setup`; roles, a System Administrator's, at
- * `#/clients/roles`; and past proposals, anybody's with a role, at `#/clients/proposals` (#281).
+ * `#/clients/roles`; past proposals, anybody's with a role, at `#/clients/proposals` (#281); and
+ * the POCs running at `#/clients/pocs`, one at `#/clients/poc/{id}` (#285).
  * Which tabs are
  * drawn is the server's answer, from `/api/clients/me`: the page asks rather than decides, and
  * every route refuses whoever it refuses whatever is drawn.
@@ -59,7 +61,9 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
     (view.name === 'setup' && views?.setUp === true) ||
     (view.name === 'roles' && views?.manageRoles === true) ||
     (view.name === 'proposals' && views?.pastProposals === true) ||
-    view.name === 'client'
+    (view.name === 'pocs' && views?.pocs === true) ||
+    view.name === 'client' ||
+    view.name === 'poc'
       ? view.name
       : 'pipeline';
 
@@ -68,7 +72,7 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
       <main className="portal-page clients">
         {/* Not on one client's page either: its "All clients" link is the way back, and the
             client's name is its heading. */}
-        {showing === 'client' ? null : (
+        {showing === 'client' || showing === 'poc' ? null : (
           <header className="directory-head">
             <a className="back" href="#/" aria-label="Back to Remat Portal">
               <Icon name="back" />
@@ -81,11 +85,20 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
         {/* Not on one client's page, which has its own way back to every client and needs the
             room for the client. */}
         {showing !== 'client' &&
-        (views?.setUp === true || views?.manageRoles === true || views?.pastProposals === true) ? (
+        showing !== 'poc' &&
+        (views?.setUp === true ||
+          views?.manageRoles === true ||
+          views?.pastProposals === true ||
+          views?.pocs === true) ? (
           <nav className="directory-views" aria-label="Clients views">
             <a href="#/clients" aria-current={showing === 'pipeline' ? 'page' : undefined}>
               Clients
             </a>
+            {views.pocs ? (
+              <a href="#/clients/pocs" aria-current={showing === 'pocs' ? 'page' : undefined}>
+                POCs
+              </a>
+            ) : null}
             {views.pastProposals ? (
               <a
                 href="#/clients/proposals"
@@ -119,6 +132,10 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
           <RolesView onSignedOut={onSignedOut} />
         ) : showing === 'proposals' ? (
           <ProposalsView onSignedOut={onSignedOut} />
+        ) : showing === 'pocs' ? (
+          <PocsList onSignedOut={onSignedOut} />
+        ) : showing === 'poc' && view.id !== undefined ? (
+          <PocView key={view.id} id={view.id} onSignedOut={onSignedOut} />
         ) : showing === 'client' && view.id !== undefined ? (
           <ClientView key={view.id} id={view.id} onSignedOut={onSignedOut} />
         ) : (
@@ -133,7 +150,7 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
   );
 }
 
-type ClientsView = 'pipeline' | 'client' | 'setup' | 'roles' | 'proposals';
+type ClientsView = 'pipeline' | 'client' | 'setup' | 'roles' | 'proposals' | 'pocs' | 'poc';
 
 /** Which view the address names, and the client for one. Anything else is the clients list. */
 function viewOf(path: string): { name: ClientsView; id?: string } {
@@ -141,6 +158,14 @@ function viewOf(path: string): { name: ClientsView; id?: string } {
 
   if (client !== null) {
     return { name: 'client', id: client[1] };
+  }
+  const poc = /^clients\/poc\/(\d{1,18})$/.exec(path);
+
+  if (poc !== null) {
+    return { name: 'poc', id: poc[1] };
+  }
+  if (path === 'clients/pocs') {
+    return { name: 'pocs' };
   }
   if (path === 'clients/roles') {
     return { name: 'roles' };

@@ -3191,6 +3191,8 @@ export interface ClientsViews {
   manageRoles: boolean;
   /** Past proposals and financials, to start a new one from. Anybody with a role. #281. */
   pastProposals: boolean;
+  /** The POC list and pages. Anybody with a role. #285. */
+  pocs: boolean;
 }
 
 export async function clientsViews(): Promise<ClientsViews> {
@@ -3349,7 +3351,15 @@ export interface ClientPage extends ClientSummary {
  * come with #285). A proposal and the financials are always about an open deal, and only the
  * financials carry an amount.
  */
-export type ActivityKind = 'CALL' | 'MEETING' | 'DEMO' | 'PROPOSAL' | 'FINANCIALS' | 'NOTE';
+export type ActivityKind =
+  | 'CALL'
+  | 'MEETING'
+  | 'DEMO'
+  | 'PROPOSAL'
+  | 'FINANCIALS'
+  /** A review meeting, recorded on its POC's page and never logged or corrected elsewhere. #285. */
+  | 'REVIEW'
+  | 'NOTE';
 
 /** What happens next, by when, and whose it is. CLI 63, CLI 64. */
 export interface ClientNextStep {
@@ -3423,6 +3433,15 @@ export interface Deal {
   outcome: 'OPEN' | 'WON' | 'LOST' | 'EXITED';
   /** Whether it will have a POC: null until somebody says, fixed once signed. */
   hasPoc: boolean | null;
+  /** The POC it is in, started as its contract was signed; null before that or with none. #285. */
+  poc: {
+    id: string;
+    /** 2026-11-02. */
+    startedOn: string;
+    /** Ten weeks after the start, 2027-01-11. */
+    decisionOn: string;
+    csLead: ClientsNamed;
+  } | null;
   /** The day it was won, lost or exited, 2026-11-11; null while open. */
   endedOn: string | null;
   /** Why it was lost or exited, and any note. Null while open, and once won. #279. */
@@ -3597,6 +3616,8 @@ export type ClientActivityEntry =
       outcome: string | null;
       /** The amount the financials gave; null on every other kind. #281. */
       amount: Money | null;
+      /** A review meeting's POC, which review, and whether it counted. #285. */
+      review: { pocId: string; kind: ReviewKind; dmAttended: boolean } | null;
       by: ClientsNamed;
       /** When it was logged. */
       at: string;
@@ -3999,4 +4020,94 @@ export async function retireOrRestoreReason(id: string, act: 'retire' | 'restore
 /** Gone for good, while no deal has ended for it. */
 export async function deleteReason(id: string): Promise<void> {
   await request<unknown>('DELETE', `/api/clients/setup/reasons/${encodeURIComponent(id)}`);
+}
+
+/* ---------------------------------------------------------------------- POCs, #285 */
+
+/** The three review meetings: the Day 7 showcase, the Week 6 midpoint, the Week 9 activation. */
+export type ReviewKind = 'DAY7' | 'WEEK6' | 'WEEK9';
+
+/** Foundation in weeks 1 to 3, Deepening in 4 to 6, Converting in 7 to 10. Worked out, never set. */
+export type PocPhase = 'FOUNDATION' | 'DEEPENING' | 'CONVERTING';
+
+/** A POC, for one deal, started as its contract was signed. */
+export interface Poc {
+  id: string;
+  client: { id: string; name: string; type: string };
+  lineName: string;
+  deal: {
+    id: string;
+    productName: string;
+    stage: DealStage;
+    outcome: 'OPEN' | 'WON' | 'LOST' | 'EXITED';
+    owner: ClientsNamed;
+  };
+  csLead: ClientsNamed;
+  /** False where the CS lead no longer holds a clients role, and the POC needs a new one. */
+  csLeadHoldsARole: boolean;
+  /** 2026-11-02. */
+  startedOn: string;
+  /** Ten weeks after the start. */
+  decisionOn: string;
+  phase: PocPhase;
+  /** Which day of its ten weeks today is; the start is day 1. */
+  day: number;
+  /** Negative once the decision date has passed. */
+  daysToDecision: number;
+  /** Recording reviews: its CS lead or a BD manager. Moving the CS lead: a BD manager. */
+  may: { update: boolean; moveLead: boolean };
+}
+
+export interface PocReviewStep {
+  id: string;
+  kind: ReviewKind;
+  description: string;
+  dueOn: string;
+  owner: ClientsNamed;
+  done: { at: string; by: ClientsNamed } | null;
+}
+
+export interface PocReviewHeld {
+  id: string;
+  kind: ReviewKind;
+  heldOn: string;
+  /** A review without the senior decision maker did not count. */
+  dmAttended: boolean;
+  withWhom: string | null;
+  outcome: string | null;
+  loggedBy: ClientsNamed;
+  loggedAt: string;
+}
+
+export type PocPage = Poc & { reviews: PocReviewStep[]; held: PocReviewHeld[] };
+
+/** Every POC still running, the soonest to be decided first. */
+export async function runningPocs(): Promise<Poc[]> {
+  const { pocs } = await request<{ pocs: Poc[] }>('GET', '/api/clients/pocs');
+  return pocs;
+}
+
+export async function pocPage(id: string): Promise<PocPage> {
+  return request<PocPage>('GET', `/api/clients/pocs/${encodeURIComponent(id)}`);
+}
+
+/** Records a review meeting: its CS lead or a BD manager. */
+export async function recordReview(
+  id: string,
+  review: {
+    reviewKind: ReviewKind;
+    heldOn: string;
+    dmAttended: boolean;
+    withWhom: string;
+    outcome: string;
+  },
+): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/reviews`, review);
+}
+
+/** Hands the POC, and its open review meetings, to another CS lead: a BD manager. */
+export async function movePocLead(id: string, employeeId: string): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/lead`, {
+    employeeId,
+  });
 }

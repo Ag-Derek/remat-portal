@@ -92,6 +92,8 @@ import { ActivityService } from './apps/clients/activity.service.js';
 import type { ClientsDocumentRepository } from './apps/clients/document.db.js';
 import { DocumentService } from './apps/clients/document.service.js';
 import type { ClientsActivityRepository } from './apps/clients/activity.db.js';
+import type { ClientsPocRepository } from './apps/clients/poc.db.js';
+import { PocService } from './apps/clients/poc.service.js';
 import type { ClientsProductRepository } from './apps/clients/product.db.js';
 import { SetupService } from './apps/clients/setup.service.js';
 import { RoleService } from './apps/clients/role.service.js';
@@ -245,6 +247,8 @@ export interface Application {
   clientsActivities?: ClientsActivityRepository;
   /** #281. Documents on activities and deals, whose bytes go to `storage`. */
   clientsDocuments?: ClientsDocumentRepository;
+  /** #285. POCs, started as their deals are signed. */
+  clientsPocs?: ClientsPocRepository;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -654,6 +658,10 @@ export function buildApp(parts: Application): Express {
                 clientParts.clients,
                 clientParts.activities,
               ),
+        pocs:
+          parts.clientsPocs === undefined
+            ? undefined
+            : new PocService(parts.guard, clientsRoles, parts.clientsPocs),
         /* #281. The bytes go to the same storage, and through the same scanner, as leave's. */
         documents:
           parts.clientsDocuments === undefined

@@ -9660,3 +9660,204 @@ button.linkish.file-name {
   margin: 0;
   padding-left: 1.2rem;
 }
+
+/* ---------------------------------------------------------------- POCs, #285 */
+
+/* A POC's page is laid out as a client's page is: the same head, figures, columns and cards.
+   What is its own is below: the line under the name, the phase pill, four figures, the meter, and
+   the ten weeks drawn as one bar. */
+.clients-poc-sub {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.clients-poc-sub a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* The phase, as a pill in the company blue's family: soft, then stronger as the POC converts. */
+.clients-pill.is-phase {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--card));
+  background: var(--accent-soft);
+  color: var(--agreed);
+  font-weight: 600;
+}
+
+.clients-pill.is-phase.is-converting {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Four cards, each as wide as the others. Two by two on a phone. */
+.clients-poc-figures {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 56rem) {
+  .clients-poc-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.clients-poc-of {
+  color: var(--ink-faint);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.clients-poc-figure-note {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-poc-figure-note.is-late,
+.clients-poc-missed {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* How far through its ten weeks, as a thin bar in the company blue; red once it is late. */
+.clients-poc-meter {
+  display: block;
+  height: 0.375rem;
+  margin: 0.35rem 0 0.15rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--left);
+}
+
+.clients-poc-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.clients-poc-meter.is-late > span {
+  background: var(--warn);
+}
+
+.clients-deals td .clients-poc-meter {
+  max-width: 10rem;
+}
+
+/* The ten weeks: three phases over one line, with the reviews and today on it. */
+.clients-poc-timeline {
+  margin-bottom: var(--gap-lg);
+}
+
+.clients-poc-timeline .clients-panel-head h3 {
+  margin: 0;
+  font-family: var(--face-text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.clients-poc-track {
+  padding: 0 1.25rem 2.6rem;
+}
+
+.clients-poc-phases {
+  display: flex;
+  gap: 4px;
+}
+
+.clients-poc-phases > div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--ink) 4%, var(--card));
+  color: var(--ink-soft);
+}
+
+.clients-poc-phases > div.is-now {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--card));
+  color: var(--agreed);
+}
+
+.clients-poc-phases strong {
+  overflow: hidden;
+  font-size: 0.9375rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clients-poc-phases small {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clients-poc-line {
+  position: relative;
+  height: 0.375rem;
+  margin-top: 1.1rem;
+  border-radius: 999px;
+  background: var(--left);
+}
+
+.clients-poc-done {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+/* A review on the line: a ring, filled green with a tick once it counted, red once late. */
+.clients-poc-review {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -0.6rem);
+}
+
+.clients-poc-review > i {
+  display: grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--card);
+}
+
+.clients-poc-review.is-counted > i {
+  border-color: var(--go);
+  background: var(--go);
+  color: var(--brand-white);
+}
+
+.clients-poc-review.is-late > i {
+  border-color: var(--warn);
+}
+
+.clients-poc-review > i svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.clients-poc-review > small {
+  margin-top: 0.3rem;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clients-poc-review.is-late > small {
+  color: var(--warn);
+}
+
+/* On a phone the phases keep their names and lose the weeks, which the figures already say. */
+@media (max-width: 40rem) {
+  .clients-poc-phases small {
+    display: none;
+  }
+}

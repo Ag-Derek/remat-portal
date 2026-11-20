@@ -23,6 +23,7 @@ import type {
   WaitingOnWhat,
 } from './opportunity.js';
 import type { PipelineDeal } from './pipeline.js';
+import { type NewPoc, reviewStepsOf } from './poc.js';
 import { outcomeAt, type Stage, type StageChange } from './stage.js';
 
 /** The unique index that holds a client to one open deal per product (CLI 11). */
@@ -312,12 +313,18 @@ export class ClientsOpportunityRepository {
    * 25), the day it ended where it did, a row in its stage history (CLI 26), and on a win, its
    * product added to what the client uses (CLI 04). Refused with {@link MovedMeanwhile} where the
    * deal is no longer at `from`, so a move decided on a stale look is never made.
+   *
+   * Signing a deal with a POC starts it (#285): given `poc`, the move to Contract signed goes on
+   * in the same transaction, the POC made for the deal's client and line and the client's type
+   * as it is today (CLI 30), and the deal put in it at the POC stage, with that step in its
+   * history too. The database refuses a deal with a POC left at Contract signed.
    */
   async move(
     by: Attribution,
     id: string,
     move: { from: Stage; to: Stage; note: string | null },
     today: CalendarDate,
+    poc?: NewPoc,
   ): Promise<void> {
     const outcome = outcomeAt(move.to);
     const changedBy = writerOf(by);
@@ -355,6 +362,10 @@ export class ClientsOpportunityRepository {
 
         if (outcome === 'WON') {
           await addWonProduct(on, moved.client_id, moved.product_id, id, today);
+        }
+
+        if (poc !== undefined && move.to === 'CONTRACT_SIGNED') {
+          await startPoc(on, id, poc, changedBy);
         }
       });
     } catch (error) {
@@ -608,6 +619,95 @@ function sameFigures(one: Figures, other: Figures): boolean {
 }
 
 /**
+ * Starts the POC a deal's signing starts, inside the move's transaction (#285): made for the
+ * deal's client and its product's line, with the client's type as it stands today (CLI 30), and
+ * the deal moved on from Contract signed into it, which its history records (CLI 26).
+ */
+async function startPoc(
+  on: Kysely<Database>,
+  dealId: string,
+  poc: NewPoc,
+  changedBy: string,
+): Promise<void> {
+  const made = await on
+    .insertInto('clients_poc')
+    .columns([
+      'client_id',
+      'line_id',
+      'client_type_id',
+      'cs_lead_id',
+      'started_on',
+      'decision_on',
+      'created_by',
+    ])
+    .expression((eb) =>
+      eb
+        .selectFrom('clients_opportunity as o')
+        .innerJoin('clients_client as c', 'c.id', 'o.client_id')
+        .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+        .select([
+          'o.client_id',
+          'p.line_id',
+          'c.type_id',
+          sql<string>`${poc.csLeadId}::bigint`.as('cs_lead_id'),
+          sql<string>`${poc.startedOn}::date`.as('started_on'),
+          sql<string>`${poc.decisionOn}::date`.as('decision_on'),
+          sql<string>`${changedBy}::bigint`.as('created_by'),
+        ])
+        .where('o.id', '=', dealId),
+    )
+    .returning('id')
+    .executeTakeFirstOrThrow();
+
+  await on
+    .updateTable('clients_opportunity')
+    .set({ stage: 'POC', poc_id: made.id })
+    .where('id', '=', dealId)
+    .where('stage', '=', 'CONTRACT_SIGNED')
+    .executeTakeFirstOrThrow();
+
+  await on
+    .insertInto('clients_stage_change')
+    .values({
+      opportunity_id: dealId,
+      from_stage: 'CONTRACT_SIGNED',
+      to_stage: 'POC',
+      to_outcome: 'OPEN',
+      changed_by: changedBy,
+    })
+    .execute();
+
+  /* CLI 33. Its three review meetings, as next steps for its CS lead, dated from the start. */
+  const about = await on
+    .selectFrom('clients_opportunity as o')
+    .innerJoin('clients_client as c', 'c.id', 'o.client_id')
+    .innerJoin('clients_product as p', 'p.id', 'o.product_id')
+    .select(['o.client_id', 'c.name as client_name', 'p.name as product_name'])
+    .where('o.id', '=', dealId)
+    .executeTakeFirstOrThrow();
+
+  await on
+    .insertInto('clients_next_step')
+    .values(
+      reviewStepsOf(poc.startedOn, {
+        clientName: about.client_name,
+        productName: about.product_name,
+      }).map((review) => ({
+        client_id: about.client_id,
+        opportunity_id: dealId,
+        poc_id: made.id,
+        review_kind: review.kind,
+        description: review.description,
+        due_on: review.dueOn,
+        owner_id: poc.csLeadId,
+        source: 'REVIEW',
+        created_by: changedBy,
+      })),
+    )
+    .execute();
+}
+
+/**
  * Puts a won deal's product on what the client uses, from today, naming the deal (CLI 04, CLI
  * 25). Where the client used it once and stopped, it is started again from today, named as won
  * back by this deal; the audit log keeps the dates it had. Where they use it already, it is left
@@ -741,7 +841,14 @@ function deals(db: Kysely<Database>) {
     .innerJoin('clients_product_line as l', 'l.id', 'p.line_id')
     .innerJoin('employee as e', 'e.id', 'o.owner_id')
     .leftJoin('clients_reason as r', 'r.id', 'o.reason_id')
+    .leftJoin('clients_poc as poc', 'poc.id', 'o.poc_id')
+    .leftJoin('employee as lead', 'lead.id', 'poc.cs_lead_id')
     .select([
+      'o.poc_id',
+      sql<CalendarDate | null>`poc.started_on::text`.as('poc_started_on'),
+      sql<CalendarDate | null>`poc.decision_on::text`.as('poc_decision_on'),
+      'poc.cs_lead_id as poc_cs_lead_id',
+      sql<string | null>`lead.first_name || ' ' || lead.last_name`.as('poc_cs_lead_name'),
       'o.id',
       'o.client_id',
       'c.name as client_name',
@@ -780,6 +887,19 @@ function opportunityFrom(row: Row): Opportunity {
     stage: row.stage as Stage,
     outcome: row.outcome as Outcome,
     hasPoc: row.has_poc,
+    poc:
+      row.poc_id === null ||
+      row.poc_started_on === null ||
+      row.poc_decision_on === null ||
+      row.poc_cs_lead_id === null ||
+      row.poc_cs_lead_name === null
+        ? null
+        : {
+            id: row.poc_id,
+            startedOn: row.poc_started_on,
+            decisionOn: row.poc_decision_on,
+            csLead: { id: row.poc_cs_lead_id, name: row.poc_cs_lead_name },
+          },
     endedOn: row.ended_on,
     ending:
       row.reason_id === null || row.reason_label === null

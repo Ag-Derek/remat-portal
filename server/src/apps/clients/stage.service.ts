@@ -6,9 +6,9 @@
  * whoever writes, so a path that forgot a rule here would still be refused there.
  *
  * Moves made by hand come through {@link StageService.move}, and a deal marked lost through
- * {@link StageService.lose} (#279), which ends it where it stands. The POC moving its deals in and out
- * of the POC stage will come through a method of its own, which only the POC service calls (TDD
- * 5), rather than through a flag on a request anybody could send.
+ * {@link StageService.lose} (#279), which ends it where it stands. A deal with a POC goes into it as
+ * its contract is signed, by the same move (#285): signing starts the POC. Out of it, its POC
+ * decides, through `stage-for-poc.ts`, which only the POC service may call (TDD 5).
  */
 
 import type { Actor } from '../../core/auth/actor.js';
@@ -28,6 +28,7 @@ import {
   ReasonRefused,
 } from './opportunity.db.js';
 import { viewOf } from './opportunity.service.js';
+import { decisionDateOf, type NewPoc } from './poc.js';
 import { clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
 import { type Reason, type ReasonList, readLoss, refusalOfReason } from './reason.js';
@@ -149,12 +150,17 @@ export class StageService {
       throw refusal;
     }
 
+    const today = this.today();
+
     try {
       await this.opportunities.move(
         actor,
         id,
         { from: deal.stage, to: move.toStage, note: move.note },
-        this.today(),
+        today,
+        move.toStage === 'CONTRACT_SIGNED' && deal.hasPoc === true
+          ? pocStartedBySigning(deal, today)
+          : undefined,
       );
     } catch (error) {
       if (error instanceof MovedMeanwhile) throw new StageMovedMeanwhile();
@@ -189,4 +195,13 @@ export class StageService {
 
     return found;
   }
+}
+
+/**
+ * The POC a deal's signing starts (#285): that day, decided ten weeks later (CLI 31), and run by
+ * the deal's owner (the user, #279), whether or not they still hold a clients role. One who does
+ * not is flagged as needing reassignment rather than refused (the user, 19 November 2026, CLI 96).
+ */
+function pocStartedBySigning(deal: Opportunity, today: CalendarDate): NewPoc {
+  return { csLeadId: deal.owner.id, startedOn: today, decisionOn: decisionDateOf(today) };
 }

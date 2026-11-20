@@ -365,7 +365,7 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
 }
 
 /** "AM" for Ama Mensah: the first letters of the first and last names. */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/);
   const first = words[0]?.[0] ?? '';
   const last = words.length > 1 ? (words[words.length - 1]?.[0] ?? '') : '';

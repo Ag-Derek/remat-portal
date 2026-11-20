@@ -49,7 +49,7 @@ beforeEach(async () => {
   await admin.query(
     'TRUNCATE clients_client_product, clients_stage_change, clients_value_change, clients_next_step, ' +
       'clients_document, clients_activity, ' +
-      'clients_opportunity, clients_product, ' +
+      'clients_opportunity, clients_poc, clients_product, ' +
       'clients_product_line RESTART IDENTITY',
   );
   people = (await seed(admin)) as Record<string, string>;
@@ -489,15 +489,15 @@ describe('which parts of clients a person has', () => {
     /* Past proposals, #281, are anybody's with a role, and not a System Administrator's alone. */
     expect(await viewsOf(bdManager)).toEqual([
       200,
-      { setUp: true, manageRoles: false, pastProposals: true },
+      { setUp: true, manageRoles: false, pastProposals: true, pocs: true },
     ]);
     expect(await viewsOf(associate)).toEqual([
       200,
-      { setUp: false, manageRoles: false, pastProposals: true },
+      { setUp: false, manageRoles: false, pastProposals: true, pocs: true },
     ]);
     expect(await viewsOf(sysadmin)).toEqual([
       200,
-      { setUp: false, manageRoles: true, pastProposals: false },
+      { setUp: false, manageRoles: true, pastProposals: false, pocs: false },
     ]);
     expect(await viewsOf(nobody)).toEqual([404, NO_SUCH_ROUTE]);
   });

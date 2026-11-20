@@ -12,6 +12,7 @@
 
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Person } from './client.js';
+import type { PocOfADeal } from './poc.js';
 import { isAnId } from './product.js';
 import type { Ending } from './reason.js';
 import type { Stage, StageOption } from './stage.js';
@@ -67,6 +68,8 @@ export interface Opportunity {
   outcome: Outcome;
   /** Whether it will have a POC: null until somebody says, fixed once signed (CLI 19). */
   hasPoc: boolean | null;
+  /** The POC it is in, started as its contract was signed; null before that, or with none (#285). */
+  poc: PocOfADeal | null;
   /** The day it was won, lost or exited; null while it is open (CLI 25). */
   endedOn: CalendarDate | null;
   /** Why it was lost or exited, and any note (CLI 55). Null while open, and once won (#279). */

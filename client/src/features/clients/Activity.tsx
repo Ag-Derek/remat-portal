@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import {
   type ActivityKind,
+  type ReviewKind,
   type ClientActivityEntry,
   clientActivity,
   type ClientPage,
@@ -379,7 +380,15 @@ export const LOGGED: Record<ActivityKind, { name: string; icon: IconName }> = {
   DEMO: { name: 'Demo', icon: 'eye' },
   PROPOSAL: { name: 'Proposal sent', icon: 'send' },
   FINANCIALS: { name: 'Financials sent', icon: 'report' },
+  REVIEW: { name: 'Review meeting', icon: 'calendar' },
   NOTE: { name: 'Note', icon: 'pencil' },
+};
+
+/** Each review meeting by name. #285. */
+export const REVIEW_NAME: Record<ReviewKind, string> = {
+  DAY7: 'Day 7 showcase',
+  WEEK6: 'Week 6 midpoint review',
+  WEEK9: 'Week 9 activation review',
 };
 
 /**
@@ -394,6 +403,21 @@ function tellLogged(entry: Extract<ClientActivityEntry, { kind: 'LOGGED' }>, nam
   const withWhom =
     entry.withWhom === null ? '' : sent ? ` to ${entry.withWhom}` : ` with ${entry.withWhom}`;
   const about = named && entry.deal !== null ? ` · ${entry.deal.productName}` : '';
+
+  /* #285. Which review, and, where the senior decision maker was not there, that it did not
+     count. */
+  if (entry.review !== null) {
+    const missed = entry.review.dmAttended
+      ? ''
+      : ' · did not count: the senior decision maker was not there';
+
+    return {
+      icon: what.icon,
+      tone: 'logged',
+      headline: `${REVIEW_NAME[entry.review.kind]}${withWhom}${about}${missed}`,
+      body: entry.outcome,
+    };
+  }
 
   return {
     icon: what.icon,

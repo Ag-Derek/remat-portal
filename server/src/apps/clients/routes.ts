@@ -39,6 +39,7 @@ import type { Grant } from './role.js';
 import type { ClientsRoleRepository } from './role.db.js';
 import type { RoleService, RolesScreen } from './role.service.js';
 import type { SetupService } from './setup.service.js';
+import type { PocService } from './poc.service.js';
 import type { StageService } from './stage.service.js';
 
 export interface ClientsRoutes {
@@ -63,6 +64,8 @@ export interface ClientsRoutes {
   activities?: ActivityService;
   /** Documents on activities and deals. #281. Optional, for the same reason. */
   documents?: DocumentService;
+  /** Running POCs. #285. Optional, for the same reason. */
+  pocs?: PocService;
 }
 
 export function clientsRoutes({
@@ -75,6 +78,7 @@ export function clientsRoutes({
   stages,
   activities,
   documents,
+  pocs,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -115,6 +119,10 @@ export function clientsRoutes({
 
   if (documents !== undefined) {
     documentRoutes(routes, documents);
+  }
+
+  if (pocs !== undefined) {
+    pocRoutes(routes, pocs);
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -514,6 +522,43 @@ function opportunityRoutes(routes: Router, opportunities: OpportunityService): v
 /**
  * A deal's stage, under `/clients/opportunities/:id`. #278, Clients SRS CLI 18 to CLI 26, TDD 11.
  */
+/**
+ * POCs, under `/clients/pocs`. #285, Clients SRS CLI 29 to CLI 34, CLI 100, CLI 101, TDD 11. A POC
+ * is started by its deal's contract being signed, through `/opportunities/:id/stage`.
+ */
+function pocRoutes(routes: Router, pocs: PocService): void {
+  /** Every POC still running, the soonest to be decided first, with its phase and days. */
+  routes.get(
+    '/clients/pocs',
+    answer(async (_request, response) => ({ pocs: await pocs.list(actorOf(response)) })),
+  );
+
+  /** One POC: its deal, its clock, its review meetings and those held. */
+  routes.get(
+    '/clients/pocs/:id',
+    answer((request, response) => pocs.page(actorOf(response), idOf(request))),
+  );
+
+  /**
+   * `{ reviewKind, heldOn, dmAttended, withWhom?, outcome? }`: records a review meeting. Its CS
+   * lead's or a BD manager's. Without the senior decision maker it does not count, and is due
+   * again seven days later (CLI 34).
+   */
+  routes.post(
+    '/clients/pocs/:id/reviews',
+    answer(
+      (request, response) => pocs.recordReview(actorOf(response), idOf(request), request.body),
+      201,
+    ),
+  );
+
+  /** `{ employeeId }`: hands the POC, and its open review steps, to another CS lead (CLI 92). */
+  routes.post(
+    '/clients/pocs/:id/lead',
+    answer((request, response) => pocs.moveLead(actorOf(response), idOf(request), request.body)),
+  );
+}
+
 function stageRoutes(routes: Router, stages: StageService): void {
   /**
    * `{ toStage, note? }`: moves the deal, forward by one stage or more, or back with a note

@@ -13,6 +13,7 @@ import { ClientsReasonRepository } from '../../src/apps/clients/reason.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { StageForPoc } from '../../src/apps/clients/stage-for-poc.js';
 import { type Asker, type ClientsApp, startClientsApp } from '../support/clients-app.js';
+import { intoItsPoc as intoAPoc } from '../support/clients-poc.js';
 import { recordingDenials } from '../support/recording-denials.js';
 
 /**
@@ -167,13 +168,9 @@ async function stagesOf(id: string): Promise<{ fromStage: string; toStage: strin
   return ((await response.json()) as { stages: { fromStage: string; toStage: string }[] }).stages;
 }
 
-/** Puts a deal straight into its POC, which the POC service will do once it exists. */
+/** Puts a deal straight into a POC of its own, as signing its contract does (#285). */
 async function intoItsPoc(id: string): Promise<void> {
-  await admin.query(
-    `UPDATE clients_opportunity SET has_poc = true, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
-    [id],
-  );
-  await admin.query(`UPDATE clients_opportunity SET stage = 'POC' WHERE id = $1`, [id]);
+  await intoAPoc(admin, id);
 }
 
 /* -------------------------------------------------------------------- losing a deal */
@@ -232,8 +229,8 @@ describe('marking a deal lost', () => {
     });
   });
 
-  /* CLI 51. Any time before its POC starts: from Discovery, and from Contract signed with a POC
-     still to start. */
+  /* CLI 51. Any time before its POC starts: from Discovery, and from Contract signed with no POC.
+     A deal with a POC is in it from its signing (#285), so it never waits at Contract signed. */
   it('may be done at any stage before its POC starts', async () => {
     const early = await aDeal();
     expect((await lost(associate, early.id, { reasonId: lostFor['Went quiet'] })).stage).toBe(
@@ -241,7 +238,9 @@ describe('marking a deal lost', () => {
     );
 
     const signed = await aDeal(associate, 'Cloud9');
-    await app.send('PATCH', `/api/clients/opportunities/${signed.id}`, associate, { hasPoc: true });
+    await app.send('PATCH', `/api/clients/opportunities/${signed.id}`, associate, {
+      hasPoc: false,
+    });
     await moved(signed.id, 'CONTRACT_SIGNED');
     expect(await lost(associate, signed.id, { reasonId: lostFor['Not a fit'] })).toMatchObject({
       stage: 'CONTRACT_SIGNED',
@@ -554,10 +553,10 @@ describe('a deal in a started POC', () => {
     });
   });
 
-  /* CLI 52. Only a deal in a started POC ends by its POC, at Contract signed included. */
+  /* CLI 52. Only a deal in a started POC ends by its POC, at Contract signed with no POC included. */
   it('is the only deal that ends converted or exited', async () => {
     const deal = await aDeal();
-    await app.send('PATCH', `/api/clients/opportunities/${deal.id}`, associate, { hasPoc: true });
+    await app.send('PATCH', `/api/clients/opportunities/${deal.id}`, associate, { hasPoc: false });
     await moved(deal.id, 'CONTRACT_SIGNED');
 
     const exit = { reasonId: exitedFor['Client withdrew'], note: 'Ran on CreditStudio' };

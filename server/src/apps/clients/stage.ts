@@ -262,14 +262,17 @@ export class PocDecisionFixed extends Error {
   }
 }
 
-/** TDD's POC_STARTS_IT (CLI 31). */
+/**
+ * TDD's POC_STARTS_IT (CLI 31). Signing the contract starts the POC and puts the deal in it
+ * (#285), so moving to Contract signed is the way in.
+ */
 export class PocStartsIt extends Error {
   readonly field = 'toStage';
 
   constructor(productName: string) {
     super(
-      `The ${productName} deal moves to POC when its POC is started, once every pre-POC gate is ` +
-        'ticked. It is not moved there by hand.',
+      `The ${productName} deal goes into its POC when its contract is signed. Move it to ` +
+        'Contract signed instead.',
     );
     this.name = 'PocStartsIt';
   }

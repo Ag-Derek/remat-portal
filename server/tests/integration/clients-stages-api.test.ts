@@ -7,6 +7,7 @@ import { seed } from '../../seeds/seed.mjs';
 import { type Database, databaseFor } from '../../src/core/db/index.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { type Asker, type ClientsApp, startClientsApp } from '../support/clients-app.js';
+import { intoItsPoc as intoAPoc } from '../support/clients-poc.js';
 import { recordingDenials } from '../support/recording-denials.js';
 
 /**
@@ -151,13 +152,9 @@ async function nameOf(employeeId: string): Promise<string> {
   return rows[0].name;
 }
 
-/** Puts a deal straight into its POC, which the POC service will do once it exists. */
+/** Puts a deal straight into a POC of its own, as signing its contract does (#285). */
 async function intoItsPoc(id: string): Promise<void> {
-  await admin.query(
-    `UPDATE clients_opportunity SET has_poc = true, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
-    [id],
-  );
-  await admin.query(`UPDATE clients_opportunity SET stage = 'POC' WHERE id = $1`, [id]);
+  await intoAPoc(admin, id);
 }
 
 /* --------------------------------------------------------------- the whole ladder */
@@ -309,15 +306,20 @@ describe('moving a deal forward', () => {
     });
   });
 
-  /* CLI 31, POC_STARTS_IT. */
-  it('to POC is never by hand: starting the POC moves it', async () => {
+  /* CLI 31, POC_STARTS_IT. Signing its contract is the way in (#285). */
+  it('to POC is never by hand: signing the contract starts the POC', async () => {
     const deal = await aDeal();
     await answerPoc(associate, deal.id, true);
-    await moved(associate, deal.id, 'CONTRACT_SIGNED');
+    await moved(associate, deal.id, 'NEGOTIATION');
 
-    expect(await refused(await move(associate, deal.id, { toStage: 'POC' }), 409)).toMatchObject({
+    expect(await refused(await move(associate, deal.id, { toStage: 'POC' }), 409)).toEqual({
       error: 'PocStartsIt',
+      message:
+        'The CreditStudio deal goes into its POC when its contract is signed. Move it to ' +
+        'Contract signed instead.',
+      field: 'toStage',
     });
+    expect((await find(deal.id)).stage).toBe('NEGOTIATION');
   });
 
   it('to where it is already is refused', async () => {
@@ -404,10 +406,10 @@ describe('moving a deal back', () => {
 
 describe('a deal with a POC', () => {
   /* CLI 24, AC L05, POC_DECIDES. Done when: moving a POC deal to Live by hand is refused. */
-  it('is never moved to Live by hand, from Contract signed or from its POC', async () => {
+  it('is never moved to Live by hand, before its contract is signed or from its POC', async () => {
     const deal = await aDeal();
     await answerPoc(associate, deal.id, true);
-    await moved(associate, deal.id, 'CONTRACT_SIGNED');
+    await moved(associate, deal.id, 'NEGOTIATION');
 
     for (const as of [associate, bdManager]) {
       expect(await refused(await move(as, deal.id, { toStage: 'LIVE' }), 409)).toEqual({

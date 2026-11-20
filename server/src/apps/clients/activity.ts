@@ -10,7 +10,7 @@
 
 import type { CalendarDate } from '../../core/calendar/time.js';
 import type { Person } from './client.js';
-import type { ActivityKind } from './logged-activity.js';
+import type { ActivityKind, LoggedActivity } from './logged-activity.js';
 import type { Money, Outcome, ValueSource } from './opportunity.js';
 import type { Stage } from './stage.js';
 
@@ -61,6 +61,8 @@ export interface LoggedEntry {
   outcome: string | null;
   /** What a proposal offered (CLI 65, #281); null on every other kind. */
   amount: Money | null;
+  /** A review meeting's POC, which review, and whether it counted (#285); null otherwise. */
+  review: LoggedActivity['review'];
   by: Person;
   at: Date;
   /** Whether the person reading may still correct it: whoever logged it, within its day (CLI 62). */

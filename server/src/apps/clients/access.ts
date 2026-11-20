@@ -22,6 +22,8 @@ export interface ClientsViews {
   manageRoles: boolean;
   /** Past proposals and financials, to start a new one from (CLI 66, #281). Anybody with a role. */
   pastProposals: boolean;
+  /** The POC list and pages (CLI 100, CLI 101, #285). Anybody with a role. */
+  pocs: boolean;
 }
 
 export function viewsOf(actor: Actor, access: ClientsAccess): ClientsViews {
@@ -29,6 +31,7 @@ export function viewsOf(actor: Actor, access: ClientsAccess): ClientsViews {
     setUp: clientsPolicy.setUp(actor, access).allowed,
     manageRoles: clientsPolicy.manageRoles(actor, access).allowed,
     pastProposals: clientsPolicy.read(actor, access).allowed,
+    pocs: clientsPolicy.read(actor, access).allowed,
   };
 }
 

@@ -53,6 +53,8 @@ export const AUDITED_ENTITIES = [
   'clients_activity',
   /** #280. A next step made, closed and reopened, and who did each: reopening clears the close. */
   'clients_next_step',
+  /* #285. A POC, made as its contract is signed, and every change of its CS lead. */
+  'clients_poc',
 ] as const;
 
 export type AuditedEntity = (typeof AUDITED_ENTITIES)[number];
@@ -87,6 +89,7 @@ export const AUDITED_ENTITY_LABELS: Readonly<Record<AuditedEntity, string>> = {
   clients_reason: 'Lost or exit reason',
   clients_activity: 'Client activity',
   clients_next_step: 'Next step',
+  clients_poc: 'POC',
 };
 
 /**

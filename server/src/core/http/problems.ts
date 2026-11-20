@@ -537,6 +537,10 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   DocumentRemoved: 409,
   /** #281. Past its day, as ActivityLocked: the right file beside it is the fix. */
   DocumentFixed: 409,
+  /** #285. A review meeting is fixed once recorded; a further note is the fix. */
+  ReviewFixed: 409,
+  /** #285. The POC has ended, kept as it ended, as its deal is. */
+  PocEnded: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };

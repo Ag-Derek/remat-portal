@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { databaseForThisFile } from '../setup/test-database.js';
 import { seed } from '../../seeds/seed.mjs';
+import { intoItsPocWithin } from '../support/clients-poc.js';
 
 /**
  * The clients tables, against a real database. #274, Clients TDD 4.8 and 14.
@@ -33,6 +34,7 @@ const TABLES = [
   'clients_next_step',
   'clients_activity',
   'clients_document',
+  'clients_poc',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -53,6 +55,24 @@ async function aDeal(client: string, owner: string): Promise<string> {
       `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
        SELECT $1, id, $2 FROM clients_product WHERE name = 'CreditStudio' RETURNING id`,
       [client, owner],
+    )
+  ).rows[0].id;
+}
+
+/** A POC for the client and line of `deal`, run by its owner, started today (#285). */
+async function aPocFor(deal: string): Promise<string> {
+  return (
+    await admin.query<{ id: string }>(
+      `INSERT INTO clients_poc
+              (client_id, line_id, client_type_id, cs_lead_id, started_on, decision_on, created_by)
+       SELECT o.client_id, p.line_id, c.type_id, o.owner_id, CURRENT_DATE, CURRENT_DATE + 70,
+              o.owner_id
+         FROM clients_opportunity o
+         JOIN clients_product p ON p.id = o.product_id
+         JOIN clients_client c ON c.id = o.client_id
+        WHERE o.id = $1
+       RETURNING id`,
+      [deal],
     )
   ).rows[0].id;
 }
@@ -843,11 +863,7 @@ describe('an opportunity', () => {
 
     /* #279. Exited only from a started POC, with a reason and which products it ran on. */
     if (outcome === 'EXITED') {
-      await admin.query(
-        `UPDATE clients_opportunity SET has_poc = true, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
-        [id],
-      );
-      await admin.query(`UPDATE clients_opportunity SET stage = 'POC' WHERE id = $1`, [id]);
+      await intoItsPocWithin(admin, id);
 
       return refusedBy(
         `UPDATE clients_opportunity SET outcome = 'EXITED', ended_on = CURRENT_DATE,
@@ -1369,7 +1385,7 @@ describe('a deal on the ladder', () => {
       expect(await set(`stage = '${back}'`)).toBe('clients_opportunity_no_way_back');
     }
 
-    expect(await set(`stage = 'POC'`)).toBeNull();
+    expect(await set(`stage = 'POC', poc_id = ${await aPocFor(deal)}`)).toBeNull();
     expect(await set(`stage = 'CONTRACT_SIGNED'`)).toBe('clients_opportunity_no_way_back');
   });
 
@@ -1422,7 +1438,7 @@ describe('a deal on the ladder', () => {
       'clients_opportunity_live_after_signing',
     );
 
-    expect(await set(`stage = 'POC'`)).toBeNull();
+    expect(await set(`stage = 'POC', poc_id = ${await aPocFor(deal)}`)).toBeNull();
     expect(await set(`stage = 'LIVE', outcome = 'WON', ended_on = CURRENT_DATE`)).toBeNull();
   });
 
@@ -1480,8 +1496,7 @@ describe('a deal that ends without winning', () => {
   }
 
   async function intoItsPoc(): Promise<void> {
-    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
-    expect(await set(`stage = 'POC'`)).toBeNull();
+    await intoItsPocWithin(admin, deal);
   }
 
   beforeEach(async () => {
@@ -1522,16 +1537,25 @@ describe('a deal that ends without winning', () => {
 
   /* CLI 51. Any time before its POC starts, Contract signed with a POC included. */
   it('is lost before its POC starts, and not after', async () => {
-    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
-    expect(await set(`stage = 'POC'`)).toBeNull();
+    await intoItsPoc();
 
     expect(await loseFor(lostFor.Price)).toBe('clients_opportunity_lost_shape');
   });
 
-  it('is lost from Contract signed, its POC not yet started', async () => {
-    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
-
+  /* Signing starts the POC (#285), so a deal with one is never lost at Contract signed, even
+     signed and lost in one go; one with no POC is. */
+  it('is lost from Contract signed only where there is no POC', async () => {
+    expect(await set(`has_poc = false, stage = 'CONTRACT_SIGNED'`)).toBeNull();
     expect(await loseFor(lostFor.Price)).toBeNull();
+  });
+
+  it('is not lost from Contract signed with a POC, which signing started', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await loseFor(lostFor.Price)).toBeNull();
+
+    expect(
+      await refusedBy('SET CONSTRAINTS clients_opportunity_signing_starts_its_poc IMMEDIATE'),
+    ).toBe('clients_opportunity_signing_starts_its_poc');
   });
 
   /* CLI 52, TDD's opp_exit_shape. Only from a started POC, with a reason and which products. */
@@ -1779,7 +1803,7 @@ describe('an activity', () => {
 
   /* CLI 59. A review comes with the POC (#285). The financials also need their amount, which
      clients-proposals-api.test.ts holds the table to (#281). */
-  it('is a call, a meeting, a demo, a proposal, the financials or a note, for now', async () => {
+  it('is a call, a meeting, a demo, a proposal, the financials, a review or a note', async () => {
     for (const kind of ['CALL', 'MEETING', 'DEMO', 'PROPOSAL', 'NOTE']) {
       expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBeNull();
     }
@@ -1787,9 +1811,13 @@ describe('an activity', () => {
     expect(await refusedBy(ACTIVITY, anActivityOf({ kind: 'FINANCIALS' }))).toBe(
       'clients_activity_financials_say_what_and_for_which_deal',
     );
-    for (const kind of ['REVIEW', 'EMAIL']) {
-      expect(await refusedBy(ACTIVITY, anActivityOf({ kind }))).toBe('clients_activity_kind_known');
-    }
+    /* #285. A known kind, refused here only for saying nothing of which review it was. */
+    expect(await refusedBy(ACTIVITY, anActivityOf({ kind: 'REVIEW' }))).toBe(
+      'clients_activity_review_says_which_and_who_came',
+    );
+    expect(await refusedBy(ACTIVITY, anActivityOf({ kind: 'EMAIL' }))).toBe(
+      'clients_activity_kind_known',
+    );
   });
 
   /* CLI 58: the client, and only optionally the deal, who it was with and what came of it. */
@@ -1944,7 +1972,11 @@ describe('a next step', () => {
   });
 
   it('comes from an activity, a review, a debrief, or by hand', async () => {
-    for (const source of ['REVIEW', 'DEBRIEF', 'MANUAL']) {
+    /* A review step names its POC and which review, which 'a POC' below covers (#285). */
+    expect(await refusedBy(STEP, aStep({ source: 'REVIEW' }))).toBe(
+      'clients_next_step_review_names_its_poc',
+    );
+    for (const source of ['DEBRIEF', 'MANUAL']) {
       expect(await refusedBy(STEP, aStep({ source }))).toBeNull();
     }
     expect(await refusedBy(STEP, aStep({ source: 'ACTIVITY', activity: call }))).toBeNull();
@@ -2042,6 +2074,270 @@ describe('a next step', () => {
     );
 
     expect(rows[0].indexdef).toContain('USING btree (owner_id, due_on) WHERE (done_at IS NULL)');
+  });
+});
+
+/* -------------------------------------------------------------------- POCs, #285 */
+
+describe('a POC', () => {
+  const POC = `INSERT INTO clients_poc
+                 (client_id, line_id, client_type_id, cs_lead_id, started_on, decision_on,
+                  created_by)
+               SELECT $1, l.id, t.id, $2, $3::date, $4::date, $5
+                 FROM clients_product_line l, clients_client_type t
+                WHERE l.name = $6 AND t.name = 'Bank'
+               RETURNING id`;
+  let client: string;
+  let deal: string;
+
+  function set(assignments: string): Promise<string | null> {
+    return refusedBy(`UPDATE clients_opportunity SET ${assignments} WHERE id = $1`, [deal]);
+  }
+
+  /** The commit's verdict on the deal as it now stands, without committing. */
+  function atCommit(): Promise<string | null> {
+    return refusedBy('SET CONSTRAINTS clients_opportunity_signing_starts_its_poc IMMEDIATE');
+  }
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+    deal = await aDeal(client, ama);
+  });
+
+  /* TDD 4.3, CLI 29, CLI 30, CLI 31. */
+  it('records its client, line, client type, CS lead, start, decision date and maker', async () => {
+    const { rows } = await admin.query<{ id: string }>(POC, [
+      client,
+      ama,
+      '2026-11-02',
+      '2027-01-11',
+      kofi,
+      'Symphony',
+    ]);
+
+    const { rows: stored } = await admin.query(
+      `SELECT poc.client_id, l.name AS line, t.name AS client_type, poc.cs_lead_id,
+              poc.started_on::text, poc.decision_on::text, poc.created_by
+         FROM clients_poc poc
+         JOIN clients_product_line l ON l.id = poc.line_id
+         JOIN clients_client_type t ON t.id = poc.client_type_id
+        WHERE poc.id = $1`,
+      [rows[0].id],
+    );
+    expect(stored[0]).toEqual({
+      client_id: client,
+      line: 'Symphony',
+      client_type: 'Bank',
+      cs_lead_id: ama,
+      started_on: '2026-11-02',
+      decision_on: '2027-01-11',
+      created_by: kofi,
+    });
+  });
+
+  /* CLI 31, AC L09. Done when: a POC starting 2 November has a decision date of 11 January. */
+  it('is decided ten weeks after it starts', async () => {
+    for (const decision of ['2027-01-10', '2027-01-12', '2026-11-02']) {
+      expect(await refusedBy(POC, [client, ama, '2026-11-02', decision, ama, 'Symphony'])).toBe(
+        'clients_poc_ten_weeks',
+      );
+    }
+    expect(
+      await refusedBy(POC, [client, ama, '2026-11-02', '2027-01-11', ama, 'Symphony']),
+    ).toBeNull();
+  });
+
+  /* TDD's opp_poc_stage. A deal in its POC names it. */
+  it('is named by every deal in it', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+
+    expect(await set(`stage = 'POC'`)).toBe('clients_opportunity_poc_stage_names_its_poc');
+    expect(await set(`stage = 'POC', poc_id = ${await aPocFor(deal)}`)).toBeNull();
+  });
+
+  /* CLI 27. Only a deal with a POC is in one, and only once its contract is signed, which is what
+     starts it (#285). */
+  it('covers only deals with a POC, once their contract is signed', async () => {
+    const poc = await aPocFor(deal);
+
+    expect(await set(`has_poc = true, stage = 'NEGOTIATION', poc_id = ${poc}`)).toBe(
+      'clients_opportunity_in_a_poc_once_signed',
+    );
+    expect(await set(`has_poc = false, stage = 'CONTRACT_SIGNED', poc_id = ${poc}`)).toBe(
+      'clients_opportunity_in_a_poc_has_one',
+    );
+  });
+
+  /* CLI 27, TDD 4.3. For the deal's own client and its product's line. */
+  it('covers only deals of its own client and line', async () => {
+    const elsewhere = await aClient(ama, 'Otherbank');
+    const otherClient = (
+      await admin.query<{ id: string }>(POC, [
+        elsewhere,
+        ama,
+        '2026-11-02',
+        '2027-01-11',
+        ama,
+        'Dura Capital',
+      ])
+    ).rows[0].id;
+    const otherLine = (
+      await admin.query<{ id: string }>(POC, [
+        client,
+        ama,
+        '2026-11-02',
+        '2027-01-11',
+        ama,
+        'Symphony',
+      ])
+    ).rows[0].id;
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+
+    /* The deal is CreditStudio, in Dura Capital. */
+    for (const poc of [otherClient, otherLine]) {
+      expect(await set(`stage = 'POC', poc_id = ${poc}`)).toBe(
+        'clients_opportunity_poc_same_client_and_line',
+      );
+    }
+  });
+
+  /* CLI 27. A deal is in one POC, and stays in it. */
+  it('keeps the deals it covers', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await set(`stage = 'POC', poc_id = ${await aPocFor(deal)}`)).toBeNull();
+
+    expect(await set(`poc_id = ${await aPocFor(deal)}`)).toBe('clients_opportunity_poc_kept');
+    expect(await set('poc_id = NULL')).toBe('clients_opportunity_poc_kept');
+  });
+
+  /* The user, 19 November 2026: signing the contract starts the POC, so a deal with one is never
+     left at Contract signed. Judged at the commit, so that it may pass through on its way in. */
+  it('is started by the signing, the deal never left at Contract signed', async () => {
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await atCommit()).toBe('clients_opportunity_signing_starts_its_poc');
+
+    expect(await set(`stage = 'POC', poc_id = ${await aPocFor(deal)}`)).toBeNull();
+    expect(await atCommit()).toBeNull();
+  });
+
+  it('leaves a deal with no POC at Contract signed', async () => {
+    expect(await set(`has_poc = false, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await atCommit()).toBeNull();
+  });
+
+  /* The user, 20 November 2026, over CLI 27's "one or more": one deal per POC. */
+  it('covers one deal', async () => {
+    const poc = await aPocFor(deal);
+    expect(await set(`has_poc = true, stage = 'CONTRACT_SIGNED'`)).toBeNull();
+    expect(await set(`stage = 'POC', poc_id = ${poc}`)).toBeNull();
+
+    const sameClient = await admin.query<{ id: string }>(
+      `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+       SELECT $1, id, $2 FROM clients_product WHERE name = 'MicroStudio' RETURNING id`,
+      [client, ama],
+    );
+    const second = sameClient.rows[0].id;
+    await admin.query(
+      `UPDATE clients_opportunity SET has_poc = true, stage = 'CONTRACT_SIGNED' WHERE id = $1`,
+      [second],
+    );
+    expect(
+      await refusedBy(`UPDATE clients_opportunity SET stage = 'POC', poc_id = $2 WHERE id = $1`, [
+        second,
+        poc,
+      ]),
+    ).toBe('uq_clients_opportunity_one_per_poc');
+  });
+
+  /* CLI 33, TDD 4.5. A review step names its POC, of its own client, and which review it is. */
+  it('gives review steps that name it and which review they are', async () => {
+    const poc = await aPocFor(deal);
+    const STEP = `INSERT INTO clients_next_step
+                    (client_id, opportunity_id, poc_id, review_kind, description, due_on,
+                     owner_id, source, created_by)
+                  VALUES ($1, $2, $3, $4, 'Day 7 showcase', '2026-11-09', $5, $6, $5)`;
+
+    expect(await refusedBy(STEP, [client, deal, poc, 'DAY7', ama, 'REVIEW'])).toBeNull();
+    expect(await refusedBy(STEP, [client, deal, poc, 'DAY8', ama, 'REVIEW'])).toBe(
+      'clients_next_step_review_kind_known',
+    );
+    expect(await refusedBy(STEP, [client, deal, null, 'DAY7', ama, 'REVIEW'])).toBe(
+      'clients_next_step_review_names_its_poc',
+    );
+    expect(await refusedBy(STEP, [client, deal, poc, 'DAY7', ama, 'MANUAL'])).toBe(
+      'clients_next_step_review_names_its_poc',
+    );
+    expect(
+      await refusedBy(STEP, [await aClient(ama, 'Thirdbank'), null, poc, 'DAY7', ama, 'REVIEW']),
+    ).toBe('clients_next_step_poc_is_the_clients');
+  });
+
+  /* CLI 34, TDD's act_review. A review meeting says which, about which POC and deal, and whether
+     the senior decision maker came. */
+  it('has review meetings that say which, and whether the decision maker came', async () => {
+    const poc = await aPocFor(deal);
+    const REVIEW = `INSERT INTO clients_activity
+                      (client_id, opportunity_id, poc_id, kind, review_kind, dm_attended,
+                       happened_on, logged_by)
+                    VALUES ($1, $2, $3, 'REVIEW', $4, $5, CURRENT_DATE, $6)`;
+
+    expect(await refusedBy(REVIEW, [client, deal, poc, 'WEEK6', false, ama])).toBeNull();
+    expect(await refusedBy(REVIEW, [client, deal, poc, 'WEEK6', null, ama])).toBe(
+      'clients_activity_review_says_which_and_who_came',
+    );
+    expect(await refusedBy(REVIEW, [client, deal, null, 'WEEK6', true, ama])).toBe(
+      'clients_activity_review_says_which_and_who_came',
+    );
+    expect(await refusedBy(REVIEW, [client, null, poc, 'WEEK6', true, ama])).toBe(
+      'clients_activity_review_names_its_deal',
+    );
+    expect(await refusedBy(REVIEW, [client, deal, poc, 'WEEK7', true, ama])).toBe(
+      'clients_activity_review_kind_known',
+    );
+  });
+
+  /* CLI 29, CLI 92. Moved by a BD manager, an open review step follows the CS lead; no other step
+     changes hands. */
+  it('takes only its open review steps along when its CS lead moves', async () => {
+    const poc = await aPocFor(deal);
+    const { rows } = await admin.query<{ id: string; source: string }>(
+      `INSERT INTO clients_next_step
+              (client_id, opportunity_id, poc_id, review_kind, description, due_on, owner_id,
+               source, created_by)
+       VALUES ($1, $2, $3, 'DAY7', 'Day 7 showcase', '2026-11-09', $4, 'REVIEW', $4),
+              ($1, $2, NULL, NULL, 'Send the deck', '2026-11-09', $4, 'MANUAL', $4)
+       RETURNING id, source`,
+      [client, deal, poc, ama],
+    );
+    const review = rows.find((row) => row.source === 'REVIEW')!.id;
+    const manual = rows.find((row) => row.source === 'MANUAL')!.id;
+    const MOVE = 'UPDATE clients_next_step SET owner_id = $2 WHERE id = $1';
+
+    expect(await refusedBy(MOVE, [review, kofi])).toBe(
+      'clients_next_step_owner_moves_with_its_poc',
+    );
+
+    await admin.query('UPDATE clients_poc SET cs_lead_id = $2 WHERE id = $1', [poc, kofi]);
+    expect(await refusedBy(MOVE, [review, kofi])).toBeNull();
+    expect(await refusedBy(MOVE, [manual, kofi])).toBe(
+      'clients_next_step_owner_moves_with_its_poc',
+    );
+  });
+
+  /* NFR CLI AUD 01, TDD 13. */
+  it('is written to the audit log by the database', async () => {
+    const poc = await aPocFor(deal);
+    await admin.query('UPDATE clients_poc SET cs_lead_id = $2 WHERE id = $1', [poc, kofi]);
+
+    const audit = await admin.query<{ action: string; lead: string }>(
+      `SELECT action, after ->> 'cs_lead_id' AS lead FROM audit_log
+        WHERE entity = 'clients_poc' AND entity_id = $1 ORDER BY id`,
+      [poc],
+    );
+    expect(audit.rows).toEqual([
+      { action: 'CREATE', lead: ama },
+      { action: 'UPDATE', lead: kofi },
+    ]);
   });
 });
 
@@ -2341,6 +2637,8 @@ describe('the application role', () => {
       /* #280, CLI 64. A step closed, by whom and when; never what, when due or whose. */
       { table_name: 'clients_next_step', column_name: 'done_at' },
       { table_name: 'clients_next_step', column_name: 'done_by' },
+      /* #285. An open review step follows its POC to a new CS lead. */
+      { table_name: 'clients_next_step', column_name: 'owner_id' },
       /* #277, CLI 13. A deal's figures and words; never its client, product or outcome. */
       { table_name: 'clients_opportunity', column_name: 'close_half' },
       { table_name: 'clients_opportunity', column_name: 'close_year' },
@@ -2352,6 +2650,8 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'ended_on' },
       { table_name: 'clients_opportunity', column_name: 'has_poc' },
       { table_name: 'clients_opportunity', column_name: 'outcome' },
+      /* #285. The POC it is put in as its contract is signed, once. */
+      { table_name: 'clients_opportunity', column_name: 'poc_id' },
       { table_name: 'clients_opportunity', column_name: 'probability' },
       { table_name: 'clients_opportunity', column_name: 'reason_id' },
       { table_name: 'clients_opportunity', column_name: 'stage' },
@@ -2359,6 +2659,8 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'value_minor' },
       { table_name: 'clients_opportunity', column_name: 'waiting_note' },
       { table_name: 'clients_opportunity', column_name: 'waiting_on' },
+      /* #285. A POC's CS lead, moved by a BD manager. */
+      { table_name: 'clients_poc', column_name: 'cs_lead_id' },
       { table_name: 'clients_product', column_name: 'name' },
       { table_name: 'clients_product', column_name: 'retired_on' },
       { table_name: 'clients_product_line', column_name: 'name' },

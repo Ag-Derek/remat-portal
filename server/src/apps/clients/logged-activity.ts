@@ -21,13 +21,18 @@ import type { Person } from './client.js';
 import { amountMinorOf, isCurrency, type Money } from './opportunity.js';
 import { isAnId } from './product.js';
 
-/** CLI 59, with the financials (#281); a review meeting joins them with the POC (#285). */
+/**
+ * CLI 59, with the financials (#281) and a review meeting (#285). A review meeting is recorded on
+ * its POC's page, which asks whether the senior decision maker was there (CLI 34), and never
+ * logged or corrected into or out of one here.
+ */
 export const ACTIVITY_KINDS = [
   'CALL',
   'MEETING',
   'DEMO',
   'PROPOSAL',
   'FINANCIALS',
+  'REVIEW',
   'NOTE',
 ] as const;
 
@@ -55,6 +60,11 @@ export interface LoggedActivity {
   outcome: string | null;
   /** The amount the financials gave (CLI 65, #281). Null on every other kind. */
   amount: Money | null;
+  /**
+   * A review meeting's POC, which review, and whether the senior decision maker was there; one
+   * without them did not count (CLI 34, #285). Null on every other kind.
+   */
+  review: { pocId: string; kind: 'DAY7' | 'WEEK6' | 'WEEK9'; dmAttended: boolean } | null;
   loggedBy: Person;
   loggedAt: Date;
 }
@@ -88,6 +98,20 @@ export class ActivityNotFound extends Error {
   constructor() {
     super('No activity matches that. Refresh the page to see the activity as it is now.');
     this.name = 'ActivityNotFound';
+  }
+}
+
+/**
+ * A review meeting, once recorded, is not corrected (#285): it decided which review step it closed
+ * and when the review falls due again. A further note is the fix, as after 24 hours.
+ */
+export class ReviewFixed extends Error {
+  constructor() {
+    super(
+      'A review meeting is fixed once recorded, because it decided what happens next. Log a ' +
+        'note to correct it.',
+    );
+    this.name = 'ReviewFixed';
   }
 }
 
@@ -145,7 +169,10 @@ export function readActivityChange(
   }
 
   if ('opportunityId' in fields) change.opportunityId = readDealId(fields.opportunityId);
-  if (fields.kind !== undefined) change.kind = readKind(fields.kind);
+  /* A review stays one, which the service holds; a form sending its kind back as it is fine. */
+  if (fields.kind !== undefined) {
+    change.kind = fields.kind === 'REVIEW' ? 'REVIEW' : readKind(fields.kind);
+  }
   if (fields.happenedOn !== undefined) {
     change.happenedOn = readHappenedOn(fields.happenedOn, today);
   }
@@ -271,6 +298,13 @@ function readDealId(value: unknown): string | null {
 }
 
 function readKind(value: unknown): ActivityKind {
+  if (value === 'REVIEW') {
+    throw new InvalidActivity(
+      'kind',
+      "A review meeting is recorded on its POC's page, which asks whether the senior decision " +
+        'maker was there.',
+    );
+  }
   if (!ACTIVITY_KINDS.includes(value as ActivityKind)) {
     throw new InvalidActivity(
       'kind',
