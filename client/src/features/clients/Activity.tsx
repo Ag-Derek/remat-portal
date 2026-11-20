@@ -138,7 +138,11 @@ export function ClientActivity({
           <AddButton
             label="Log activity"
             onClick={() => {
-              setLogging({});
+              /* Logging is a page of its own, about the deal this is showing where it is one;
+                 correcting stays a dialog over this one. */
+              window.location.hash = `#/clients/client/${client.id}/log${
+                dealId === null ? '' : `/${dealId}`
+              }`;
             }}
           />
         ) : null}

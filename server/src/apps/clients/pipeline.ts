@@ -25,6 +25,8 @@ export interface PipelineStep {
 /** One deal on somebody's pipeline. */
 export interface PipelineDeal {
   deal: Opportunity;
+  /** The client's type as it is now, "Bank", which the pipeline shows under its name. */
+  clientType: string;
   /** Null where nothing is planned for it, which is itself worth seeing. */
   nextStep: PipelineStep | null;
   /**

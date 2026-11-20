@@ -125,6 +125,7 @@ export class ClientsOpportunityRepository {
    */
   async pipeline(ownerId: string): Promise<PipelineDeal[]> {
     const rows = await this.query()
+      .innerJoin('clients_client_type as t', 't.id', 'c.type_id')
       .leftJoinLateral(
         (eb) =>
           eb
@@ -151,6 +152,7 @@ export class ClientsOpportunityRepository {
         'ns.step_due_on',
         'ns.step_owner_id',
         'ns.step_owner_name',
+        't.name as client_type',
         (eb) =>
           eb
             .selectFrom('clients_activity as a')
@@ -182,6 +184,7 @@ export class ClientsOpportunityRepository {
               dueOn: row.step_due_on,
               owner: { id: row.step_owner_id, name: row.step_owner_name },
             },
+      clientType: row.client_type,
       lastContact: row.last_contact ?? null,
     }));
   }

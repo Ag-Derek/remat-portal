@@ -86,10 +86,10 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
       <section className="clients-client">
         <a className="clients-back" href="#/clients">
           <Icon name="back" />
-          All clients
+          My pipeline
         </a>
         <div className="notice plain">
-          <p>No client matches that. It may have been renamed: find it in the list.</p>
+          <p>No client matches that. It may have been renamed, or the link may be wrong.</p>
         </div>
       </section>
     );
@@ -102,7 +102,7 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
     <section className="clients-client">
       <a className="clients-back" href="#/clients">
         <Icon name="back" />
-        All clients
+        My pipeline
       </a>
 
       {problem === undefined ? null : <Notice problem={problem} onRetry={load} />}

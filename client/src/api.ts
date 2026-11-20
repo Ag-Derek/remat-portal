@@ -3650,6 +3650,8 @@ export interface ClientsOfferedProduct {
  */
 export interface PipelineEntry {
   deal: Omit<Deal, 'may' | 'moves'>;
+  /** The client's type, "Bank", shown under its name. */
+  clientType: string;
   nextStep: { id: string; description: string; dueOn: string; owner: ClientsNamed } | null;
   lastContact: string | null;
   /** The next step's day has passed. The server's answer, against the company's today. */

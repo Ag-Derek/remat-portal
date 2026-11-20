@@ -178,6 +178,8 @@ describe('my pipeline', () => {
         probability: 40,
         waitingOn: { on: 'PROPOSAL_RESPONSE', note: 'Board meets on the 20th' },
       },
+      /* The client's type, which the pipeline shows under its name. */
+      clientType: 'Bank',
       nextStep: null,
       lastContact: null,
       overdue: false,
