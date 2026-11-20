@@ -49,6 +49,7 @@ beforeEach(async () => {
   await admin.query(
     'TRUNCATE clients_client_product, clients_stage_change, clients_value_change, clients_next_step, ' +
       'clients_document, clients_activity, ' +
+      'clients_poc_action, clients_poc_health, clients_poc_usage, ' +
       'clients_opportunity, clients_poc, clients_product, ' +
       'clients_product_line RESTART IDENTITY',
   );
