@@ -9897,6 +9897,48 @@ button.linkish.file-name {
   color: var(--warn);
 }
 
+/* How a POC ended (#287): green converted, grey exited, where its phase and health stood. */
+.clients-pill.is-ended {
+  font-weight: 600;
+}
+
+.clients-pill.is-ended.is-won {
+  border-color: color-mix(in srgb, var(--go) 40%, var(--card));
+  background: color-mix(in srgb, var(--go) 12%, var(--card));
+  color: var(--go-ink);
+}
+
+.clients-pill.is-ended.is-exited {
+  color: var(--ink-soft);
+}
+
+/* The decision: convert and exit side by side, the one extension under them. */
+.clients-poc-decide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.clients-poc-decide .linkish {
+  flex-basis: 100%;
+  padding-left: 0;
+  color: var(--accent);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.clients-poc-extension {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.clients-poc-extension p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 /* A reading a later one for its day replaced: kept, and faded. */
 .clients-poc-readings tr.is-replaced td {
   color: var(--ink-faint);

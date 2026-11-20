@@ -321,6 +321,11 @@ export class ClientsOpportunityRepository {
    * in the same transaction, the POC made for the deal's client and line and the client's type
    * as it is today (CLI 30), and the deal put in it at the POC stage, with that step in its
    * history too. The database refuses a deal with a POC left at Contract signed.
+   *
+   * A POC converting (#287) moves its deal from POC to Live: given `revaluedTo`, its value is
+   * revised first, while it is still open, and the new figures added to its history as the
+   * conversion's (CLI 49), the old kept there. Its POC's open review meetings are closed by
+   * whoever converted it, since the POC has ended.
    */
   async move(
     by: Attribution,
@@ -328,12 +333,17 @@ export class ClientsOpportunityRepository {
     move: { from: Stage; to: Stage; note: string | null },
     today: CalendarDate,
     poc?: NewPoc,
+    revaluedTo?: Money,
   ): Promise<void> {
     const outcome = outcomeAt(move.to);
     const changedBy = writerOf(by);
 
     try {
       await recording(this.db, by, async (on) => {
+        if (revaluedTo !== undefined) {
+          await revalueOnConversion(on, id, revaluedTo, changedBy);
+        }
+
         const moved = await on
           .updateTable('clients_opportunity')
           .set({
@@ -344,7 +354,7 @@ export class ClientsOpportunityRepository {
           .where('id', '=', id)
           .where('stage', '=', move.from)
           .where('outcome', '=', 'OPEN')
-          .returning(['client_id', 'product_id'])
+          .returning(['client_id', 'product_id', 'poc_id'])
           .executeTakeFirst();
 
         if (moved === undefined) {
@@ -365,6 +375,10 @@ export class ClientsOpportunityRepository {
 
         if (outcome === 'WON') {
           await addWonProduct(on, moved.client_id, moved.product_id, id, today);
+        }
+
+        if (move.from === 'POC' && moved.poc_id !== null) {
+          await closeReviewsOf(on, moved.poc_id, changedBy);
         }
 
         if (poc !== undefined && move.to === 'CONTRACT_SIGNED') {
@@ -417,7 +431,7 @@ export class ClientsOpportunityRepository {
           .where('id', '=', id)
           .where('stage', '=', ending.stage)
           .where('outcome', '=', 'OPEN')
-          .returning('client_id')
+          .returning(['client_id', 'poc_id'])
           .executeTakeFirst();
 
         if (ended === undefined) {
@@ -435,6 +449,11 @@ export class ClientsOpportunityRepository {
             changed_by: changedBy,
           })
           .execute();
+
+        /* #287. An exit ends the POC, so its open review meetings are closed by whoever exited it. */
+        if (ending.outcome === 'EXITED' && ended.poc_id !== null) {
+          await closeReviewsOf(on, ended.poc_id, changedBy);
+        }
 
         const debriefs = ending.debriefs;
         if (debriefs !== undefined && debriefs.ownerIds.length > 0) {
@@ -738,6 +757,61 @@ async function addWonProduct(
         .doUpdateSet({ since_on: today, ended_on: null, won_by: dealId })
         .where('clients_client_product.ended_on', 'is not', null),
     )
+    .execute();
+}
+
+/**
+ * Revises a deal's value as its POC converts, inside the move's transaction and before it, while
+ * the deal is still open (CLI 49, #287). Always a history row, source CONVERSION, even where the
+ * amount is what the deal already said: the conversion confirming it is part of the trail. Its
+ * chance of closing is left as it is.
+ */
+async function revalueOnConversion(
+  on: Kysely<Database>,
+  dealId: string,
+  value: Money,
+  changedBy: string,
+): Promise<void> {
+  const after = await on
+    .updateTable('clients_opportunity')
+    .set({ value_minor: value.amountMinor, currency: value.currency })
+    .where('id', '=', dealId)
+    .where('outcome', '=', 'OPEN')
+    .returning(['value_minor', 'currency', 'probability'])
+    .executeTakeFirst();
+
+  if (after === undefined) {
+    throw new MovedMeanwhile();
+  }
+
+  await on
+    .insertInto('clients_value_change')
+    .values({
+      opportunity_id: dealId,
+      value_minor: after.value_minor,
+      currency: after.currency,
+      probability: after.probability,
+      source: 'CONVERSION',
+      changed_by: changedBy,
+    })
+    .execute();
+}
+
+/**
+ * Closes a POC's open review meetings as it ends, converted or exited, put down to whoever ended
+ * it (#287, the user, 20 November 2026), so that none lingers on anybody's pipeline.
+ */
+async function closeReviewsOf(
+  on: Kysely<Database>,
+  pocId: string,
+  closedBy: string,
+): Promise<void> {
+  await on
+    .updateTable('clients_next_step')
+    .set({ done_at: sql<Date>`now()`, done_by: closedBy })
+    .where('poc_id', '=', pocId)
+    .where('source', '=', 'REVIEW')
+    .where('done_at', 'is', null)
     .execute();
 }
 

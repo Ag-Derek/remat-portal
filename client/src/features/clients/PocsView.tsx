@@ -3,6 +3,12 @@ import {
   addPocAction,
   type ClientsNamed,
   clientsHolders,
+  convertPoc,
+  type Currency,
+  type EndReason,
+  endReasons,
+  exitPoc,
+  extendPoc,
   isNotSignedIn,
   movePocLead,
   type Poc,
@@ -146,9 +152,21 @@ function decisionInWords(daysToDecision: number): string {
   return `${late === 1 ? '1 day' : `${String(late)} days`} past its decision date`;
 }
 
-/** How far through its ten weeks a POC is, as a share for drawing: never more than all of it. */
-function shareOf(dayOfPoc: number): number {
-  return Math.min(Math.max(dayOfPoc, 1), POC_DAYS) / POC_DAYS;
+/** How far through `length` days a POC is, as a share for drawing: never more than all of it. */
+function shareOf(dayOfPoc: number, length = POC_DAYS): number {
+  return Math.min(Math.max(dayOfPoc, 1), length) / length;
+}
+
+/** How many days it runs: ten weeks, and its extension's days on top (#287). */
+function lengthOf(poc: Poc): number {
+  return POC_DAYS + (poc.extension?.days ?? 0);
+}
+
+/** "of 70", or "of 70 + 21" once extended. */
+function ofLength(poc: Poc): string {
+  return poc.extension === null
+    ? ` of ${String(POC_DAYS)}`
+    : ` of ${String(POC_DAYS)} + ${String(poc.extension.days)}`;
 }
 
 /** Accra is UTC all year, so the browser's UTC day is the company's. */
@@ -163,7 +181,7 @@ function Meter({ poc }: { poc: Poc }) {
       className={`clients-poc-meter${poc.daysToDecision < 0 ? ' is-late' : ''}`}
       aria-hidden="true"
     >
-      <span style={{ width: `${String(shareOf(poc.day) * 100)}%` }} />
+      <span style={{ width: `${String(shareOf(poc.day, lengthOf(poc)) * 100)}%` }} />
     </span>
   );
 }
@@ -249,7 +267,10 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
                 <td data-label="Where it stands">
                   <span>{PHASE_NAME[poc.phase]}</span>
                   <Meter poc={poc} />
-                  <small>Day {String(Math.max(poc.day, 1))} of 70</small>
+                  <small>
+                    Day {String(Math.max(poc.day, 1))}
+                    {ofLength(poc)}
+                  </small>
                 </td>
                 <td data-label="Decision">
                   <span>{day(poc.decisionOn)}</span>
@@ -277,9 +298,9 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
 export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => void }) {
   const [poc, setPoc] = useState<PocPage | undefined>(undefined);
   const [problem, setProblem] = useState<Problem | undefined>(undefined);
-  const [open, setOpen] = useState<'review' | 'lead' | 'health' | 'action' | 'usage' | undefined>(
-    undefined,
-  );
+  const [open, setOpen] = useState<
+    'review' | 'lead' | 'health' | 'action' | 'usage' | 'extend' | 'convert' | 'exit' | undefined
+  >(undefined);
 
   const load = useCallback(() => {
     pocPage(id)
@@ -355,10 +376,21 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
 
               <span className="clients-pill-divider" aria-hidden="true" />
 
-              <span className={`clients-pill is-phase is-${poc.phase.toLowerCase()}`}>
-                {PHASE_NAME[poc.phase]}
-              </span>
-              <HealthPill health={poc.health} />
+              {poc.deal.outcome === 'OPEN' ? (
+                <>
+                  <span className={`clients-pill is-phase is-${poc.phase.toLowerCase()}`}>
+                    {PHASE_NAME[poc.phase]}
+                  </span>
+                  <HealthPill health={poc.health} />
+                </>
+              ) : (
+                <span
+                  className={`clients-pill is-ended is-${poc.deal.outcome === 'WON' ? 'won' : 'exited'}`}
+                >
+                  {poc.deal.outcome === 'WON' ? 'Converted' : 'Exited'}
+                  {poc.deal.endedOn === null ? '' : ` ${day(poc.deal.endedOn)}`}
+                </span>
+              )}
             </div>
           </header>
 
@@ -391,6 +423,18 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
             </div>
 
             <aside className="clients-client-side">
+              <DecisionCard
+                poc={poc}
+                onExtend={() => {
+                  setOpen('extend');
+                }}
+                onConvert={() => {
+                  setOpen('convert');
+                }}
+                onExit={() => {
+                  setOpen('exit');
+                }}
+              />
               <HealthCard
                 poc={poc}
                 onSet={() => {
@@ -420,6 +464,15 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
           {open === 'usage' ? (
             <UsageDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
           ) : null}
+          {open === 'extend' ? (
+            <ExtendDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
+          {open === 'convert' ? (
+            <ConvertDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
+          {open === 'exit' ? (
+            <ExitDialog poc={poc} onDone={done} onClose={close} onSignedOut={onSignedOut} />
+          ) : null}
         </>
       )}
     </section>
@@ -446,7 +499,7 @@ function PocFigures({ poc }: { poc: PocPage }) {
         <dd>
           <span className="clients-figure">
             {String(Math.max(poc.day, 1))}
-            <span className="clients-poc-of"> of 70</span>
+            <span className="clients-poc-of">{ofLength(poc)}</span>
           </span>
           <Meter poc={poc} />
         </dd>
@@ -826,6 +879,89 @@ function HealthRow({ change }: { change: PocHealthChange }) {
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * The decision (#287): when it falls, its one extension if it has had it, and the three things
+ * that can be done about it, extend, convert or exit. Once it has ended, how it ended. A POC
+ * never ends itself when its date passes; only converting or exiting it does.
+ */
+function DecisionCard({
+  poc,
+  onExtend,
+  onConvert,
+  onExit,
+}: {
+  poc: PocPage;
+  onExtend: () => void;
+  onConvert: () => void;
+  onExit: () => void;
+}) {
+  const running = poc.deal.outcome === 'OPEN';
+
+  return (
+    <section className="clients-panel" aria-labelledby="clients-poc-decision">
+      <header className="clients-side-head">
+        <h3 id="clients-poc-decision">Decision</h3>
+      </header>
+
+      <ul className="clients-side-list">
+        <li>
+          <div>
+            {running ? (
+              <>
+                <strong>By {day(poc.decisionOn)}</strong>
+                <small>{decisionInWords(poc.daysToDecision)}</small>
+              </>
+            ) : (
+              <>
+                <strong>
+                  {poc.deal.outcome === 'WON' ? 'Converted' : 'Exited'}
+                  {poc.deal.endedOn === null ? '' : ` on ${day(poc.deal.endedOn)}`}
+                </strong>
+                <small>
+                  {poc.deal.outcome === 'WON'
+                    ? `The ${poc.deal.productName} deal is live and won.`
+                    : `The ${poc.deal.productName} deal was exited.`}
+                </small>
+              </>
+            )}
+          </div>
+        </li>
+        {poc.extension === null ? null : (
+          <li>
+            <div className="clients-poc-extension">
+              <strong>Extended by {String(poc.extension.days)} days</strong>
+              <p>{poc.extension.plan}</p>
+              <small>
+                {moment(poc.extension.at)} · {poc.extension.by.name}
+              </small>
+            </div>
+          </li>
+        )}
+      </ul>
+
+      {running && (poc.may.update || poc.may.extend) ? (
+        <div className="clients-poc-decide">
+          {poc.may.update ? (
+            <>
+              <button type="button" className="primary" onClick={onConvert}>
+                Convert
+              </button>
+              <button type="button" onClick={onExit}>
+                Exit
+              </button>
+            </>
+          ) : null}
+          {poc.may.extend ? (
+            <button type="button" className="linkish" onClick={onExtend}>
+              Extend once, up to 30 days
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1292,6 +1428,261 @@ function UsageDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
           disabled={enrolled.trim() === '' || active.trim() === ''}
           doing="Recording…"
           done="Record"
+          onCancel={onClose}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Extending it, once: 1 to 30 days more, and the plan for them. The new decision date is the
+ * server's to work out.
+ */
+function ExtendDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const [days, setDays] = useState('');
+  const [plan, setPlan] = useState('');
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(['days', 'plan']);
+
+  return (
+    <Dialog
+      title="Extend the POC"
+      intro={`${poc.client.name} · ${poc.deal.productName} POC · decision by ${day(poc.decisionOn)}. A POC is extended once.`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() => extendPoc(poc.id, Number(days), plan));
+        }}
+      >
+        <Field
+          label="Days more"
+          hint="From 1 to 30. The decision date moves on by as many."
+          error={sending.errorFor('days')}
+        >
+          {({ id, describedBy }) => (
+            <input
+              id={id}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={30}
+              step={1}
+              value={days}
+              required
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setDays(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        <Field label="Plan" hint="What the extra days are for." error={sending.errorFor('plan')}>
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              rows={4}
+              value={plan}
+              maxLength={4000}
+              required
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setPlan(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot
+          busy={sending.busy}
+          disabled={days.trim() === '' || plan.trim() === ''}
+          doing="Extending…"
+          done="Extend"
+          onCancel={onClose}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Converting it: the deal goes to Live and is won. A new value may be given, which is kept
+ * beside the old one in the deal's history; left blank, the value stays as it is.
+ */
+function ConvertDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const [currency, setCurrency] = useState<Currency>('GHS');
+  const [amount, setAmount] = useState('');
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(['value']);
+
+  return (
+    <Dialog
+      title="Convert the POC"
+      intro={`${poc.client.name} · the ${poc.deal.productName} deal goes live, and is won.`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sending.send(() =>
+            convertPoc(poc.id, amount.trim() === '' ? null : { amount: amount.trim(), currency }),
+          );
+        }}
+      >
+        <div className="clients-field-row is-money">
+          <Field
+            label="New value"
+            hint="Optional. Leave it blank to keep the deal's value; the old one is kept either way."
+            error={sending.errorFor('value')}
+          >
+            {({ id, describedBy }) => (
+              <span className="clients-deal-money">
+                <select
+                  aria-label="Currency"
+                  value={currency}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setCurrency(event.target.value as Currency);
+                  }}
+                >
+                  <option value="GHS">GHS</option>
+                  <option value="USD">USD</option>
+                </select>
+                <input
+                  id={id}
+                  inputMode="decimal"
+                  value={amount}
+                  placeholder="125000"
+                  autoComplete="off"
+                  aria-describedby={describedBy}
+                  disabled={sending.busy}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                  }}
+                />
+              </span>
+            )}
+          </Field>
+        </div>
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot busy={sending.busy} doing="Converting…" done="Convert" onCancel={onClose} />
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Exiting it, by the exit rules: a reason from the exit list a BD manager keeps, and which
+ * products the POC ran on. The debrief is made for the BD manager on the server.
+ */
+function ExitDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
+  const [reasons, setReasons] = useState<EndReason[] | null>(null);
+  const [loadProblem, setLoadProblem] = useState<Problem | undefined>(undefined);
+  const [reasonId, setReasonId] = useState<string | null>(null);
+  const [note, setNote] = useState(poc.deal.productName);
+  const sending = useSending(onDone, onSignedOut);
+  const other = sending.other(['reasonId', 'note']);
+  const reasonLabel = useId();
+
+  useEffect(() => {
+    let current = true;
+
+    endReasons()
+      .then((lists) => {
+        if (current) setReasons(lists.EXITED);
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        if (isNotSignedIn(error)) {
+          onSignedOut();
+          return;
+        }
+        setLoadProblem(problemFrom(error));
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [onSignedOut]);
+
+  return (
+    <Dialog
+      title="Exit the POC"
+      intro={`${poc.client.name} · the ${poc.deal.productName} deal ends exited, at POC. A debrief is set for the BD manager.`}
+      onClose={onClose}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (reasonId !== null) {
+            sending.send(() => exitPoc(poc.id, reasonId, note));
+          }
+        }}
+      >
+        <div className="clients-lose-reasons">
+          <span id={reasonLabel}>Why was it exited?</span>
+          {loadProblem !== undefined ? (
+            <Notice problem={loadProblem} />
+          ) : reasons === null ? (
+            <span className="muted">Loading the reasons…</span>
+          ) : reasons.length === 0 ? (
+            <span className="muted">
+              There are no exit reasons to choose from. A BD manager adds them in Setup.
+            </span>
+          ) : (
+            <div className="clients-move-chips" role="group" aria-labelledby={reasonLabel}>
+              {reasons.map((reason) => (
+                <button
+                  key={reason.id}
+                  type="button"
+                  aria-pressed={reasonId === reason.id}
+                  disabled={sending.busy}
+                  onClick={() => {
+                    setReasonId(reason.id);
+                  }}
+                >
+                  {reason.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {sending.errorFor('reasonId') === undefined ? null : (
+            <p className="clients-field-error" role="alert">
+              {sending.errorFor('reasonId')}
+            </p>
+          )}
+        </div>
+
+        <Field label="Which products the POC ran on" error={sending.errorFor('note')}>
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              rows={3}
+              value={note}
+              maxLength={2000}
+              required
+              aria-describedby={describedBy}
+              disabled={sending.busy}
+              onChange={(event) => {
+                setNote(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+
+        {other === undefined ? null : <Notice problem={other} />}
+        <DialogFoot
+          busy={sending.busy}
+          disabled={reasonId === null || note.trim() === ''}
+          doing="Exiting…"
+          done="Exit"
           onCancel={onClose}
         />
       </form>

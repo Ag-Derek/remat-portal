@@ -325,15 +325,23 @@ interface PocJson {
   id: string;
   client: { id: string; name: string; type: string };
   lineName: string;
-  deal: { id: string; productName: string; stage: string; outcome: string; owner: { id: string } };
+  deal: {
+    id: string;
+    productName: string;
+    stage: string;
+    outcome: string;
+    endedOn: string | null;
+    owner: { id: string };
+  };
   csLead: { id: string; name: string };
   csLeadHoldsARole: boolean;
   startedOn: string;
   decisionOn: string;
+  extension: { days: number; plan: string; by: { id: string }; at: string } | null;
   phase: string;
   day: number;
   daysToDecision: number;
-  may: { update: boolean; moveLead: boolean };
+  may: { update: boolean; moveLead: boolean; extend: boolean };
   reviews: {
     id: string;
     kind: string;
@@ -1058,7 +1066,11 @@ describe('the CS lead', () => {
     const id = await aPoc();
     await lead(bdManager, id, people.opsDirector);
 
-    expect((await pageOf(id, colleague)).may).toEqual({ update: true, moveLead: false });
+    expect((await pageOf(id, colleague)).may).toEqual({
+      update: true,
+      moveLead: false,
+      extend: true,
+    });
     expect((await review(colleague, id, DAY7_HELD)).status).toBe(201);
 
     const deal = (await pageOf(id)).deal.id;
@@ -1161,9 +1173,21 @@ describe('the POC list and page', () => {
   it('shows one POC to anybody with a role, with what they may do', async () => {
     const id = await aPoc();
 
-    expect((await pageOf(id, associate)).may).toEqual({ update: true, moveLead: false });
-    expect((await pageOf(id, bdManager)).may).toEqual({ update: true, moveLead: true });
-    expect((await pageOf(id, colleague)).may).toEqual({ update: false, moveLead: false });
+    expect((await pageOf(id, associate)).may).toEqual({
+      update: true,
+      moveLead: false,
+      extend: true,
+    });
+    expect((await pageOf(id, bdManager)).may).toEqual({
+      update: true,
+      moveLead: true,
+      extend: true,
+    });
+    expect((await pageOf(id, colleague)).may).toEqual({
+      update: false,
+      moveLead: false,
+      extend: false,
+    });
   });
 
   /* NFR CLI SEC 04. Nothing at all to somebody with no role, whatever the id. */
@@ -1191,5 +1215,303 @@ describe('the POC list and page', () => {
     ).toMatchObject({
       error: 'PocNotFound',
     });
+  });
+});
+
+/* ------------------------------------------------------------- the extension, #287 */
+
+describe('the extension', () => {
+  function extend(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
+    return app.send('POST', `/api/clients/pocs/${id}/extension`, as, body);
+  }
+
+  const PLAN = 'Two more weeks to bring the last three branches onto it';
+
+  /* CLI 31. Up to 30 days, with a plan, and the decision date moved to match. */
+  it('adds up to 30 days once, with a written plan and a new decision date', async () => {
+    const id = await aPoc();
+
+    const response = await extend(associate, id, { days: 21, plan: `  ${PLAN}  ` });
+    expect(response.status).toBe(201);
+    const poc = (await response.json()) as PocJson;
+
+    expect(poc).toMatchObject({
+      decisionOn: '2027-01-29',
+      daysToDecision: 91,
+      extension: { days: 21, plan: PLAN, by: { id: people.officer } },
+      may: { update: true, extend: false },
+    });
+  });
+
+  /* Done when: asking for a second extension is refused. */
+  it('is refused a second time', async () => {
+    const id = await aPoc();
+    await extend(associate, id, { days: 10, plan: PLAN });
+
+    expect(await refused(await extend(bdManager, id, { days: 5, plan: 'More' }), 409)).toEqual({
+      error: 'ExtendedAlready',
+      message:
+        'This POC has been extended once already, to 18 January 2027. A POC is extended only ' +
+        'once: convert or exit it by then.',
+    });
+    expect(await pageOf(id)).toMatchObject({ decisionOn: '2027-01-18', extension: { days: 10 } });
+  });
+
+  it('is 1 to 30 whole days, with a plan', async () => {
+    const id = await aPoc();
+
+    for (const [body, field] of [
+      [{ days: 0, plan: PLAN }, 'days'],
+      [{ days: 31, plan: PLAN }, 'days'],
+      [{ days: 1.5, plan: PLAN }, 'days'],
+      [{ plan: PLAN }, 'days'],
+      [{ days: 10, plan: '  ' }, 'plan'],
+      [{ days: 10 }, 'plan'],
+    ] as const) {
+      expect(await refused(await extend(associate, id, body), 400)).toMatchObject({
+        error: 'InvalidExtension',
+        field,
+      });
+    }
+    expect((await pageOf(id)).extension).toBeNull();
+  });
+
+  /* The user, 20 November 2026. Past its decision date too, which ends that flag. */
+  it('may be asked for past the decision date, and ends that flag', async () => {
+    const id = await aPoc();
+
+    try {
+      pinCurrentDate('2027-01-12');
+      expect((await pageOf(id)).flags.map((flag) => flag.kind)).toContain('PAST_DECISION');
+
+      const poc = (await (await extend(associate, id, { days: 30, plan: PLAN })).json()) as PocJson;
+      expect(poc.decisionOn).toBe('2027-02-07');
+      expect(poc.flags.map((flag) => flag.kind)).not.toContain('PAST_DECISION');
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  /* CLI 35, CLI 91. Its CS lead's or a BD manager's. */
+  it('is refused to anybody else with a role', async () => {
+    const id = await aPoc();
+
+    expect((await extend(colleague, id, { days: 10, plan: PLAN })).status).toBe(403);
+  });
+});
+
+/* ------------------------------------------------------------ ending a POC, #287 */
+
+describe('ending a POC', () => {
+  async function exitReason(label = 'Usage too low'): Promise<string> {
+    return (
+      await admin.query<{ id: string }>(
+        `SELECT id FROM clients_reason WHERE applies_to = 'EXITED' AND label = $1`,
+        [label],
+      )
+    ).rows[0].id;
+  }
+
+  function convert(as: Asker, id: string, body: unknown = {}): Promise<globalThis.Response> {
+    return app.send('POST', `/api/clients/pocs/${id}/convert`, as, body);
+  }
+
+  function exit(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
+    return app.send('POST', `/api/clients/pocs/${id}/exit`, as, body);
+  }
+
+  /** A deal for `product` at ADB, owned by the associate, signed: its POC. */
+  async function aPocFor(product: string): Promise<string> {
+    return (await moved(associate, (await aDeal(associate, product)).id, 'CONTRACT_SIGNED')).poc!
+      .id;
+  }
+
+  /* Done when: a POC with Federation converted and Cloud9 exited ends with one deal won and one
+     exited. One deal per POC (the user, 20 November 2026): each has a POC of its own. */
+  it('converts Federation and exits Cloud9: one deal won, one exited', async () => {
+    const federation = await aPocFor('Federation');
+    const cloud9 = await aPocFor('Cloud9');
+
+    const converted = await convert(associate, federation);
+    expect(converted.status).toBe(200);
+    const exited = await exit(associate, cloud9, {
+      reasonId: await exitReason(),
+      note: 'Ran on Cloud9 only',
+    });
+    expect(exited.status).toBe(200);
+
+    expect(((await converted.json()) as PocJson).deal).toMatchObject({
+      productName: 'Federation',
+      stage: 'LIVE',
+      outcome: 'WON',
+      endedOn: PINNED_DATE,
+    });
+    expect(((await exited.json()) as PocJson).deal).toMatchObject({
+      productName: 'Cloud9',
+      stage: 'POC',
+      outcome: 'EXITED',
+      endedOn: PINNED_DATE,
+    });
+
+    /* Both have ended, so neither is running. */
+    const response = await app.send('GET', '/api/clients/pocs', colleague);
+    expect(((await response.json()) as { pocs: PocJson[] }).pocs).toEqual([]);
+  });
+
+  /* CLI 49. A converted deal's value may be revised as it converts, the old one kept. */
+  it('revises the value of a converted deal, keeping the old one', async () => {
+    const deal = await aDeal();
+    await app.send('PATCH', `/api/clients/opportunities/${deal.id}`, associate, {
+      value: { amount: '12000', currency: 'USD' },
+    });
+    const id = (await moved(associate, deal.id, 'CONTRACT_SIGNED')).poc!.id;
+
+    expect(
+      (await convert(bdManager, id, { value: { amount: '15000', currency: 'USD' } })).status,
+    ).toBe(200);
+
+    const response = await app.send(
+      'GET',
+      `/api/clients/opportunities/${deal.id}/history`,
+      associate,
+    );
+    const { history } = (await response.json()) as {
+      history: { value: { amountMinor: number; currency: string } | null; source: string }[];
+    };
+    expect(history.slice(0, 2)).toMatchObject([
+      { value: { amountMinor: 1_500_000, currency: 'USD' }, source: 'CONVERSION' },
+      { value: { amountMinor: 1_200_000, currency: 'USD' }, source: 'MANUAL' },
+    ]);
+  });
+
+  it('leaves the value as it is where none is given', async () => {
+    const deal = await aDeal();
+    await app.send('PATCH', `/api/clients/opportunities/${deal.id}`, associate, {
+      value: { amount: '12000', currency: 'USD' },
+    });
+    const id = (await moved(associate, deal.id, 'CONTRACT_SIGNED')).poc!.id;
+    await convert(associate, id);
+
+    const response = await app.send(
+      'GET',
+      `/api/clients/opportunities/${deal.id}/history`,
+      associate,
+    );
+    const { history } = (await response.json()) as { history: { source: string }[] };
+    expect(history.map((change) => change.source)).not.toContain('CONVERSION');
+  });
+
+  it('is told what to fix in a value that makes no sense', async () => {
+    const id = await aPoc();
+
+    expect(
+      await refused(
+        await convert(associate, id, { value: { amount: '15000', currency: 'EUR' } }),
+        400,
+      ),
+    ).toMatchObject({ error: 'InvalidOpportunity', field: 'value' });
+    expect((await pageOf(id)).deal.outcome).toBe('OPEN');
+  });
+
+  /* CLI 52 to CLI 54. An exit follows the exit rules: a reason, the products, the debrief. */
+  it('exits by the exit rules: a reason, which products it ran on, and the debrief', async () => {
+    const id = await aPoc();
+
+    expect(
+      await refused(await exit(associate, id, { reasonId: await exitReason() }), 400),
+    ).toMatchObject({ error: 'InvalidEnding', field: 'note' });
+    const lostReason = (
+      await admin.query<{ id: string }>(
+        `SELECT id FROM clients_reason WHERE applies_to = 'LOST' LIMIT 1`,
+      )
+    ).rows[0].id;
+    expect(
+      await refused(await exit(associate, id, { reasonId: lostReason, note: 'Federation' }), 400),
+    ).toMatchObject({ error: 'ReasonNotOffered' });
+
+    expect(
+      (await exit(associate, id, { reasonId: await exitReason(), note: 'Federation' })).status,
+    ).toBe(200);
+    const { rows } = await admin.query(
+      `SELECT description FROM clients_next_step
+        WHERE opportunity_id = $1 AND source = 'DEBRIEF'`,
+      [(await pageOf(id)).deal.id],
+    );
+    expect(rows).toEqual([{ description: 'Internal debrief on the ADB Federation POC exit' }]);
+  });
+
+  /* The user, 20 November 2026. Its open review meetings close, put down to whoever ended it. */
+  it('closes its open review meetings, put down to whoever ended it', async () => {
+    const id = await aPoc();
+    await review(associate, id, DAY7_HELD);
+
+    await convert(bdManager, id);
+
+    expect((await pageOf(id)).reviews.map((step) => [step.kind, step.done?.by.id])).toEqual([
+      ['DAY7', people.officer],
+      ['WEEK6', people.commercialDirector],
+      ['WEEK9', people.commercialDirector],
+    ]);
+  });
+
+  /* Kept as it ended: readable, nothing more to do, no flags. */
+  it('keeps an ended POC readable, with nothing more to do and nothing flagged', async () => {
+    const id = await aPoc();
+    await convert(associate, id);
+
+    try {
+      pinCurrentDate('2027-02-01');
+      const poc = await pageOf(id, bdManager);
+
+      expect(poc.may).toEqual({ update: false, moveLead: false, extend: false });
+      expect(poc.flags).toEqual([]);
+      expect(poc.asks).toBeNull();
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+
+    for (const [address, body] of [
+      ['convert', {}],
+      ['exit', { reasonId: await exitReason(), note: 'Federation' }],
+      ['extension', { days: 5, plan: 'More' }],
+    ] as const) {
+      expect(
+        await refused(
+          await app.send('POST', `/api/clients/pocs/${id}/${address}`, associate, body),
+          409,
+        ),
+      ).toMatchObject({ error: 'PocEnded' });
+    }
+  });
+
+  /* CLI 50. A POC never ends itself when its date passes. */
+  it('never ends itself when its date passes', async () => {
+    const id = await aPoc();
+
+    try {
+      pinCurrentDate('2027-06-01');
+      const response = await app.send('GET', '/api/clients/pocs', colleague);
+      const { pocs } = (await response.json()) as { pocs: PocJson[] };
+
+      expect(pocs).toMatchObject([{ id, deal: { outcome: 'OPEN', stage: 'POC' } }]);
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  /* CLI 35, CLI 91. Its CS lead's or a BD manager's; nobody else's, and nothing to no role. */
+  it('is refused to anybody else with a role, and is nothing to somebody with none', async () => {
+    const id = await aPoc();
+
+    expect((await convert(colleague, id)).status).toBe(403);
+    expect(
+      (await exit(colleague, id, { reasonId: await exitReason(), note: 'Federation' })).status,
+    ).toBe(403);
+    for (const address of ['convert', 'exit', 'extension']) {
+      expect(
+        (await app.send('POST', `/api/clients/pocs/${id}/${address}`, nobody, {})).status,
+      ).toBe(404);
+    }
+    expect((await pageOf(id)).deal.outcome).toBe('OPEN');
   });
 });

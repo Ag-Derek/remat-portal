@@ -94,6 +94,8 @@ import { DocumentService } from './apps/clients/document.service.js';
 import type { ClientsActivityRepository } from './apps/clients/activity.db.js';
 import type { ClientsPocRepository } from './apps/clients/poc.db.js';
 import { PocService } from './apps/clients/poc.service.js';
+import { StageForPoc } from './apps/clients/stage-for-poc.js';
+import type { CompanyCalendar } from './core/calendar/company-calendar.js';
 import type { ClientsProductRepository } from './apps/clients/product.db.js';
 import { SetupService } from './apps/clients/setup.service.js';
 import { RoleService } from './apps/clients/role.service.js';
@@ -249,6 +251,8 @@ export interface Application {
   clientsDocuments?: ClientsDocumentRepository;
   /** #285. POCs, started as their deals are signed. */
   clientsPocs?: ClientsPocRepository;
+  /** #287. The company's working days, which an exit's debrief falls five of after it. */
+  clientsCalendar?: CompanyCalendar;
   /** Where a 500 is written down. */
   failures?: FailureLog;
   /** Read from `SESSION_SECRET` when not given. */
@@ -658,10 +662,24 @@ export function buildApp(parts: Application): Express {
                 clientParts.clients,
                 clientParts.activities,
               ),
+        /* #287. A POC ends by converting or exiting its deal, which only it may do. */
         pocs:
-          parts.clientsPocs === undefined
+          parts.clientsPocs === undefined ||
+          clientParts === undefined ||
+          parts.clientsCalendar === undefined
             ? undefined
-            : new PocService(parts.guard, clientsRoles, parts.clientsPocs),
+            : new PocService(
+                parts.guard,
+                clientsRoles,
+                parts.clientsPocs,
+                new StageForPoc(
+                  clientParts.opportunities,
+                  clientParts.reasons,
+                  clientsRoles,
+                  parts.employees,
+                  parts.clientsCalendar,
+                ),
+              ),
         /* #281. The bytes go to the same storage, and through the same scanner, as leave's. */
         documents:
           parts.clientsDocuments === undefined

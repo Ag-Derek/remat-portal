@@ -7,7 +7,7 @@
  * decides (CLI 48). So these are not on {@link StageService}, which every route may reach, and
  * not behind a flag on a request anybody could send (TDD 5). They are here, and
  * .dependency-cruiser.cjs (`clients-poc-moves-only-from-the-poc`) lets nothing in clients import
- * this module but the POC service, which #287 adds. That is TDD 5's "StageService checks the
+ * this module but the POC service (#287). That is TDD 5's "StageService checks the
  * caller": the caller is checked when the code is built rather than when it runs.
  *
  * Nothing here asks who may: the POC service asks `clientsPolicy.updatePoc` first, since ending a
@@ -22,7 +22,12 @@ import type { Actor } from '../../core/auth/actor.js';
 import type { CompanyCalendar } from '../../core/calendar/company-calendar.js';
 import { type CalendarDate, currentDate } from '../../core/calendar/time.js';
 import type { EmployeeRepository } from '../../core/organisation/employee/employee.db.js';
-import { type Opportunity, OpportunityEnded, OpportunityNotFound } from './opportunity.js';
+import {
+  type Money,
+  type Opportunity,
+  OpportunityEnded,
+  OpportunityNotFound,
+} from './opportunity.js';
 import {
   type ClientsOpportunityRepository,
   type Debriefs,
@@ -60,13 +65,21 @@ export class StageForPoc {
   /**
    * The POC converted for this deal (CLI 48, CLI 49): to Live from its POC, which wins it and adds
    * its product to what the client uses (CLI 25), as a move to Live by hand does without a POC.
-   * Revising its value as it converts (source CONVERSION) comes with the POC's outcome, #287.
+   * Given `revaluedTo`, its value is revised as it converts (CLI 49, #287), the old value kept in
+   * its history and the new one put down to the conversion.
    */
-  async convert(actor: Actor, id: string): Promise<Opportunity> {
+  async convert(actor: Actor, id: string, revaluedTo?: Money): Promise<Opportunity> {
     await this.inItsPoc(id);
 
     await this.ending(id, () =>
-      this.opportunities.move(actor, id, { from: 'POC', to: 'LIVE', note: null }, this.today()),
+      this.opportunities.move(
+        actor,
+        id,
+        { from: 'POC', to: 'LIVE', note: null },
+        this.today(),
+        undefined,
+        revaluedTo,
+      ),
     );
 
     return this.dealOrRefuse(id);

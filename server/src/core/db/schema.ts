@@ -949,7 +949,13 @@ export interface ClientsPocTable {
   /** Moved by a BD manager (#285, CLI 92). */
   cs_lead_id: string;
   started_on: ColumnType<string, string, never>;
-  decision_on: ColumnType<string, string, never>;
+  /** Moved once, by the extension (#287). */
+  decision_on: ColumnType<string, string, string>;
+  /** Its one extension (#287): all four or none, written once. */
+  extension_days: ColumnType<number | null, never, number>;
+  extension_plan: ColumnType<string | null, never, string>;
+  extended_by: ColumnType<string | null, never, string>;
+  extended_at: ColumnType<Date | null, never, Date>;
   created_by: ColumnType<string, string, never>;
   created_at: ColumnType<Date, never, never>;
 }

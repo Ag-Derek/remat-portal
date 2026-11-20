@@ -4041,7 +4041,10 @@ export interface Poc {
     id: string;
     productName: string;
     stage: DealStage;
+    /** The POC's outcome too: open while it runs, won where it converted, or exited. */
     outcome: 'OPEN' | 'WON' | 'LOST' | 'EXITED';
+    /** The day it converted or was exited; null while it runs. */
+    endedOn: string | null;
     owner: ClientsNamed;
   };
   csLead: ClientsNamed;
@@ -4049,15 +4052,20 @@ export interface Poc {
   csLeadHoldsARole: boolean;
   /** 2026-11-02. */
   startedOn: string;
-  /** Ten weeks after the start. */
+  /** Ten weeks after the start, and its extension's days on top where it has one. */
   decisionOn: string;
+  /** Its one extension: 1 to 30 days more, with the plan for them. */
+  extension: { days: number; plan: string; by: ClientsNamed; at: string } | null;
   phase: PocPhase;
   /** Which day of its ten weeks today is; the start is day 1. */
   day: number;
   /** Negative once the decision date has passed. */
   daysToDecision: number;
-  /** Recording reviews: its CS lead or a BD manager. Moving the CS lead: a BD manager. */
-  may: { update: boolean; moveLead: boolean };
+  /**
+   * Updating it (reviews, health, usage, converting, exiting): its CS lead or a BD manager, while
+   * it runs. Moving the CS lead: a BD manager. Extending it: as updating, once.
+   */
+  may: { update: boolean; moveLead: boolean; extend: boolean };
   /** Its latest health. Every POC starts On Track. */
   health: PocHealth;
   /** When it moved into that health. */
@@ -4203,6 +4211,34 @@ export async function setPocHealth(
 export async function addPocAction(id: string, action: string): Promise<PocPage> {
   return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/actions`, {
     action,
+  });
+}
+
+/** Extends it once, by 1 to 30 days, with the plan for them. #287. */
+export async function extendPoc(id: string, days: number, plan: string): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/extension`, {
+    days,
+    plan,
+  });
+}
+
+/** Ends it converted: its deal to Live, won, its value revised where one is given. #287. */
+export async function convertPoc(
+  id: string,
+  value: { amount: string; currency: Currency } | null,
+): Promise<PocPage> {
+  return request<PocPage>(
+    'POST',
+    `/api/clients/pocs/${encodeURIComponent(id)}/convert`,
+    value === null ? {} : { value },
+  );
+}
+
+/** Ends it exited: a reason from the exit list, and which products it ran on. #287. */
+export async function exitPoc(id: string, reasonId: string, note: string): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/exit`, {
+    reasonId,
+    note,
   });
 }
 

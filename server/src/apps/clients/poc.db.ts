@@ -13,6 +13,8 @@ import type { Database } from '../../core/db/index.js';
 import { recording } from '../../core/db/recording.js';
 import type { Outcome } from './opportunity.js';
 import {
+  ExtendedAlready,
+  type ExtensionAsked,
   type HealthChange,
   type HealthSet,
   HealthUnchanged,
@@ -32,6 +34,9 @@ import type { Stage } from './stage.js';
 
 /** The trigger refusing a POC the health it has already (#286). */
 const HEALTH_CHANGES = 'clients_poc_health_changes';
+
+/** The trigger refusing a second extension (#287). */
+const EXTENDED_ONCE = 'clients_poc_extended_once';
 
 /** The trigger refusing an action its POC's health does not ask for (#286). */
 const ANSWERS_THE_CURRENT_HEALTH = 'clients_poc_action_answers_the_current_health';
@@ -363,6 +368,40 @@ export class ClientsPocRepository {
   }
 
   /**
+   * Extends it, once, by `days`, with the plan for them: its decision date moved to match (CLI 31,
+   * #287). The database refuses a second extension, and one once its deal has ended, whoever asks.
+   */
+  async extend(
+    by: Attribution,
+    pocId: string,
+    extension: ExtensionAsked,
+    decisionOn: CalendarDate,
+  ): Promise<void> {
+    const extendedBy = writerOf(by);
+
+    try {
+      await recording(this.db, by, async (on) => {
+        await on
+          .updateTable('clients_poc')
+          .set({
+            decision_on: decisionOn,
+            extension_days: extension.days,
+            extension_plan: extension.plan,
+            extended_by: extendedBy,
+            extended_at: sql<Date>`now()`,
+          })
+          .where('id', '=', pocId)
+          .executeTakeFirstOrThrow();
+      });
+    } catch (error) {
+      if ((error as { constraint?: unknown }).constraint === EXTENDED_ONCE) {
+        throw new ExtendedAlready((await this.find(pocId))?.decisionOn ?? decisionOn);
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Hands the POC to another CS lead, and its open review steps with it, in one transaction (CLI
    * 29, CLI 92, the user, 20 November 2026). The audit trigger on clients_poc keeps who it was.
    */
@@ -397,6 +436,8 @@ function pocs(db: Kysely<Database>) {
       .innerJoin('clients_product as p', 'p.id', 'o.product_id')
       .innerJoin('employee as owner', 'owner.id', 'o.owner_id')
       .innerJoin('employee as lead', 'lead.id', 'poc.cs_lead_id')
+      /* Who extended it, where somebody did (#287). */
+      .leftJoin('employee as extender', 'extender.id', 'poc.extended_by')
       /* Its latest health, and when it moved into it (#286). Every POC has one. */
       .innerJoinLateral(
         (eb) =>
@@ -438,6 +479,7 @@ function pocs(db: Kysely<Database>) {
         'p.name as product_name',
         'o.stage',
         'o.outcome',
+        sql<CalendarDate | null>`o.ended_on::text`.as('ended_on'),
         'owner.id as owner_id',
         sql<string>`owner.first_name || ' ' || owner.last_name`.as('owner_name'),
         'lead.id as lead_id',
@@ -448,6 +490,11 @@ function pocs(db: Kysely<Database>) {
         ),
         sql<CalendarDate>`poc.started_on::text`.as('started_on'),
         sql<CalendarDate>`poc.decision_on::text`.as('decision_on'),
+        'poc.extension_days',
+        'poc.extension_plan',
+        'poc.extended_at',
+        'extender.id as extender_id',
+        sql<string | null>`extender.first_name || ' ' || extender.last_name`.as('extender_name'),
         'latest.health',
         'latest.set_at as health_since',
         sql<boolean>`EXISTS (SELECT 1 FROM clients_poc_action a WHERE a.health_id = latest.id)`.as(
@@ -472,12 +519,26 @@ function pocFrom(row: PocRow): Poc {
       productName: row.product_name,
       stage: row.stage as Stage,
       outcome: row.outcome as Outcome,
+      endedOn: row.ended_on,
       owner: { id: row.owner_id, name: row.owner_name },
     },
     csLead: { id: row.lead_id, name: row.lead_name },
     csLeadHoldsARole: row.lead_holds_a_role,
     startedOn: row.started_on,
     decisionOn: row.decision_on,
+    extension:
+      row.extension_days === null ||
+      row.extension_plan === null ||
+      row.extended_at === null ||
+      row.extender_id === null ||
+      row.extender_name === null
+        ? null
+        : {
+            days: row.extension_days,
+            plan: row.extension_plan,
+            by: { id: row.extender_id, name: row.extender_name },
+            at: row.extended_at,
+          },
     health: row.health as PocHealth,
     healthSince: row.health_since,
     healthAnswered: row.health_answered,

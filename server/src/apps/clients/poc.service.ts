@@ -3,7 +3,8 @@
  *
  * A POC is started by its deal's contract being signed, through the stage service (#285, the
  * user, 19 November 2026). Here: the POC list and page, recording a review meeting, and moving
- * the CS lead. Health and usage (#286) and the extension and the end (#287) join it.
+ * the CS lead; its health and usage (#286); and its one extension, and its end, converted or
+ * exited (#287). A POC never ends itself when its date passes (CLI 50): only these end it.
  *
  * Every method asks `clientsPolicy` first, before reading the request, so somebody refused learns
  * nothing from what they sent.
@@ -19,6 +20,8 @@ import {
   dayOf,
   daysToDecision,
   decisionFlagsOf,
+  ExtendedAlready,
+  extendedDecisionDateOf,
   flagsOf,
   HealthUnchanged,
   InvalidPocLead,
@@ -30,6 +33,7 @@ import {
   type PocView,
   phaseOf,
   readAction,
+  readExtension,
   readHealth,
   readNewLead,
   readUsage,
@@ -38,6 +42,8 @@ import {
   readReview,
 } from './poc.js';
 import type { ClientsPocRepository } from './poc.db.js';
+import { readValue } from './opportunity.js';
+import type { StageForPoc } from './stage-for-poc.js';
 import { type ClientsAccess, clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
 import type { ClientsRoleRepository } from './role.db.js';
@@ -47,6 +53,8 @@ export class PocService {
     private readonly guard: Guard,
     private readonly grants: Pick<ClientsRoleRepository, 'rolesOf'>,
     private readonly pocs: ClientsPocRepository,
+    /** The moves only a POC ending makes on its deal: converted or exited (#279, #287). */
+    private readonly stages: Pick<StageForPoc, 'convert' | 'exit'>,
     /** The company's today, which a POC's phase and days are counted to (TDD 6.1). */
     private readonly today: () => CalendarDate = () => currentDate(),
     /** This moment, which the 48-hour clock is read against (#286). */
@@ -215,6 +223,72 @@ export class PocService {
     return this.page(actor, id);
   }
 
+  /**
+   * Extends it, once, `{ days, plan }`: 1 to 30 days more, with what they are for, its decision
+   * date moved to match (CLI 31, #287). Its CS lead's or a BD manager's, any time while it runs,
+   * past its decision date too. A second is refused.
+   */
+  async extend(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const poc = await this.updatable(actor, id);
+
+    if (poc.extension !== null) {
+      throw new ExtendedAlready(poc.decisionOn);
+    }
+
+    const extension = readExtension(body);
+    await this.pocs.extend(
+      actor,
+      poc.id,
+      extension,
+      extendedDecisionDateOf(poc.startedOn, extension.days),
+    );
+
+    return this.page(actor, id);
+  }
+
+  /**
+   * Ends it converted, `{ value? }` (CLI 48, CLI 49, #287): its deal goes to Live and is won, its
+   * product on what the client uses, and its value revised where a new one is given, the old one
+   * kept in its history. Its CS lead's or a BD manager's. Its open review meetings close.
+   */
+  async convert(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const poc = await this.updatable(actor, id);
+    const fields =
+      typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+
+    await this.stages.convert(actor, poc.deal.id, readValue(fields.value) ?? undefined);
+
+    return this.page(actor, id);
+  }
+
+  /**
+   * Ends it exited, `{ reasonId, note }` (CLI 48, CLI 52 to CLI 54, #287), by the exit rules: a
+   * reason from the exit list, a note naming the products it ran on, and the debrief. Its CS
+   * lead's or a BD manager's. Its open review meetings close.
+   */
+  async exit(actor: Actor, id: string, body: unknown): Promise<PocPage> {
+    const poc = await this.updatable(actor, id);
+
+    await this.stages.exit(actor, poc.deal.id, body);
+
+    return this.page(actor, id);
+  }
+
+  /** The POC, running, and `actor`'s to update (CLI 35, CLI 91); or why not. */
+  private async updatable(actor: Actor, id: string): Promise<Poc> {
+    const access = await accessOf(actor, this.grants);
+    this.guard.enforce(clientsPolicy.read(actor, access, id));
+
+    const poc = await this.pocOrRefuse(id);
+    this.guard.enforce(clientsPolicy.updatePoc(actor, access, poc));
+
+    if (poc.deal.outcome !== 'OPEN') {
+      throw new PocEnded(poc.deal.productName);
+    }
+
+    return poc;
+  }
+
   private async pocOrRefuse(id: string): Promise<Poc> {
     const found = isAnId(id) ? await this.pocs.find(id) : undefined;
 
@@ -247,6 +321,9 @@ function viewOf(
     may: {
       update: running && clientsPolicy.updatePoc(actor, access, poc).allowed,
       moveLead: running && clientsPolicy.reassign(actor, access, 'poc', poc.id).allowed,
+      /* #287. Once. */
+      extend:
+        running && poc.extension === null && clientsPolicy.updatePoc(actor, access, poc).allowed,
     },
     asks: running ? askOf(poc) : null,
     flags: running

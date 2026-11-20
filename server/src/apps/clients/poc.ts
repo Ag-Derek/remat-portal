@@ -448,6 +448,59 @@ export function readUsage(
   return { measuredOn: fields.measuredOn, enrolled, active };
 }
 
+/* -------------------------------------------------------------- its extension, #287 */
+
+/** The most days one extension adds (CLI 31, #287). */
+export const MOST_EXTENSION_DAYS = 30;
+
+/** A POC's one extension: how many days, the plan for them, who and when (#287). */
+export interface Extension {
+  days: number;
+  plan: string;
+  by: Person;
+  at: Date;
+}
+
+/** An extension asked for: `{ days, plan }`. */
+export interface ExtensionAsked {
+  days: number;
+  plan: string;
+}
+
+const MAX_PLAN_LENGTH = 4000;
+
+export function readExtension(body: unknown): ExtensionAsked {
+  const fields = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  const days = fields.days;
+
+  if (
+    typeof days !== 'number' ||
+    !Number.isInteger(days) ||
+    days < 1 ||
+    days > MOST_EXTENSION_DAYS
+  ) {
+    throw new InvalidExtension(
+      'days',
+      `Give how many days more, a whole number from 1 to ${String(MOST_EXTENSION_DAYS)}.`,
+    );
+  }
+
+  const plan = typeof fields.plan === 'string' ? fields.plan.trim() : '';
+  if (plan === '') {
+    throw new InvalidExtension('plan', 'Write the plan: what the extra days are for.');
+  }
+  if (plan.length > MAX_PLAN_LENGTH) {
+    throw new InvalidExtension('plan', `Keep the plan to ${String(MAX_PLAN_LENGTH)} characters.`);
+  }
+
+  return { days, plan };
+}
+
+/** The decision date an extension of `days` gives a POC started on `startedOn` (CLI 31, #287). */
+export function extendedDecisionDateOf(startedOn: CalendarDate, days: number): CalendarDate {
+  return daysAfter(decisionDateOf(startedOn), days);
+}
+
 /* ------------------------------------------------------------------------- the POC */
 
 /** A POC, as a deal shows it. */
@@ -471,13 +524,26 @@ export interface Poc {
   id: string;
   client: { id: string; name: string; type: string };
   lineName: string;
-  /** The one deal it is for. */
-  deal: { id: string; productName: string; stage: Stage; outcome: Outcome; owner: Person };
+  /**
+   * The one deal it is for. Its outcome is the POC's: open while it runs, won where it converted,
+   * exited where it was exited, on the day it ended (#287).
+   */
+  deal: {
+    id: string;
+    productName: string;
+    stage: Stage;
+    outcome: Outcome;
+    endedOn: CalendarDate | null;
+    owner: Person;
+  };
   csLead: Person;
   /** Whether its CS lead still holds a clients role; one who does not needs replacing (CLI 96). */
   csLeadHoldsARole: boolean;
   startedOn: CalendarDate;
+  /** Ten weeks after the start, and the extension's days on top where it has one (#287). */
   decisionOn: CalendarDate;
+  /** Its one extension, or null (#287). */
+  extension: Extension | null;
   /** Its latest health, and when it was set: the moment it moved into it (CLI 35). */
   health: PocHealth;
   healthSince: Date;
@@ -520,7 +586,7 @@ export type PocView = Poc & {
   day: number;
   /** Negative once the decision date has passed (CLI 50). */
   daysToDecision: number;
-  may: { update: boolean; moveLead: boolean };
+  may: { update: boolean; moveLead: boolean; extend: boolean };
   /** What its health asks for, and by when; null for one that has ended. */
   asks: HealthAsk | null;
   /** What needs attention, worked out now; none for one that has ended. */
@@ -702,6 +768,28 @@ export class InvalidHealth extends Error {
     super(message);
     this.name = 'InvalidHealth';
     this.field = field;
+  }
+}
+
+/** An extension that makes no sense as sent, naming the field to fix (#287). */
+export class InvalidExtension extends Error {
+  readonly field: string;
+
+  constructor(field: string, message: string) {
+    super(message);
+    this.name = 'InvalidExtension';
+    this.field = field;
+  }
+}
+
+/** A second extension (#287): a POC is extended once. */
+export class ExtendedAlready extends Error {
+  constructor(decisionOn: CalendarDate) {
+    super(
+      `This POC has been extended once already, to ${formatDay(decisionOn)}. A POC is extended ` +
+        'only once: convert or exit it by then.',
+    );
+    this.name = 'ExtendedAlready';
   }
 }
 
