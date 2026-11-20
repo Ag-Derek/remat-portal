@@ -954,6 +954,48 @@ export interface ClientsPocTable {
   created_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * One change of a POC's health, or its start On Track. #286, Clients SRS CLI 35, TDD 4.3. Its
+ * latest row is the POC's health. Written once, never changed or deleted (NFR CLI REC 01).
+ */
+export interface ClientsPocHealthTable {
+  id: Generated<string>;
+  poc_id: ColumnType<string, string, never>;
+  health: ColumnType<string, string, never>;
+  note: ColumnType<string | null, string | null | undefined, never>;
+  set_by: ColumnType<string, string, never>;
+  set_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * What is being done about a POC's health: a corrective action answering At Risk, or a reset
+ * answering Stalled. #286. Names the health row it answers. Written once, never changed or
+ * deleted.
+ */
+export interface ClientsPocActionTable {
+  id: Generated<string>;
+  poc_id: ColumnType<string, string, never>;
+  health_id: ColumnType<string, string, never>;
+  body: ColumnType<string, string, never>;
+  logged_by: ColumnType<string, string, never>;
+  logged_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * Users enrolled and active on a POC on a day. #286. The percentage is worked
+ * out, never stored. Written once, never changed or deleted; a later reading for the same day
+ * replaces it in the figures.
+ */
+export interface ClientsPocUsageTable {
+  id: Generated<string>;
+  poc_id: ColumnType<string, string, never>;
+  measured_on: ColumnType<string, string, never>;
+  enrolled: ColumnType<number, number, never>;
+  active: ColumnType<number, number, never>;
+  recorded_by: ColumnType<string, string, never>;
+  recorded_at: ColumnType<Date, never, never>;
+}
+
 /** A column that may be null, and is left null when an insert leaves it out. */
 type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
 
@@ -975,6 +1017,12 @@ export interface Database {
   clients_next_step: ClientsNextStepTable;
   /** #285. */
   clients_poc: ClientsPocTable;
+  /** #286. */
+  clients_poc_health: ClientsPocHealthTable;
+  /** #286. */
+  clients_poc_action: ClientsPocActionTable;
+  /** #286. */
+  clients_poc_usage: ClientsPocUsageTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */

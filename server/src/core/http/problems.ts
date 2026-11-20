@@ -541,6 +541,10 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   ReviewFixed: 409,
   /** #285. The POC has ended, kept as it ended, as its deal is. */
   PocEnded: 409,
+  /** #286. The POC has that health already; choosing another is the fix. */
+  HealthUnchanged: 409,
+  /** #286. Its health asks for no corrective action; setting it At Risk is what asks for one. */
+  NoActionAsked: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };

@@ -4058,6 +4058,69 @@ export interface Poc {
   daysToDecision: number;
   /** Recording reviews: its CS lead or a BD manager. Moving the CS lead: a BD manager. */
   may: { update: boolean; moveLead: boolean };
+  /** Its latest health. Every POC starts On Track. */
+  health: PocHealth;
+  /** When it moved into that health. */
+  healthSince: string;
+  /**
+   * What its health asks for, and by when: a corrective action while At Risk, or a reset while
+   * Stalled, until one is written.
+   */
+  asks: { what: 'CORRECTIVE_ACTION' | 'RESET'; by: string } | null;
+  /** What needs attention now, worked out by the server. A flag never changes the health. */
+  flags: PocFlag[];
+  /** Its latest usage: the latest day recorded. Null until one is. */
+  usage: PocUsage | null;
+}
+
+/** Something about a running POC that needs attention. */
+export interface PocFlag {
+  /**
+   * No corrective action 48 hours after At Risk; no reset seven days after Stalled; below 50%
+   * from Day 63; nothing recorded by Day 63; past its decision date.
+   */
+  kind: 'NO_CORRECTIVE_ACTION' | 'EXIT_DECISION' | 'LOW_USAGE' | 'NO_USAGE' | 'PAST_DECISION';
+  /** When it was raised: the moment what was asked for fell due. */
+  since: string;
+}
+
+/** Users enrolled and active on a day, and the share active: worked out, never typed. */
+export interface PocUsage {
+  measuredOn: string;
+  enrolled: number;
+  active: number;
+  /** A whole percent, rounded half up. */
+  percent: number;
+}
+
+/** A usage reading as recorded; `replaced` where a later one for its day counts instead. */
+export type PocUsageReading = PocUsage & {
+  id: string;
+  recordedBy: ClientsNamed;
+  recordedAt: string;
+  replaced: boolean;
+};
+
+/** What is being done about its health: a corrective action (At Risk) or a reset (Stalled). */
+export interface PocAction {
+  id: string;
+  body: string;
+  loggedBy: ClientsNamed;
+  loggedAt: string;
+}
+
+/** How the CS lead or a BD manager judges a POC is going. The flags never change it. */
+export type PocHealth = 'ON_TRACK' | 'AT_RISK' | 'STALLED';
+
+/** One change of a POC's health, or its start On Track. */
+export interface PocHealthChange {
+  id: string;
+  health: PocHealth;
+  note: string | null;
+  setBy: ClientsNamed;
+  setAt: string;
+  /** What was written against it, the earliest first: corrective actions, or resets. */
+  actions: PocAction[];
 }
 
 export interface PocReviewStep {
@@ -4081,7 +4144,25 @@ export interface PocReviewHeld {
   loggedAt: string;
 }
 
-export type PocPage = Poc & { reviews: PocReviewStep[]; held: PocReviewHeld[] };
+export type PocPage = Poc & {
+  reviews: PocReviewStep[];
+  held: PocReviewHeld[];
+  /** Every health it has had, the latest first. */
+  healthHistory: PocHealthChange[];
+  /** Every usage reading, the latest day first, and the latest recorded first within a day. */
+  usageReadings: PocUsageReading[];
+  /** Its usage targets, as they stand today. A missed one is shown, never flagged. */
+  targets: PocTargetCheck[];
+};
+
+/** A usage target: upcoming before its day, then met, missed or with no reading by it. */
+export interface PocTargetCheck {
+  percent: number;
+  byDay: number;
+  dueOn: string;
+  status: 'UPCOMING' | 'MET' | 'MISSED' | 'NO_READING';
+  reading: PocUsage | null;
+}
 
 /** Every POC still running, the soonest to be decided first. */
 export async function runningPocs(): Promise<Poc[]> {
@@ -4105,6 +4186,32 @@ export async function recordReview(
   },
 ): Promise<PocPage> {
   return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/reviews`, review);
+}
+
+/**
+ * Sets its health, with a note if one is given, and the corrective action At Risk asks for if it
+ * is written now: its CS lead or a BD manager.
+ */
+export async function setPocHealth(
+  id: string,
+  set: { health: PocHealth; note: string; action?: string },
+): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/health`, set);
+}
+
+/** Writes a corrective action (At Risk) or a reset (Stalled) against its health. */
+export async function addPocAction(id: string, action: string): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/actions`, {
+    action,
+  });
+}
+
+/** Records users enrolled and active on a day: its CS lead or a BD manager. */
+export async function recordPocUsage(
+  id: string,
+  usage: { measuredOn: string; enrolled: number; active: number },
+): Promise<PocPage> {
+  return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/usage`, usage);
 }
 
 /** Hands the POC, and its open review meetings, to another CS lead: a BD manager. */

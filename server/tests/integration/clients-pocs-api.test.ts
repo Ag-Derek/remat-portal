@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely';
 import { Client } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { databaseForThisFile } from '../setup/test-database.js';
 import { PINNED_DATE } from '../setup/pinned-date.js';
 import { pinCurrentDate } from '../../src/core/calendar/time.js';
@@ -343,6 +343,34 @@ interface PocJson {
     done: { at: string; by: { id: string } } | null;
   }[];
   held: { kind: string; heldOn: string; dmAttended: boolean; loggedBy: { id: string } }[];
+  health: string;
+  healthSince: string;
+  healthHistory: {
+    id: string;
+    health: string;
+    note: string | null;
+    setBy: { id: string; name: string };
+    setAt: string;
+    actions: { body: string; loggedBy: { id: string }; loggedAt: string }[];
+  }[];
+  asks: { what: string; by: string } | null;
+  usage: { measuredOn: string; enrolled: number; active: number; percent: number } | null;
+  usageReadings: {
+    measuredOn: string;
+    enrolled: number;
+    active: number;
+    percent: number;
+    recordedBy: { id: string };
+    replaced: boolean;
+  }[];
+  targets: {
+    percent: number;
+    byDay: number;
+    dueOn: string;
+    status: string;
+    reading: { percent: number } | null;
+  }[];
+  flags: { kind: string; since: string }[];
 }
 
 interface ProblemJson {
@@ -365,6 +393,26 @@ async function pageOf(id: string, as: Asker = associate): Promise<PocJson> {
 
 function review(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
   return app.send('POST', `/api/clients/pocs/${id}/reviews`, as, body);
+}
+
+function health(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
+  return app.send('POST', `/api/clients/pocs/${id}/health`, as, body);
+}
+
+function action(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
+  return app.send('POST', `/api/clients/pocs/${id}/actions`, as, body);
+}
+
+/** The POC list as the app reads it `hours` from now: only its clock moves, not the database's. */
+async function listIn(hours: number): Promise<PocJson[]> {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.now() + hours * 3_600_000);
+  try {
+    const response = await app.send('GET', '/api/clients/pocs', colleague);
+    return ((await response.json()) as { pocs: PocJson[] }).pocs;
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 function lead(as: Asker, id: string, employeeId: unknown): Promise<globalThis.Response> {
@@ -537,6 +585,430 @@ describe('recording a review meeting', () => {
   });
 });
 
+/* ----------------------------------------------------------------------- its health, #286 */
+
+describe("a POC's health", () => {
+  /* The user, 20 November 2026. Every POC starts On Track, put down to whoever signed it. */
+  it('starts On Track, set by whoever signed the contract', async () => {
+    const deal = await aDeal();
+    const id = (await moved(bdManager, deal.id, 'CONTRACT_SIGNED')).poc!.id;
+
+    const poc = await pageOf(id);
+    expect(poc.health).toBe('ON_TRACK');
+    expect(poc.healthHistory).toMatchObject([
+      {
+        health: 'ON_TRACK',
+        note: null,
+        setBy: { id: people.commercialDirector, name: await nameOf(people.commercialDirector) },
+      },
+    ]);
+    expect(poc.healthSince).toBe(poc.healthHistory[0].setAt);
+  });
+
+  /* CLI 35. Set by the CS lead or a BD manager, each change kept, the latest first. */
+  it('is set by its CS lead or a BD manager, every change kept', async () => {
+    const id = await aPoc();
+
+    const atRisk = await health(associate, id, {
+      health: 'AT_RISK',
+      note: '  Only two branches have logged in  ',
+    });
+    expect(atRisk.status).toBe(201);
+    expect(((await atRisk.json()) as PocJson).health).toBe('AT_RISK');
+
+    expect((await health(bdManager, id, { health: 'STALLED' })).status).toBe(201);
+    expect((await health(associate, id, { health: 'ON_TRACK', note: '' })).status).toBe(201);
+
+    const poc = await pageOf(id, colleague);
+    expect(poc.health).toBe('ON_TRACK');
+    expect(poc.healthSince).toBe(poc.healthHistory[0].setAt);
+    expect(
+      poc.healthHistory.map((change) => [change.health, change.note, change.setBy.id]),
+    ).toEqual([
+      ['ON_TRACK', null, people.officer],
+      ['STALLED', null, people.commercialDirector],
+      ['AT_RISK', 'Only two branches have logged in', people.officer],
+      ['ON_TRACK', null, people.officer],
+    ]);
+  });
+
+  /* The user, 20 November 2026. Each is a change: the health it has already is refused. */
+  it('is refused the health it has already', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'AT_RISK' });
+
+    expect(await refused(await health(bdManager, id, { health: 'AT_RISK' }), 409)).toEqual({
+      error: 'HealthUnchanged',
+      message: 'The POC is At Risk already.',
+    });
+    expect((await pageOf(id)).healthHistory).toHaveLength(2);
+  });
+
+  it('is one of the three, with a note in words if any', async () => {
+    const id = await aPoc();
+
+    for (const [body, field] of [
+      [{}, 'health'],
+      [{ health: 'GREEN' }, 'health'],
+      [{ health: 'AT_RISK', note: 7 }, 'note'],
+      [{ health: 'AT_RISK', note: 'x'.repeat(2001) }, 'note'],
+    ] as const) {
+      expect(await refused(await health(associate, id, body), 400)).toMatchObject({
+        error: 'InvalidHealth',
+        field,
+      });
+    }
+    expect((await pageOf(id)).healthHistory).toHaveLength(1);
+  });
+
+  /* CLI 35, CLI 91. Nobody else with a role, who is told whose it is. */
+  it('is refused to anybody else with a role, who is told whose it is', async () => {
+    const id = await aPoc();
+
+    expect(await refused(await health(colleague, id, { health: 'STALLED' }), 403)).toEqual({
+      error: 'NotAuthorised',
+      message: `Only ${await nameOf(people.officer)} or a BD manager can update this POC.`,
+    });
+    expect((await pageOf(id)).health).toBe('ON_TRACK');
+  });
+
+  /* CLI 101. The list shows each POC's health. */
+  it('shows on the POC list', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'STALLED' });
+
+    const response = await app.send('GET', '/api/clients/pocs', colleague);
+    const { pocs } = (await response.json()) as { pocs: PocJson[] };
+    expect(pocs).toMatchObject([{ id, health: 'STALLED' }]);
+  });
+});
+
+describe('a corrective action', () => {
+  /* The SOPs, the user on 20 November 2026. Written with At Risk, against that health. */
+  it('is written with At Risk, and answers it', async () => {
+    const id = await aPoc();
+
+    const response = await health(associate, id, {
+      health: 'AT_RISK',
+      action: 'Daily stand-up with the branch leads',
+    });
+    expect(response.status).toBe(201);
+    const poc = (await response.json()) as PocJson;
+
+    expect(poc.healthHistory[0]).toMatchObject({
+      health: 'AT_RISK',
+      actions: [{ body: 'Daily stand-up with the branch leads', loggedBy: { id: people.officer } }],
+    });
+    expect(poc.healthHistory[1].actions).toEqual([]);
+    expect(poc.asks).toBeNull();
+    expect(poc.flags).toEqual([]);
+  });
+
+  /* Asked for, but may be skipped, and is due 48 hours after the move. */
+  it('is asked for while At Risk with none, due 48 hours after the move', async () => {
+    const id = await aPoc();
+
+    const poc = (await (await health(associate, id, { health: 'AT_RISK' })).json()) as PocJson;
+    expect(poc.asks).toEqual({
+      what: 'CORRECTIVE_ACTION',
+      by: new Date(Date.parse(poc.healthSince) + 48 * 3_600_000).toISOString(),
+    });
+    expect(poc.flags).toEqual([]);
+  });
+
+  /* Done when: an At Risk POC with no action after 48 hours shows a flag on the POC list. */
+  it('flags the POC on the list once 48 hours pass with none, until one is written', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'AT_RISK' });
+
+    expect((await listIn(47))[0].flags).toEqual([]);
+    const [flagged] = await listIn(48.1);
+    expect(flagged.flags).toMatchObject([{ kind: 'NO_CORRECTIVE_ACTION' }]);
+    /* A flag never changes the health. */
+    expect(flagged.health).toBe('AT_RISK');
+
+    const written = await action(bdManager, id, { action: 'Retraining on Friday' });
+    expect(written.status).toBe(201);
+    expect(((await written.json()) as PocJson).healthHistory[0].actions).toMatchObject([
+      { body: 'Retraining on Friday', loggedBy: { id: people.commercialDirector } },
+    ]);
+    expect((await listIn(48.1))[0].flags).toEqual([]);
+  });
+
+  /* The move is what asks: out of At Risk ends it, and back in asks again. */
+  it('is asked for again when the POC moves back into At Risk', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'AT_RISK', action: 'Weekly call' });
+    await health(associate, id, { health: 'ON_TRACK' });
+    expect((await listIn(100))[0].flags).toEqual([]);
+
+    await health(associate, id, { health: 'AT_RISK' });
+    expect((await pageOf(id)).asks).toMatchObject({ what: 'CORRECTIVE_ACTION' });
+    expect((await listIn(48.1))[0].flags).toMatchObject([{ kind: 'NO_CORRECTIVE_ACTION' }]);
+
+    await health(associate, id, { health: 'STALLED' });
+    expect((await listIn(48.1))[0].flags).toEqual([]);
+  });
+
+  /* Only At Risk asks for one. */
+  it('is refused where the health asks for none', async () => {
+    const id = await aPoc();
+
+    expect(await refused(await action(associate, id, { action: 'Something' }), 409)).toEqual({
+      error: 'NoActionAsked',
+      message:
+        'The POC is On Track, so nothing is asked for. At Risk asks for a corrective action, ' +
+        'and Stalled for a reset.',
+    });
+    await health(associate, id, { health: 'AT_RISK' });
+    expect(
+      await refused(await health(associate, id, { health: 'ON_TRACK', action: 'Something' }), 400),
+    ).toMatchObject({ error: 'InvalidHealth', field: 'action' });
+    expect((await pageOf(id)).healthHistory).toHaveLength(2);
+  });
+
+  it('says what is being done', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'AT_RISK' });
+
+    expect(await refused(await action(associate, id, { action: '  ' }), 400)).toMatchObject({
+      error: 'InvalidHealth',
+      field: 'action',
+    });
+  });
+
+  /* CLI 91. Its CS lead's or a BD manager's. */
+  it('is refused to anybody else with a role', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'AT_RISK' });
+
+    expect((await action(colleague, id, { action: 'Something' })).status).toBe(403);
+    expect((await pageOf(id)).healthHistory[0].actions).toEqual([]);
+  });
+});
+
+describe('a reset', () => {
+  /* The SOPs, the user on 20 November 2026. Stalled asks for a reset, due seven days after. */
+  it('is asked for while Stalled with none, due seven days after the move', async () => {
+    const id = await aPoc();
+
+    const poc = (await (await health(associate, id, { health: 'STALLED' })).json()) as PocJson;
+    expect(poc.asks).toEqual({
+      what: 'RESET',
+      by: new Date(Date.parse(poc.healthSince) + 7 * 24 * 3_600_000).toISOString(),
+    });
+  });
+
+  /* Stalled with nothing logged in seven days is flagged for an exit decision. */
+  it('flags the POC for an exit decision once seven days pass with none, until one is written', async () => {
+    const id = await aPoc();
+    await health(associate, id, { health: 'STALLED' });
+
+    expect((await listIn(7 * 24 - 1))[0].flags).toEqual([]);
+    const [flagged] = await listIn(7 * 24 + 0.1);
+    expect(flagged.flags).toMatchObject([{ kind: 'EXIT_DECISION' }]);
+    expect(flagged.health).toBe('STALLED');
+
+    expect((await action(associate, id, { action: 'Restart with the new COO' })).status).toBe(201);
+    expect((await listIn(7 * 24 + 0.1))[0].flags).toEqual([]);
+  });
+
+  it('is written with Stalled, and answers it', async () => {
+    const id = await aPoc();
+
+    const poc = (await (
+      await health(bdManager, id, { health: 'STALLED', action: 'Two-week restart plan' })
+    ).json()) as PocJson;
+    expect(poc.healthHistory[0]).toMatchObject({
+      health: 'STALLED',
+      actions: [{ body: 'Two-week restart plan', loggedBy: { id: people.commercialDirector } }],
+    });
+    expect(poc.asks).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------- its usage, #286 */
+
+describe("a POC's usage", () => {
+  function usage(as: Asker, id: string, body: unknown): Promise<globalThis.Response> {
+    return app.send('POST', `/api/clients/pocs/${id}/usage`, as, body);
+  }
+
+  /* Done when (in part): 28 active out of 64 enrolled shows 44%, worked out, never typed. */
+  it('records users enrolled and active on a day, the percentage worked out', async () => {
+    const id = await aPoc();
+
+    const response = await usage(associate, id, {
+      measuredOn: PINNED_DATE,
+      enrolled: 64,
+      active: 28,
+      percent: 90,
+    });
+    expect(response.status).toBe(201);
+    const poc = (await response.json()) as PocJson;
+
+    expect(poc.usage).toEqual({ measuredOn: PINNED_DATE, enrolled: 64, active: 28, percent: 44 });
+    expect(poc.usageReadings).toMatchObject([
+      {
+        measuredOn: PINNED_DATE,
+        enrolled: 64,
+        active: 28,
+        percent: 44,
+        recordedBy: { id: people.officer },
+        replaced: false,
+      },
+    ]);
+  });
+
+  /* The user, 20 November 2026. Another for the same day replaces it; both are kept. */
+  it('counts the latest reading of a day, and keeps the one it replaced', async () => {
+    const id = await aPoc();
+    await usage(associate, id, { measuredOn: PINNED_DATE, enrolled: 64, active: 28 });
+    await usage(bdManager, id, { measuredOn: PINNED_DATE, enrolled: 64, active: 30 });
+
+    const poc = await pageOf(id);
+    expect(poc.usage).toMatchObject({ active: 30, percent: 47 });
+    expect(poc.usageReadings.map((reading) => [reading.active, reading.replaced])).toEqual([
+      [30, false],
+      [28, true],
+    ]);
+  });
+
+  /* The latest day counts, whenever it was recorded. */
+  it('shows the latest day on the list', async () => {
+    const id = await aPoc();
+    try {
+      pinCurrentDate('2026-11-10');
+      await usage(associate, id, { measuredOn: '2026-11-09', enrolled: 50, active: 40 });
+      await usage(associate, id, { measuredOn: '2026-11-02', enrolled: 50, active: 10 });
+
+      const response = await app.send('GET', '/api/clients/pocs', colleague);
+      const { pocs } = (await response.json()) as { pocs: PocJson[] };
+      expect(pocs[0].usage).toEqual({
+        measuredOn: '2026-11-09',
+        enrolled: 50,
+        active: 40,
+        percent: 80,
+      });
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  /* Done when: 28 active out of 64 enrolled at Day 63 shows 44% and the low usage flag. */
+  it('at 28 of 64 on Day 63 shows 44% and the low usage flag on the list', async () => {
+    const id = await aPoc();
+    const day63 = '2026-12-31';
+
+    try {
+      pinCurrentDate('2026-12-30');
+      await usage(associate, id, { measuredOn: '2026-12-30', enrolled: 64, active: 28 });
+      let [poc] = (
+        (await (await app.send('GET', '/api/clients/pocs', colleague)).json()) as {
+          pocs: PocJson[];
+        }
+      ).pocs;
+      expect(poc.flags).toEqual([]);
+
+      pinCurrentDate(day63);
+      await usage(associate, id, { measuredOn: day63, enrolled: 64, active: 28 });
+      [poc] = (
+        (await (await app.send('GET', '/api/clients/pocs', colleague)).json()) as {
+          pocs: PocJson[];
+        }
+      ).pocs;
+
+      expect(poc.day).toBe(63);
+      expect(poc.usage).toMatchObject({ active: 28, enrolled: 64, percent: 44 });
+      expect(poc.flags).toEqual([{ kind: 'LOW_USAGE', since: `${day63}T00:00:00.000Z` }]);
+      /* A flag never changes the health. */
+      expect(poc.health).toBe('ON_TRACK');
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  /* The user, 20 November 2026. Nothing recorded by Day 63 is flagged too. */
+  it('flags a POC with no usage recorded by Day 63', async () => {
+    const id = await aPoc();
+
+    try {
+      pinCurrentDate('2026-12-31');
+      expect((await pageOf(id)).flags).toEqual([
+        { kind: 'NO_USAGE', since: '2026-12-31T00:00:00.000Z' },
+      ]);
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  /* The SOPs. ADB is a bank: 50% by Day 30, 70% by Day 63, each judged once its day comes. */
+  it("shows the targets for the client's type, met or missed once their day comes", async () => {
+    const id = await aPoc();
+
+    try {
+      pinCurrentDate('2026-11-28');
+      await usage(associate, id, { measuredOn: '2026-11-28', enrolled: 64, active: 40 });
+      const poc = await pageOf(id);
+
+      expect(poc.targets).toEqual([
+        {
+          percent: 50,
+          byDay: 30,
+          dueOn: '2026-11-28',
+          status: 'MET',
+          reading: { measuredOn: '2026-11-28', enrolled: 64, active: 40, percent: 63 },
+        },
+        { percent: 70, byDay: 63, dueOn: '2026-12-31', status: 'UPCOMING', reading: null },
+      ]);
+      /* A missed target is shown, never flagged. */
+      pinCurrentDate('2026-12-31');
+      await usage(associate, id, { measuredOn: '2026-12-31', enrolled: 64, active: 40 });
+      const later = await pageOf(id);
+      expect(later.targets[1]).toMatchObject({ status: 'MISSED', reading: { percent: 63 } });
+      expect(later.flags).toEqual([]);
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
+  it('starts with none', async () => {
+    const poc = await pageOf(await aPoc());
+
+    expect(poc.usage).toBeNull();
+    expect(poc.usageReadings).toEqual([]);
+  });
+
+  /* From the start to today, some enrolled, no more active than enrolled. */
+  it('is for a day of the POC so far, with counts that make sense', async () => {
+    const id = await aPoc();
+    const good = { measuredOn: PINNED_DATE, enrolled: 64, active: 28 };
+
+    for (const [body, field] of [
+      [{ ...good, measuredOn: '2026-10-29' }, 'measuredOn'],
+      [{ ...good, measuredOn: '2026-10-31' }, 'measuredOn'],
+      [{ ...good, enrolled: 0 }, 'enrolled'],
+      [{ ...good, active: 65 }, 'active'],
+    ] as const) {
+      expect(await refused(await usage(associate, id, body), 400)).toMatchObject({
+        error: 'InvalidUsage',
+        field,
+      });
+    }
+    expect((await pageOf(id)).usageReadings).toEqual([]);
+  });
+
+  /* CLI 91. Its CS lead's or a BD manager's. */
+  it('is refused to anybody else with a role', async () => {
+    const id = await aPoc();
+
+    expect(
+      (await usage(colleague, id, { measuredOn: PINNED_DATE, enrolled: 64, active: 28 })).status,
+    ).toBe(403);
+    expect((await pageOf(id)).usage).toBeNull();
+  });
+});
+
 describe('the CS lead', () => {
   /* CLI 29, CLI 92. A BD manager hands the POC on, and its open review steps go with it. */
   it('is moved by a BD manager, the open reviews with them', async () => {
@@ -660,6 +1132,31 @@ describe('the POC list and page', () => {
     }
   });
 
+  /* #286, CLI 50. A running POC past its decision date is flagged on the list, its health kept. */
+  it('flags a POC past its decision date, from the day after it', async () => {
+    const id = await aPoc();
+    await app.send('POST', `/api/clients/pocs/${id}/usage`, associate, {
+      measuredOn: PINNED_DATE,
+      enrolled: 10,
+      active: 9,
+    });
+
+    try {
+      const flagsOn = async (today: string) => {
+        pinCurrentDate(today);
+        const response = await app.send('GET', '/api/clients/pocs', colleague);
+        return ((await response.json()) as { pocs: PocJson[] }).pocs[0];
+      };
+
+      expect((await flagsOn(DECIDED_BY)).flags).toEqual([]);
+      const late = await flagsOn('2027-01-09');
+      expect(late.flags).toEqual([{ kind: 'PAST_DECISION', since: '2027-01-09T00:00:00.000Z' }]);
+      expect(late.health).toBe('ON_TRACK');
+    } finally {
+      pinCurrentDate(PINNED_DATE);
+    }
+  });
+
   /* CLI 100. Its page: the deal, the clock, and what the person reading may do. */
   it('shows one POC to anybody with a role, with what they may do', async () => {
     const id = await aPoc();
@@ -677,6 +1174,9 @@ describe('the POC list and page', () => {
       ['GET', '/api/clients/pocs'],
       ['GET', `/api/clients/pocs/${id}`],
       ['POST', `/api/clients/pocs/${id}/reviews`],
+      ['POST', `/api/clients/pocs/${id}/health`],
+      ['POST', `/api/clients/pocs/${id}/actions`],
+      ['POST', `/api/clients/pocs/${id}/usage`],
       ['POST', `/api/clients/pocs/${id}/lead`],
     ] as const) {
       expect(

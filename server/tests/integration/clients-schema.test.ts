@@ -35,6 +35,9 @@ const TABLES = [
   'clients_activity',
   'clients_document',
   'clients_poc',
+  'clients_poc_health',
+  'clients_poc_action',
+  'clients_poc_usage',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -2338,6 +2341,294 @@ describe('a POC', () => {
       { action: 'CREATE', lead: ama },
       { action: 'UPDATE', lead: kofi },
     ]);
+  });
+});
+
+describe("a POC's health", () => {
+  const HEALTH = `INSERT INTO clients_poc_health (poc_id, health, note, set_by)
+                  VALUES ($1, $2, $3, $4) RETURNING id`;
+  let poc: string;
+
+  /** The commit's verdict on the POCs made so far, without committing. */
+  function atCommit(): Promise<string | null> {
+    return refusedBy('SET CONSTRAINTS clients_poc_has_a_health IMMEDIATE');
+  }
+
+  beforeEach(async () => {
+    poc = await aPocFor(await aDeal(await aClient(ama), ama));
+  });
+
+  /* The user, 20 November 2026. A POC has a health from the transaction that makes it. */
+  it('is had by every POC from the start, On Track', async () => {
+    expect(await atCommit()).toBe('clients_poc_has_a_health');
+
+    expect(await refusedBy(HEALTH, [poc, 'AT_RISK', null, ama])).toBe(
+      'clients_poc_health_starts_on_track',
+    );
+    expect(await refusedBy(HEALTH, [poc, 'ON_TRACK', null, ama])).toBeNull();
+    expect(await atCommit()).toBeNull();
+  });
+
+  /* CLI 35. */
+  it('records the health, the note, who set it and when', async () => {
+    await admin.query(HEALTH, [poc, 'ON_TRACK', null, ama]);
+    const { rows } = await admin.query(
+      `${HEALTH.replace('RETURNING id', '')} RETURNING poc_id, health, note, set_by, set_at`,
+      [poc, 'AT_RISK', 'Usage has dropped', kofi],
+    );
+
+    expect(rows[0]).toMatchObject({
+      poc_id: poc,
+      health: 'AT_RISK',
+      note: 'Usage has dropped',
+      set_by: kofi,
+    });
+    expect(rows[0].set_at).toBeInstanceOf(Date);
+  });
+
+  it('is On Track, At Risk or Stalled, with a note that says something if any', async () => {
+    await admin.query(HEALTH, [poc, 'ON_TRACK', null, ama]);
+
+    expect(await refusedBy(HEALTH, [poc, 'GREEN', null, ama])).toBe('clients_poc_health_known');
+    expect(await refusedBy(HEALTH, [poc, 'STALLED', ' ', ama])).toBe(
+      'clients_poc_health_note_not_blank',
+    );
+    expect(await refusedBy(HEALTH, [poc, 'STALLED', null, '987654321'])).toBe(
+      'clients_poc_health_set_by_fkey',
+    );
+  });
+
+  /* The user, 20 November 2026. Each row is a change. */
+  it('changes with every row', async () => {
+    await admin.query(HEALTH, [poc, 'ON_TRACK', null, ama]);
+
+    expect(await refusedBy(HEALTH, [poc, 'ON_TRACK', null, ama])).toBe(
+      'clients_poc_health_changes',
+    );
+    expect(await refusedBy(HEALTH, [poc, 'AT_RISK', null, ama])).toBeNull();
+    expect(await refusedBy(HEALTH, [poc, 'AT_RISK', null, kofi])).toBe(
+      'clients_poc_health_changes',
+    );
+    expect(await refusedBy(HEALTH, [poc, 'ON_TRACK', null, ama])).toBeNull();
+  });
+
+  /* NFR CLI REC 01. */
+  it('is never changed or deleted once written', async () => {
+    const { rows } = await admin.query<{ id: string }>(HEALTH, [poc, 'ON_TRACK', null, ama]);
+
+    for (const statement of [
+      `UPDATE clients_poc_health SET note = 'later' WHERE id = $1`,
+      'DELETE FROM clients_poc_health WHERE id = $1',
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement, [rows[0].id])).rejects.toThrow(
+        /clients_poc_health are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
+  });
+
+  /* NFR CLI AUD 02. */
+  it('is not written to the audit log', async () => {
+    await admin.query(HEALTH, [poc, 'ON_TRACK', null, ama]);
+
+    const { rows } = await admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM audit_log WHERE entity = 'clients_poc_health'`,
+    );
+    expect(rows[0].n).toBe(0);
+  });
+});
+
+describe('a corrective action', () => {
+  const HEALTH = `INSERT INTO clients_poc_health (poc_id, health, set_by)
+                  VALUES ($1, $2, $3) RETURNING id`;
+  const ACTION = `INSERT INTO clients_poc_action (poc_id, health_id, body, logged_by)
+                  VALUES ($1, $2, $3, $4) RETURNING id`;
+  let poc: string;
+  let onTrack: string;
+
+  async function healthOf(id: string, health: string): Promise<string> {
+    return (await admin.query<{ id: string }>(HEALTH, [id, health, ama])).rows[0].id;
+  }
+
+  beforeEach(async () => {
+    poc = await aPocFor(await aDeal(await aClient(ama), ama));
+    onTrack = await healthOf(poc, 'ON_TRACK');
+  });
+
+  /* The SOPs, the user on 20 November 2026. */
+  it('records what is being done, the At Risk it answers, who and when', async () => {
+    const atRisk = await healthOf(poc, 'AT_RISK');
+    const { rows } = await admin.query(
+      `${ACTION.replace('RETURNING id', '')} RETURNING poc_id, health_id, body, logged_by, logged_at`,
+      [poc, atRisk, 'Weekly call with the CCO', kofi],
+    );
+
+    expect(rows[0]).toMatchObject({
+      poc_id: poc,
+      health_id: atRisk,
+      body: 'Weekly call with the CCO',
+      logged_by: kofi,
+    });
+    expect(rows[0].logged_at).toBeInstanceOf(Date);
+  });
+
+  /* At Risk asks for a corrective action and Stalled for a reset, only while it is the health. */
+  it("answers the POC's health now, and only At Risk or Stalled", async () => {
+    expect(await refusedBy(ACTION, [poc, onTrack, 'Something', ama])).toBe(
+      'clients_poc_action_answers_the_current_health',
+    );
+
+    const atRisk = await healthOf(poc, 'AT_RISK');
+    expect(await refusedBy(ACTION, [poc, atRisk, 'Something', ama])).toBeNull();
+    expect(await refusedBy(ACTION, [poc, atRisk, 'Something more', ama])).toBeNull();
+
+    const stalled = await healthOf(poc, 'STALLED');
+    expect(await refusedBy(ACTION, [poc, atRisk, 'Too late', ama])).toBe(
+      'clients_poc_action_answers_the_current_health',
+    );
+    expect(await refusedBy(ACTION, [poc, stalled, 'A reset', ama])).toBeNull();
+  });
+
+  it("answers its own POC's health, and says something", async () => {
+    const other = await aPocFor(await aDeal(await aClient(ama, 'Otherbank'), ama));
+    await healthOf(other, 'ON_TRACK');
+    const atRisk = await healthOf(poc, 'AT_RISK');
+
+    /* The trigger, which runs first, refuses it; the foreign key holds behind it. */
+    expect(await refusedBy(ACTION, [other, atRisk, 'Something', ama])).toBe(
+      'clients_poc_action_answers_the_current_health',
+    );
+    const { rows } = await admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_constraint
+        WHERE conname = 'clients_poc_action_health_is_the_pocs' AND contype = 'f'`,
+    );
+    expect(rows[0].n).toBe(1);
+    expect(await refusedBy(ACTION, [poc, atRisk, '  ', ama])).toBe(
+      'clients_poc_action_says_something',
+    );
+  });
+
+  /* NFR CLI REC 01. */
+  it('is never changed or deleted once written', async () => {
+    const atRisk = await healthOf(poc, 'AT_RISK');
+    const { rows } = await admin.query<{ id: string }>(ACTION, [poc, atRisk, 'Something', ama]);
+
+    for (const statement of [
+      `UPDATE clients_poc_action SET body = 'later' WHERE id = $1`,
+      'DELETE FROM clients_poc_action WHERE id = $1',
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement, [rows[0].id])).rejects.toThrow(
+        /clients_poc_action are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
+  });
+
+  /* NFR CLI AUD 02. */
+  it('is not written to the audit log', async () => {
+    await admin.query(ACTION, [poc, await healthOf(poc, 'AT_RISK'), 'Something', ama]);
+
+    const { rows } = await admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM audit_log WHERE entity = 'clients_poc_action'`,
+    );
+    expect(rows[0].n).toBe(0);
+  });
+});
+
+describe("a POC's usage", () => {
+  const USAGE = `INSERT INTO clients_poc_usage (poc_id, measured_on, enrolled, active, recorded_by)
+                 VALUES ($1, $2::date, $3, $4, $5) RETURNING id`;
+  let poc: string;
+
+  /** The parameters for 28 of 64 active today, recorded by Ama. */
+  function aReading(change: Partial<Record<string, unknown>> = {}): unknown[] {
+    const row = { on: 'CURRENT_DATE', enrolled: 64, active: 28, by: ama, ...change };
+    return [poc, row.on === 'CURRENT_DATE' ? today : row.on, row.enrolled, row.active, row.by];
+  }
+
+  let today: string;
+
+  beforeEach(async () => {
+    poc = await aPocFor(await aDeal(await aClient(ama), ama));
+    today = (await admin.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0].d;
+  });
+
+  /* #286. Two counts and a day; the percentage is never stored. */
+  it('records the day, enrolled and active, who recorded it and when, and no percentage', async () => {
+    const { rows } = await admin.query(
+      `${USAGE.replace('RETURNING id', '')}
+       RETURNING poc_id, measured_on::text, enrolled, active, recorded_by, recorded_at`,
+      aReading(),
+    );
+
+    expect(rows[0]).toMatchObject({
+      poc_id: poc,
+      measured_on: today,
+      enrolled: 64,
+      active: 28,
+      recorded_by: ama,
+    });
+    expect(rows[0].recorded_at).toBeInstanceOf(Date);
+
+    const { rows: columns } = await admin.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'clients_poc_usage' AND column_name LIKE '%percent%'`,
+    );
+    expect(columns).toEqual([]);
+  });
+
+  it('has somebody enrolled, and no more active than enrolled', async () => {
+    expect(await refusedBy(USAGE, aReading({ enrolled: 0, active: 0 }))).toBe(
+      'clients_poc_usage_someone_enrolled',
+    );
+    expect(await refusedBy(USAGE, aReading({ active: 65 }))).toBe(
+      'clients_poc_usage_active_of_enrolled',
+    );
+    expect(await refusedBy(USAGE, aReading({ active: -1 }))).toBe(
+      'clients_poc_usage_active_of_enrolled',
+    );
+    expect(await refusedBy(USAGE, aReading({ active: 64 }))).toBeNull();
+    expect(await refusedBy(USAGE, aReading({ active: 0 }))).toBeNull();
+  });
+
+  it('is for a day the POC had started', async () => {
+    expect(await refusedBy(USAGE, aReading({ on: '2020-01-01' }))).toBe(
+      'clients_poc_usage_during_the_poc',
+    );
+  });
+
+  /* The user, 20 November 2026. A day may be recorded again; both are kept. */
+  it('may be recorded again for the same day', async () => {
+    expect(await refusedBy(USAGE, aReading())).toBeNull();
+    expect(await refusedBy(USAGE, aReading({ active: 30 }))).toBeNull();
+  });
+
+  /* NFR CLI REC 01. */
+  it('is never changed or deleted once written', async () => {
+    const { rows } = await admin.query<{ id: string }>(USAGE, aReading());
+
+    for (const statement of [
+      'UPDATE clients_poc_usage SET active = 1 WHERE id = $1',
+      'DELETE FROM clients_poc_usage WHERE id = $1',
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement, [rows[0].id])).rejects.toThrow(
+        /clients_poc_usage are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
+  });
+
+  /* NFR CLI AUD 02. */
+  it('is not written to the audit log', async () => {
+    await admin.query(USAGE, aReading());
+
+    const { rows } = await admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM audit_log WHERE entity = 'clients_poc_usage'`,
+    );
+    expect(rows[0].n).toBe(0);
   });
 });
 

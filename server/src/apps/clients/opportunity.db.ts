@@ -662,6 +662,12 @@ async function startPoc(
     .returning('id')
     .executeTakeFirstOrThrow();
 
+  /* #286, CLI 35. Every POC starts On Track, put down to whoever signed it. */
+  await on
+    .insertInto('clients_poc_health')
+    .values({ poc_id: made.id, health: 'ON_TRACK', set_by: changedBy })
+    .execute();
+
   await on
     .updateTable('clients_opportunity')
     .set({ stage: 'POC', poc_id: made.id })
