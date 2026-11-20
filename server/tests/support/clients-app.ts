@@ -30,6 +30,8 @@ import { ClientsDocumentRepository } from '../../src/apps/clients/document.db.js
 import { DocumentService } from '../../src/apps/clients/document.service.js';
 import { ClientsPocRepository } from '../../src/apps/clients/poc.db.js';
 import { PocService } from '../../src/apps/clients/poc.service.js';
+import { StageForPoc } from '../../src/apps/clients/stage-for-poc.js';
+import { CompanyCalendar } from '../../src/core/calendar/company-calendar.js';
 import { SignatureScanner } from '../../src/core/scanning/signature-scanner.js';
 import { InMemoryStorage } from './in-memory-storage.js';
 import type { RecordingDenialLog } from './recording-denials.js';
@@ -125,7 +127,18 @@ export async function startClientsApp(
     ),
     stages: new StageService(guard, grants, opportunities, new ClientsReasonRepository(db)),
     activities: new ActivityService(guard, grants, clientRecords, activities),
-    pocs: new PocService(guard, grants, new ClientsPocRepository(db)),
+    pocs: new PocService(
+      guard,
+      grants,
+      new ClientsPocRepository(db),
+      new StageForPoc(
+        opportunities,
+        new ClientsReasonRepository(db),
+        grants,
+        new EmployeeRepository(db),
+        new CompanyCalendar(db),
+      ),
+    ),
     documents: new DocumentService(
       guard,
       grants,

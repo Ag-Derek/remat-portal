@@ -589,6 +589,33 @@ function pocRoutes(routes: Router, pocs: PocService): void {
     ),
   );
 
+  /**
+   * `{ days, plan }`: extends it once, 1 to 30 days, its decision date moved to match. Its CS
+   * lead's or a BD manager's (CLI 31, #287).
+   */
+  routes.post(
+    '/clients/pocs/:id/extension',
+    answer((request, response) => pocs.extend(actorOf(response), idOf(request), request.body), 201),
+  );
+
+  /**
+   * `{ value? }`: ends it converted, its deal to Live and won, its value revised where one is
+   * given (CLI 48, CLI 49, #287).
+   */
+  routes.post(
+    '/clients/pocs/:id/convert',
+    answer((request, response) => pocs.convert(actorOf(response), idOf(request), request.body)),
+  );
+
+  /**
+   * `{ reasonId, note }`: ends it exited, by the exit rules: a reason, the products it ran on, and
+   * the debrief (CLI 48, CLI 52 to CLI 54, #287).
+   */
+  routes.post(
+    '/clients/pocs/:id/exit',
+    answer((request, response) => pocs.exit(actorOf(response), idOf(request), request.body)),
+  );
+
   /** `{ employeeId }`: hands the POC, and its open review steps, to another CS lead (CLI 92). */
   routes.post(
     '/clients/pocs/:id/lead',

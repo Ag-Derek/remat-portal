@@ -545,6 +545,8 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   HealthUnchanged: 409,
   /** #286. Its health asks for no corrective action; setting it At Risk is what asks for one. */
   NoActionAsked: 409,
+  /** #287. A POC is extended once; converting or exiting it is the fix. */
+  ExtendedAlready: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };

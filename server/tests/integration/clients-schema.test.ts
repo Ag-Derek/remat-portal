@@ -2142,12 +2142,83 @@ describe('a POC', () => {
   it('is decided ten weeks after it starts', async () => {
     for (const decision of ['2027-01-10', '2027-01-12', '2026-11-02']) {
       expect(await refusedBy(POC, [client, ama, '2026-11-02', decision, ama, 'Symphony'])).toBe(
-        'clients_poc_ten_weeks',
+        'clients_poc_decision_date',
       );
     }
     expect(
       await refusedBy(POC, [client, ama, '2026-11-02', '2027-01-11', ama, 'Symphony']),
     ).toBeNull();
+  });
+
+  /* #287, CLI 31. One extension of 1 to 30 days, with a plan, moving the decision date to match,
+     made once and kept, and only while its deal is open. */
+  describe('extended', () => {
+    let poc: string;
+
+    function extend(assignments: string): Promise<string | null> {
+      return refusedBy(`UPDATE clients_poc SET ${assignments} WHERE id = $1`, [poc]);
+    }
+
+    /** The assignments extending it by `days`, by Ama, now. */
+    function by(days: number): string {
+      return (
+        `extension_days = ${String(days)}, extension_plan = 'Three more branches', ` +
+        `extended_by = ${ama}, extended_at = now(), ` +
+        `decision_on = started_on + ${String(70 + days)}`
+      );
+    }
+
+    beforeEach(async () => {
+      poc = await intoItsPocWithin(admin, deal);
+    });
+
+    it('moves the decision date by its days, and only by them', async () => {
+      expect(await extend(by(30))).toBeNull();
+      expect(
+        (
+          await admin.query<{ gap: number }>(
+            'SELECT decision_on - started_on AS gap FROM clients_poc WHERE id = $1',
+            [poc],
+          )
+        ).rows[0].gap,
+      ).toBe(100);
+    });
+
+    it('is 1 to 30 days, with a plan, and says who and when', async () => {
+      expect(await extend(by(31))).toBe('clients_poc_extension_up_to_thirty_days');
+      expect(await extend(by(0))).toBe('clients_poc_extension_up_to_thirty_days');
+      expect(await extend(by(10).replace("'Three more branches'", "' '"))).toBe(
+        'clients_poc_extension_has_a_plan',
+      );
+      expect(await extend(by(10).replace('extended_at = now()', 'extended_at = NULL'))).toBe(
+        'clients_poc_extension_whole',
+      );
+      expect(
+        await extend(by(10).replace(/decision_on = .*/, 'decision_on = started_on + 70')),
+      ).toBe('clients_poc_decision_date');
+    });
+
+    /* Done when (in part): a second extension is refused, by the database too. */
+    it('is made once, and kept', async () => {
+      expect(await extend(by(10))).toBeNull();
+
+      expect(await extend(by(20))).toBe('clients_poc_extended_once');
+      expect(await extend(`extension_plan = 'Something else'`)).toBe('clients_poc_extended_once');
+      /* Anything else about it still changes. */
+      expect(await extend(`cs_lead_id = ${kofi}`)).toBeNull();
+    });
+
+    it('is made only while its deal is open', async () => {
+      await admin.query(
+        `UPDATE clients_opportunity SET outcome = 'EXITED', ended_on = CURRENT_DATE,
+                reason_id = (SELECT id FROM clients_reason WHERE applies_to = 'EXITED' LIMIT 1),
+                end_note = 'Federation'
+          WHERE id = $1`,
+        [deal],
+      );
+
+      expect(await extend(by(10))).toBe('clients_poc_extended_while_running');
+    });
   });
 
   /* TDD's opp_poc_stage. A deal in its POC names it. */
@@ -2952,6 +3023,12 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'waiting_on' },
       /* #285. A POC's CS lead, moved by a BD manager. */
       { table_name: 'clients_poc', column_name: 'cs_lead_id' },
+      /* #287. Its one extension, and the decision date it moves. */
+      { table_name: 'clients_poc', column_name: 'decision_on' },
+      { table_name: 'clients_poc', column_name: 'extended_at' },
+      { table_name: 'clients_poc', column_name: 'extended_by' },
+      { table_name: 'clients_poc', column_name: 'extension_days' },
+      { table_name: 'clients_poc', column_name: 'extension_plan' },
       { table_name: 'clients_product', column_name: 'name' },
       { table_name: 'clients_product', column_name: 'retired_on' },
       { table_name: 'clients_product_line', column_name: 'name' },

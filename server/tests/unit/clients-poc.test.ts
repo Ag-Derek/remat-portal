@@ -6,6 +6,7 @@ import {
   dayOf,
   daysToDecision,
   decisionFlagsOf,
+  extendedDecisionDateOf,
   decisionDateOf,
   flagsOf,
   InvalidHealth,
@@ -13,6 +14,7 @@ import {
   phaseOf,
   POC_DAYS,
   readAction,
+  readExtension,
   readHealth,
   readNewLead,
   readUsage,
@@ -407,5 +409,31 @@ describe('the decision flag', () => {
       { kind: 'PAST_DECISION', since: new Date('2027-01-12T00:00:00Z') },
     ]);
     expect(decisionFlagsOf(poc, '2027-03-01')).toHaveLength(1);
+  });
+});
+
+describe('an extension', () => {
+  /* CLI 31, #287. Ten weeks, then up to 30 days more. */
+  it('moves the decision date by its days', () => {
+    expect(extendedDecisionDateOf(START, 1)).toBe('2027-01-12');
+    expect(extendedDecisionDateOf(START, 30)).toBe('2027-02-10');
+  });
+
+  it('is 1 to 30 whole days, with a plan in words', () => {
+    expect(readExtension({ days: 30, plan: ' Two branches more ' })).toEqual({
+      days: 30,
+      plan: 'Two branches more',
+    });
+    for (const [body, field] of [
+      [{ days: 0, plan: 'x' }, 'days'],
+      [{ days: 31, plan: 'x' }, 'days'],
+      [{ days: '10', plan: 'x' }, 'days'],
+      [{ days: 10, plan: '' }, 'plan'],
+      [{ days: 10, plan: 'x'.repeat(4001) }, 'plan'],
+    ] as const) {
+      expect(() => readExtension(body)).toThrow(
+        expect.objectContaining({ name: 'InvalidExtension', field }),
+      );
+    }
   });
 });
