@@ -227,6 +227,8 @@ export interface RequestToDecide {
   versionSeen: string | null;
   /** FR 32g. For a per-occasion type; posted on a final yes where the balance is short. */
   grantIfShort?: GrantOnApproval | null;
+  /** See `DecisionAtADesk.closingADroppedStage`. Only `closeTheHrStage` sets it. */
+  closingADroppedStage?: boolean;
 }
 
 /** What `LeaveRequestService` supplies to send a request back into its chain. FR 48b. */
@@ -829,6 +831,7 @@ export class BalanceService {
         skipped: await repositories.routing.forRequest(current.id),
         available,
         occupants,
+        closingADroppedStage: decision.closingADroppedStage,
       });
 
       /** FR 48d. Asked after the outcome, as the service asks it, and here it binds. */

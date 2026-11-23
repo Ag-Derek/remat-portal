@@ -44,6 +44,7 @@ import { InMemoryStorage } from '../support/in-memory-storage.js';
 import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Fetching a certificate through a link that expires. NFR SEC 04, NFR SEC 06.
@@ -154,13 +155,15 @@ beforeEach(async () => {
   storage.reset();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
   annualId = (await admin.query("SELECT id FROM leave_type WHERE code = 'ANNUAL'")).rows[0].id;
 
   await admin.query('BEGIN');
   await admin.query('DELETE FROM leave_type_approval_step WHERE leave_type_id = $1', [annualId]);
-  await admin.query('SELECT ensure_statutory_approval_chains()');
+  await admin.query('SELECT ensure_statutory_approval_chains(true)');
   await admin.query('COMMIT');
 
   await balances.grantTheYear(system, {

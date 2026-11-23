@@ -943,6 +943,15 @@ export interface DecisionAtADesk {
   available: DesksAvailable;
   /** FR 48d. Who is at each of them. */
   occupants: DeskOccupants;
+  /**
+   * Closing the stage a request is standing on although its chain no longer names that desk.
+   *
+   * Only ever set by `LeaveRequestService.closeTheHrStage`, for the requests HR was holding
+   * when it was taken out of the chains. Everywhere else such a request is refused with
+   * {@link ApprovalChainChanged}. The decision is recorded at the desk it stood on, and the walk
+   * goes on over the chain as it now is.
+   */
+  closingADroppedStage?: boolean;
 }
 
 /**
@@ -977,7 +986,7 @@ export function decisionTo(input: DecisionAtADesk): ApprovalOutcome {
      desk the chain itself does not name. */
   const asked = desksAsked(chain, skipped);
 
-  if (!isApprovedBy(asked, desk)) {
+  if (!isApprovedBy(asked, desk) && input.closingADroppedStage !== true) {
     throw new ApprovalChainChanged(request, desk, asked);
   }
 

@@ -52,6 +52,7 @@ import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { holidayRecalculationService } from '../support/holiday-recalculations.js';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /** Security suite. §12. */
 
@@ -164,6 +165,8 @@ beforeEach(async () => {
   await clear();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
   annualId = (await admin.query("SELECT id FROM leave_type WHERE code = 'ANNUAL'")).rows[0].id;

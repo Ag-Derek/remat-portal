@@ -523,8 +523,40 @@ async function grantTheCurrentYear(): Promise<string | undefined> {
   return run.granted.length === 0 ? undefined : summaryOfGrant(run);
 }
 
+/**
+ * HR is out of leave approval for now: anything still waiting on the HR desk has its stage
+ * closed, so the manager's decision stands or the request goes on to the Chief Executive.
+ * Undefined once there is nothing left to close, which is every run after the first.
+ */
+async function closeTheHrStage(): Promise<string | undefined> {
+  const run = await leaveRequests.closeTheHrStage(theSystem('closing the HR approval stage'));
+
+  if (run.closed.length + run.leftWithHr.length + run.failed.length === 0) {
+    return undefined;
+  }
+
+  return [
+    `HR approval stage: ${String(run.closed.length)} request(s) closed.`,
+    ...run.closed.map(
+      ({ request }) =>
+        `  ${request.id}: now ${request.status}` +
+        (request.awaitingApprovalFrom === null
+          ? ''
+          : `, waiting on ${request.awaitingApprovalFrom}`),
+    ),
+    ...run.leftWithHr.map(
+      (request) => `  ${request.id}: left with HR, a recorded skip sends a stage there`,
+    ),
+    ...run.failed.map(
+      ({ requestId, because }) =>
+        `  ${requestId}: not closed, ${because instanceof Error ? because.message : String(because)}`,
+    ),
+  ].join('\n');
+}
+
 /* Daily, in sequence: the balance moves first, and the reconciliation checks what they left. */
 const dailyTimer = every(DAY_MS, async () => {
+  await runJob('close-hr-stage', closeTheHrStage);
   await runJob('year-rollover', rollOverFinishedYears);
   await runJob('annual-grant', grantTheCurrentYear);
   await runJob('carryover-expiry', async () =>

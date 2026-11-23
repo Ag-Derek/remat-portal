@@ -59,6 +59,7 @@ import { holidayRecalculationService } from '../support/holiday-recalculations.j
 import { delegationService } from '../support/delegations.js';
 import { CoverRepository } from '../../src/apps/leave/cover/cover.db.js';
 import { CoverService } from '../../src/apps/leave/cover/cover.service.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Who covers for somebody while they are on leave. #226.
@@ -200,6 +201,8 @@ beforeEach(async () => {
   );
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   annualId = (await admin.query<{ id: string }>("SELECT id FROM leave_type WHERE code = 'ANNUAL'"))
     .rows[0].id;

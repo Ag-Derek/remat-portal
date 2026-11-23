@@ -42,6 +42,7 @@ import { InMemoryStorage } from '../support/in-memory-storage.js';
 import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Certified sickness beyond the three days. FR 32a, FR 32b, FR 33, §8.6b.
@@ -139,12 +140,14 @@ beforeEach(async () => {
   storage.reset();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
   annualId = (await admin.query("SELECT id FROM leave_type WHERE code = 'ANNUAL'")).rows[0].id;
   sickId = (await admin.query("SELECT id FROM leave_type WHERE code = 'SICK'")).rows[0].id;
 
-  await admin.query('SELECT ensure_statutory_approval_chains()');
+  await admin.query('SELECT ensure_statutory_approval_chains(true)');
 
   await grant(annualId, 20);
   /** FR 32a. Three days, which is the allowance the SRS gives sick leave. */

@@ -36,6 +36,7 @@ import { recordingMailer, type RecordingMailer } from '../support/recording-mail
 import { recordingNotices } from '../support/recording-notices.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * A failed notification is retried rather than dropped. FR 59, §7.1.
@@ -143,6 +144,8 @@ beforeEach(async () => {
   mailer.clear();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
 
@@ -150,7 +153,7 @@ beforeEach(async () => {
 
   await admin.query('BEGIN');
   await admin.query('DELETE FROM leave_type_approval_step WHERE leave_type_id = $1', [annualId]);
-  await admin.query('SELECT ensure_statutory_approval_chains()');
+  await admin.query('SELECT ensure_statutory_approval_chains(true)');
   await admin.query('COMMIT');
 
   await balances.grantTheYear(system, {

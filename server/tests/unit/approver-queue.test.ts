@@ -29,7 +29,13 @@ import type { Actor } from '../../src/core/auth/actor.js';
 
 const YEAR_2026 = year('2026', '2026-01-01', '2026-12-31');
 
-const ANNUAL = leaveType({ code: 'ANNUAL', name: 'Annual Leave', minNoticeCalendarDays: 7 });
+/** Manager then HR, as annual leave went while HR approved leave. The HR stage is what these tests read. */
+const ANNUAL = leaveType({
+  code: 'ANNUAL',
+  name: 'Annual Leave',
+  minNoticeCalendarDays: 7,
+  approvalChain: ['MANAGER', 'HR'],
+});
 
 /** HR then the Chief Executive. §4.3.1. */
 const UNPAID = leaveType({

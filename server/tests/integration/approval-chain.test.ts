@@ -189,21 +189,23 @@ function asAdministrator() {
 
 describe('the chains of FR 38a, which is the story', () => {
   /* The story in one assertion, read off the database rather than off a
-     constant: unpaid leave goes to HR and the Chief Executive, everything else
-     goes to the manager and then HR. Neither is an `if` anywhere. */
-  it('send the two unpaid types to HR and the CEO, and everything else to the manager', async () => {
+     constant. HR is out of leave approval for now: unpaid leave goes to the Chief
+     Executive and everything else to the manager. Neither is an `if` anywhere.
+     While HR approved leave, unpaid leave went HR then the Chief Executive and
+     everything else manager then HR. */
+  it('send the two unpaid types to the CEO, and everything else to the manager', async () => {
     const chains = new Map(
       (await types.list(system)).map((type) => [type.code, type.approvalChain]),
     );
 
-    expect(chains.get('UNPAID')).toEqual(['HR', 'CEO']);
-    expect(chains.get('MAT_EXT_UNPAID')).toEqual(['HR', 'CEO']);
+    expect(chains.get('UNPAID')).toEqual(['CEO']);
+    expect(chains.get('MAT_EXT_UNPAID')).toEqual(['CEO']);
+    // expect(chains.get('UNPAID')).toEqual(['HR', 'CEO']);
+    // expect(chains.get('MAT_EXT_UNPAID')).toEqual(['HR', 'CEO']);
 
     for (const code of ['ANNUAL', 'SICK', 'COMPASSIONATE', 'MATERNITY', 'PATERNITY']) {
-      expect(chains.get(code), `${code} does not go to the manager and then HR`).toEqual([
-        'MANAGER',
-        'HR',
-      ]);
+      expect(chains.get(code), `${code} does not go to the manager alone`).toEqual(['MANAGER']);
+      // expect(chains.get(code)).toEqual(['MANAGER', 'HR']);
     }
   });
 
@@ -214,8 +216,11 @@ describe('the chains of FR 38a, which is the story', () => {
   it('leave the manager out of the unpaid chains altogether', async () => {
     for (const code of ['UNPAID', 'MAT_EXT_UNPAID']) {
       expect(await chainFor(code)).not.toContain('MANAGER');
-      expect(firstApprover(await chainFor(code))).toBe('HR');
-      expect(nextUnapproved(await chainFor(code), ['HR'])).toBe('CEO');
+      expect(firstApprover(await chainFor(code))).toBe('CEO');
+      expect(nextUnapproved(await chainFor(code), ['CEO'])).toBeUndefined();
+      // While HR approved leave:
+      // expect(firstApprover(await chainFor(code))).toBe('HR');
+      // expect(nextUnapproved(await chainFor(code), ['HR'])).toBe('CEO');
     }
   });
 
@@ -318,7 +323,7 @@ describe('saying who approves a type, which never waits on a developer', () => {
     ).rejects.toBeInstanceOf(InvalidApprovalChain);
 
     // And the chain that was there is still there.
-    expect(await chainFor('ANNUAL')).toEqual(['MANAGER', 'HR']);
+    expect(await chainFor('ANNUAL')).toEqual(['MANAGER']);
   });
 
   it('reports an id that is nobody rather than silently doing nothing', async () => {
@@ -429,8 +434,9 @@ describe('the rules are held by the database as well as by the domain', () => {
     await expect(writeStep('ANNUAL', 1, 'CEO')).rejects.toThrow(/leave_type_approval_step_pkey/);
   });
 
+  /* Annual leave is the manager alone, so the second step is the one that repeats a desk. */
   it('refuses the same desk twice in one chain', async () => {
-    await expect(writeStep('ANNUAL', 3, 'HR')).rejects.toThrow(
+    await expect(writeStep('ANNUAL', 2, 'MANAGER')).rejects.toThrow(
       /leave_type_approval_step_role_once/,
     );
   });
@@ -551,7 +557,7 @@ describe('a type nobody approves', () => {
 
     await admin.query('SELECT ensure_statutory_approval_chains()');
 
-    expect(await chainFor('UNPAID')).toEqual(['HR', 'CEO']);
+    expect(await chainFor('UNPAID')).toEqual(['CEO']);
     await expect(
       types.requestable(system, (await byCode('UNPAID')).id, await person(people.officer)),
     ).resolves.toBeDefined();
@@ -613,6 +619,19 @@ describe('putting the chains back, and refusing to rewrite them', () => {
 
     expect(await ensureTheChains()).toBe(2);
 
+    expect(await chainFor('SICK')).toEqual(['MANAGER']);
+    expect(await chainFor('UNPAID')).toEqual(['CEO']);
+  });
+
+  /* "For now": the chains HR was in are still the function's to write, when asked for. */
+  it('writes the chains HR was in when asked to', async () => {
+    await admin.query(
+      `DELETE FROM leave_type_approval_step
+        WHERE leave_type_id IN (SELECT id FROM leave_type WHERE upper(code) IN ('SICK', 'UNPAID'))`,
+    );
+
+    await admin.query('SELECT ensure_statutory_approval_chains(true)');
+
     expect(await chainFor('SICK')).toEqual(['MANAGER', 'HR']);
     expect(await chainFor('UNPAID')).toEqual(['HR', 'CEO']);
   });
@@ -627,10 +646,9 @@ describe('putting the chains back, and refusing to rewrite them', () => {
     );
     await ensureTheChains();
 
+    /* Unpaid leave is one stage now, the Chief Executive: one row out and one back. */
     expect(await stepEntries()).toEqual([
       { action: 'DELETE', actor: 'not named by the writer' },
-      { action: 'DELETE', actor: 'not named by the writer' },
-      { action: 'CREATE', actor: 'ensure_statutory_approval_chains()' },
       { action: 'CREATE', actor: 'ensure_statutory_approval_chains()' },
     ]);
   });
@@ -665,7 +683,7 @@ describe('putting the chains back, and refusing to rewrite them', () => {
      call away from anything that happens to be connected. */
   it('belongs to the owner rather than to the application', async () => {
     const { rows } = await admin.query<{ may: boolean }>(
-      `SELECT has_function_privilege('lms_app', 'ensure_statutory_approval_chains()', 'EXECUTE') AS may`,
+      `SELECT has_function_privilege('lms_app', 'ensure_statutory_approval_chains(boolean)', 'EXECUTE') AS may`,
     );
 
     expect(rows[0].may).toBe(false);
@@ -699,7 +717,7 @@ describe('who may say who approves a type', () => {
   it('is readable by an ordinary employee', async () => {
     const adwoa = signedInAs(people.officer, { roles: ['EMPLOYEE'], isManager: false });
 
-    expect((await types.byCode(adwoa, 'UNPAID'))?.approvalChain).toEqual(['HR', 'CEO']);
+    expect((await types.byCode(adwoa, 'UNPAID'))?.approvalChain).toEqual(['CEO']);
   });
 
   it('is changed by an HR Administrator', async () => {
@@ -746,7 +764,7 @@ describe('every change is in the audit log, NFR AUD 01', () => {
   });
 
   /* The whole of the history, because there is no updated_at on a step to carry
-     it: two desks taken out and two put in, with what each of them was. */
+     it: the desk taken out and the two put in, with what each of them was. */
   it('says which desk went and which arrived', async () => {
     const unpaid = await byCode('UNPAID');
 
@@ -756,10 +774,7 @@ describe('every change is in the audit log, NFR AUD 01', () => {
 
     expect(
       entries.filter((entry) => entry.action === 'DELETE').map((entry) => entry.before),
-    ).toEqual([
-      expect.objectContaining({ step_order: 1, approver_role: 'HR' }),
-      expect.objectContaining({ step_order: 2, approver_role: 'CEO' }),
-    ]);
+    ).toEqual([expect.objectContaining({ step_order: 1, approver_role: 'CEO' })]);
 
     expect(
       entries.filter((entry) => entry.action === 'CREATE').map((entry) => entry.after),

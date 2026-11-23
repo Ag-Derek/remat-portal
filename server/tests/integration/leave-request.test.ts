@@ -61,6 +61,7 @@ import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
 import { currentDate } from '../../src/core/calendar/time.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Asking for leave, against a real database. FR 10, FR 11, §8.
@@ -203,6 +204,8 @@ beforeEach(async () => {
   denials.clear();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
 
@@ -248,7 +251,7 @@ beforeEach(async () => {
      names the type it is putting back and `annualId` is undefined on the first pass. */
   await admin.query('BEGIN');
   await admin.query('DELETE FROM leave_type_approval_step WHERE leave_type_id = $1', [annualId]);
-  await admin.query('SELECT ensure_statutory_approval_chains()');
+  await admin.query('SELECT ensure_statutory_approval_chains(true)');
   await admin.query('COMMIT');
 
   /* Twenty days of annual leave, so there is something to spend. Granted the way the
@@ -4387,8 +4390,9 @@ describe('a request decided by the person who asked for it', () => {
    * And not the Chief Executive at their own CEO desk. FR 48, FR 48b.
    *
    * The top of the company, which is the story's "even at the top". The
-   * request does not sit at that desk at all: the stage is the requester's own, so it falls
-   * to HR — and the refusal is what stops the Chief Executive following it there.
+   * request does not sit at that desk at all: the stage is the requester's own, and while HR
+   * is out of leave approval it has no stand-in, so it stops. (It fell to HR before.) The
+   * refusal is what stops the Chief Executive deciding it anyway.
    */
   it('and not the Chief Executive at their own CEO desk', async () => {
     await rewriteTheAnnualChain('CEO');
@@ -4405,10 +4409,12 @@ describe('a request decided by the person who asked for it', () => {
 
     const { request } = await requests.submit(chief, aRequest({ employeeId: people.ceo }));
 
-    /* FR 48b's third criterion: the CEO stage falls back to HR, because there is nothing
-       above FR 04's root and the seat is the requester's. */
-    expect(request.status).toBe('SUBMITTED');
-    expect(request.awaitingApprovalFrom).toBe('HR');
+    /* FR 48b's third criterion: there is nothing above FR 04's root and the seat is the
+       requester's, so it stops. While HR approved leave it fell back to HR:
+       expect(request.status).toBe('SUBMITTED');
+       expect(request.awaitingApprovalFrom).toBe('HR'); */
+    expect(request.status).toBe('UNROUTABLE');
+    expect(request.awaitingApprovalFrom).toBeNull();
 
     await expect(requests.approve(chief, request.id)).rejects.toThrow(NotAuthorised);
     await expect(requests.refuse(chief, request.id, WHY_NOT)).rejects.toThrow(NotAuthorised);

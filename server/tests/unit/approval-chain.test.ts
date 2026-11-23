@@ -94,8 +94,9 @@ describe('the three desks a chain names, FR 38a', () => {
 });
 
 describe('the default chain, which is the story’s second criterion', () => {
-  it('is the manager and then HR', () => {
-    expect([...DEFAULT_APPROVAL_CHAIN]).toEqual(['MANAGER', 'HR']);
+  /* The manager alone while HR is out of leave approval. It was manager then HR. */
+  it('is the manager alone', () => {
+    expect([...DEFAULT_APPROVAL_CHAIN]).toEqual(['MANAGER']);
   });
 
   /* A type created without a word about approvals is approved by somebody. The
@@ -110,7 +111,7 @@ describe('the default chain, which is the story’s second criterion', () => {
         countingBasis: 'WORKING_DAYS',
         entitlementBasis: 'QUOTA',
       }).approvalChain,
-    ).toEqual(['MANAGER', 'HR']);
+    ).toEqual(['MANAGER']);
   });
 
   it('is not applied over a chain the caller actually gave', () => {
@@ -357,7 +358,7 @@ describe('a type nobody approves', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(NobodyApprovesLeaveType);
       expect((error as Error).message).toMatch(/HR Administrator/);
-      expect((error as Error).message).toMatch(/your manager then HR/);
+      expect((error as Error).message).toMatch(/types go to your manager\.$/);
     }
   });
 });

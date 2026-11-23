@@ -65,8 +65,12 @@ const YEAR_2027 = year('2027', '2027-01-01', '2027-12-31');
 
 const YEARS = [YEAR_2025, YEAR_2026, YEAR_2027];
 
-/** Manager then HR, which is what five of the seven types have. */
-const ANNUAL = leaveType({ code: 'ANNUAL', name: 'Annual Leave' });
+/** Manager then HR, which is what five of the seven types had while HR approved leave. */
+const ANNUAL = leaveType({
+  code: 'ANNUAL',
+  name: 'Annual Leave',
+  approvalChain: ['MANAGER', 'HR'],
+});
 
 /** HR then the Chief Executive. §4.3.1, and the reason a manager is not always a stage. */
 const UNPAID = leaveType({

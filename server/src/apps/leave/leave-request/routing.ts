@@ -36,14 +36,23 @@ export const NO_OCCUPANTS_NAMED: DeskOccupants = { MANAGER: [], HR: [], CEO: [] 
 /**
  * Who answers for a desk that cannot answer for itself. FR 48b, §8.6a, §4.3.1.
  *
- * Written out rather than derived from an ordering, because the third entry points
- * downwards: there is nobody above the Chief Executive to fall to.
+ * Written out rather than derived from an ordering.
+ *
+ * HR is out of leave approval for now, so the manager's desk falls to the Chief Executive and
+ * the Chief Executive's falls to nobody: their own leave, and a CEO stage with no Chief
+ * Executive named, stop as `UNROUTABLE` and raise the alert. The table HR was part of is kept
+ * below, to restore with `DEFAULT_APPROVAL_CHAIN`'s.
  */
 export const STAND_IN_FOR: Readonly<Record<ApproverRole, ApproverRole | null>> = {
-  MANAGER: 'HR',
+  MANAGER: 'CEO',
   HR: 'CEO',
-  CEO: 'HR',
+  CEO: null,
 };
+// export const STAND_IN_FOR: Readonly<Record<ApproverRole, ApproverRole | null>> = {
+//   MANAGER: 'HR',
+//   HR: 'CEO',
+//   CEO: 'HR',
+// };
 
 /**
  * One stage the chain named that another desk answered. FR 48b.
@@ -277,9 +286,14 @@ export function skipInWords(
   const desk = sentenceCase(deskInWords(stage));
   const because = deskCannotDecideReason(stage, standing);
 
+  const standIn = STAND_IN_FOR[stage];
+
   return routedTo === null
-    ? `${desk} could not decide this request (${because}) and neither could ` +
-        `${deskInWords(STAND_IN_FOR[stage] ?? stage)}, so there is nobody left to ask. FR 48b.`
+    ? standIn === null
+      ? `${desk} could not decide this request (${because}) and there is no other desk to ` +
+        `send it to, so there is nobody left to ask. FR 48b.`
+      : `${desk} could not decide this request (${because}) and neither could ` +
+        `${deskInWords(standIn)}, so there is nobody left to ask. FR 48b.`
     : `${desk} could not decide this request (${because}) so this stage went to ` +
         `${deskInWords(routedTo)} instead. Nobody approved it on the way. FR 48b.`;
 }
