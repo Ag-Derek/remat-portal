@@ -244,47 +244,103 @@ describe('a request whose manager stage has nobody at it', () => {
     await twentyDaysFor(people.ceo);
   });
 
-  it('starts at HR instead, rather than waiting at a desk nobody can fill', async () => {
+  /* HR is out of leave approval for now, so the manager's desk falls to the Chief Executive.
+     Kwame is both the root and the configured Chief Executive in the fixtures, and nobody
+     decides their own leave, so his stops (./hr-stage-closed.test.ts). The tests below name
+     somebody else in the setting, which is what lets his ask go somewhere. The tests for when
+     it fell to HR are kept after them. */
+  function somebodyElseIsChiefExecutive() {
+    return admin.query('UPDATE organisation_setting SET ceo_employee_id = $1', [
+      people.opsDirector,
+    ]);
+  }
+
+  function asTheDirector() {
+    return signedInAs(people.opsDirector, { roles: ['EMPLOYEE'], isManager: true });
+  }
+
+  it('starts with the Chief Executive instead, rather than waiting at a desk nobody can fill', async () => {
+    await somebodyElseIsChiefExecutive();
+
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
 
     expect(request.status).toBe('SUBMITTED');
-    expect(request.awaitingApprovalFrom).toBe('HR');
+    expect(request.awaitingApprovalFrom).toBe('CEO');
   });
 
   /* The story's "records the skip", read back off the table it is written to. */
   it('and the skip is recorded, with the desk it went to and why', async () => {
+    await somebodyElseIsChiefExecutive();
+
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
 
     const [skip, ...rest] = await routing.forRequest(request.id);
 
     expect(rest).toEqual([]);
-    expect(skip).toMatchObject({ stage: 'MANAGER', routedTo: 'HR' });
+    expect(skip).toMatchObject({ stage: 'MANAGER', routedTo: 'CEO' });
     expect(skip.because).toContain('no manager');
     /* Stamped by the trigger from the transaction's actor, never by the writer. */
     expect(skip.recordedBy).not.toBe('not named by the writer');
     expect(skip.recordedAt).toBeInstanceOf(Date);
   });
 
-  /**
-   * And HR's yes agrees the leave, with the manager stage skipped rather than unasked.
-   *
-   * The assertion that needs a database: `leave_request_is_approved_by_every_stage` refuses
-   * at COMMIT an approval with a stage that never decided, and a skipped stage never will.
-   * Without the trigger reading the skip, the one request FR 48b exists to move would be the
-   * one that could never be approved.
-   */
-  it('and HR alone agrees it, because the skipped stage counts as answered', async () => {
+  /* And the Chief Executive's yes agrees it, the manager stage skipped rather than unasked:
+     `leave_request_is_approved_by_every_stage` reads the skip. */
+  it('and the Chief Executive alone agrees it, because the skipped stage counts as answered', async () => {
+    await somebodyElseIsChiefExecutive();
+
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
 
-    const decided = await requests.approve(asTheHeadOfHr(), request.id);
+    const decided = await requests.approve(asTheDirector(), request.id);
 
     expect(decided.request.status).toBe('APPROVED');
     expect(decided.request.awaitingApprovalFrom).toBeNull();
     expect(decided.entry).not.toBeNull();
 
-    /* One decision, at the desk that actually answered — not two, and not one at MANAGER. */
-    expect((await decisions.forRequest(request.id)).map((one) => one.onBehalfOf)).toEqual(['HR']);
+    expect((await decisions.forRequest(request.id)).map((one) => one.onBehalfOf)).toEqual(['CEO']);
   });
+
+  //   it('starts at HR instead, rather than waiting at a desk nobody can fill', async () => {
+  //     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
+  //
+  //     expect(request.status).toBe('SUBMITTED');
+  //     expect(request.awaitingApprovalFrom).toBe('HR');
+  //   });
+  //
+  //   /* The story's "records the skip", read back off the table it is written to. */
+  //   it('and the skip is recorded, with the desk it went to and why', async () => {
+  //     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
+  //
+  //     const [skip, ...rest] = await routing.forRequest(request.id);
+  //
+  //     expect(rest).toEqual([]);
+  //     expect(skip).toMatchObject({ stage: 'MANAGER', routedTo: 'HR' });
+  //     expect(skip.because).toContain('no manager');
+  //     /* Stamped by the trigger from the transaction's actor, never by the writer. */
+  //     expect(skip.recordedBy).not.toBe('not named by the writer');
+  //     expect(skip.recordedAt).toBeInstanceOf(Date);
+  //   });
+  //
+  //   /**
+  //    * And HR's yes agrees the leave, with the manager stage skipped rather than unasked.
+  //    *
+  //    * The assertion that needs a database: `leave_request_is_approved_by_every_stage` refuses
+  //    * at COMMIT an approval with a stage that never decided, and a skipped stage never will.
+  //    * Without the trigger reading the skip, the one request FR 48b exists to move would be the
+  //    * one that could never be approved.
+  //    */
+  //   it('and HR alone agrees it, because the skipped stage counts as answered', async () => {
+  //     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
+  //
+  //     const decided = await requests.approve(asTheHeadOfHr(), request.id);
+  //
+  //     expect(decided.request.status).toBe('APPROVED');
+  //     expect(decided.request.awaitingApprovalFrom).toBeNull();
+  //     expect(decided.entry).not.toBeNull();
+  //
+  //     /* One decision, at the desk that actually answered — not two, and not one at MANAGER. */
+  //     expect((await decisions.forRequest(request.id)).map((one) => one.onBehalfOf)).toEqual(['HR']);
+  //   });
 
   /* And the requester is still refused at the desk their request was sent to. FR 48. */
   it('and the Chief Executive still cannot decide it at HR', async () => {
@@ -333,6 +389,9 @@ describe('a request whose HR stage only the requester staffs', () => {
    * one approver decided it. ./single-approver.test.ts is the whole of that story.
    */
   it('is settled by the manager alone where the stand-in is that same person', async () => {
+    /* A chain with HR in it, as annual leave had while HR approved leave. */
+    await annualLeaveGoesTo('MANAGER', 'HR');
+
     const { request } = await requests.submit(asTheHeadOfHr(), aRequest(people.headOfHr));
 
     /* Her own manager is the Chief Executive, so the first stage is ordinary. */
@@ -404,14 +463,24 @@ describe('a request whose CEO stage the requester holds', () => {
     await annualLeaveGoesTo('CEO');
   });
 
-  it('falls back to HR, and an officer decides it', async () => {
+  /* HR is out of leave approval for now, so there is nobody to fall back to and it stops,
+     with the alert, rather than being agreed by the person who asked. It fell to HR before. */
+  it('has nobody to fall back to, so it stops', async () => {
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
 
-    expect(request.awaitingApprovalFrom).toBe('HR');
-    expect(await routing.forRequest(request.id)).toMatchObject([{ stage: 'CEO', routedTo: 'HR' }]);
-
-    expect((await requests.approve(asAnOfficer(), request.id)).request.status).toBe('APPROVED');
+    expect(request.status).toBe('UNROUTABLE');
+    expect(request.awaitingApprovalFrom).toBeNull();
+    expect(await routing.forRequest(request.id)).toEqual([]);
   });
+
+  //   it('falls back to HR, and an officer decides it', async () => {
+  //     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
+  //
+  //     expect(request.awaitingApprovalFrom).toBe('HR');
+  //     expect(await routing.forRequest(request.id)).toMatchObject([{ stage: 'CEO', routedTo: 'HR' }]);
+  //
+  //     expect((await requests.approve(asAnOfficer(), request.id)).request.status).toBe('APPROVED');
+  //   });
 
   /* And the CEO desk still resolves to Kwame for everybody else's request. */
   it('and everybody else’s request still goes to the Chief Executive', async () => {
@@ -460,14 +529,25 @@ describe('who the CEO desk resolves to', () => {
 
   /* Nobody named is a desk nobody staffs, which FR 48b routes round rather than stopping on.
      A company part way through its setup still gets its leave decided. */
-  it('and falls to HR where nobody is named at all', async () => {
+  /* Nobody named is a desk nobody staffs. While HR is out of leave approval it has no stand-in,
+     so the request stops and the alert names the setting; it fell to HR before. */
+  it('and stops where nobody is named at all', async () => {
     await admin.query('TRUNCATE organisation_setting');
 
     const { request } = await requests.submit(asAnOfficerAsking(), aRequest(people.officer));
 
-    expect(request.awaitingApprovalFrom).toBe('HR');
-    expect(await routing.forRequest(request.id)).toMatchObject([{ stage: 'CEO', routedTo: 'HR' }]);
+    expect(request.status).toBe('UNROUTABLE');
+    expect(await routing.forRequest(request.id)).toEqual([]);
   });
+
+  //   it('and falls to HR where nobody is named at all', async () => {
+  //     await admin.query('TRUNCATE organisation_setting');
+  //
+  //     const { request } = await requests.submit(asAnOfficerAsking(), aRequest(people.officer));
+  //
+  //     expect(request.awaitingApprovalFrom).toBe('HR');
+  //     expect(await routing.forRequest(request.id)).toMatchObject([{ stage: 'CEO', routedTo: 'HR' }]);
+  //   });
 
   /* And the sentence the person is given names the setting, so whoever has to fix it knows
      which screen to open. NFR USA 03. */
@@ -561,7 +641,9 @@ describe('a request neither desk can answer', () => {
 
     expect(alert.employeeId).toBe(people.ceo);
     expect(alert.subject).toContain('nobody who can decide it');
-    expect(alert.body).toContain('granting somebody an HR role');
+    /* The Chief Executive's desk has no stand-in while HR is out of leave approval, so the
+       one remedy is the setting. It also said 'granting somebody an HR role' before. */
+    expect(alert.body).toContain('naming somebody other than the person who asked');
   });
 
   /* And it is not a refusal: the person is told plainly that nobody judged the leave. */
@@ -593,23 +675,41 @@ describe('sending a stuck request back into its chain', () => {
   });
 
   /* And once somebody is at the desk, the request goes back to being decided. */
+  /* Once somebody else is named Chief Executive, the desk can be asked again. While HR
+     approved leave, putting somebody in HR did it; that version is kept below. */
   it('and puts it back to the desk that can now be asked', async () => {
-    await admin.query(
-      `INSERT INTO user_role (user_id, role_id)
-       SELECT u.id, r.id FROM app_user u, role r
-        WHERE u.employee_id = $1 AND r.code = 'HR_OFFICER'`,
-      [people.hrOfficer],
-    );
+    await admin.query('UPDATE organisation_setting SET ceo_employee_id = $1', [people.opsDirector]);
 
     const rerouted = await requests.route(asTheHeadOfHr(), stuck);
 
     expect(rerouted.request.status).toBe('SUBMITTED');
-    expect(rerouted.request.awaitingApprovalFrom).toBe('HR');
+    expect(rerouted.request.awaitingApprovalFrom).toBe('CEO');
 
-    /* And nothing was decided on the way: the officer still has to say yes. */
+    /* And nothing was decided on the way: the new Chief Executive still has to say yes. */
     expect(await decisions.forRequest(stuck)).toEqual([]);
-    expect((await requests.approve(asAnOfficer(), stuck)).request.status).toBe('APPROVED');
+
+    const director = signedInAs(people.opsDirector, { roles: ['EMPLOYEE'], isManager: true });
+
+    expect((await requests.approve(director, stuck)).request.status).toBe('APPROVED');
   });
+
+  //   it('and puts it back to the desk that can now be asked', async () => {
+  //     await admin.query(
+  //       `INSERT INTO user_role (user_id, role_id)
+  //        SELECT u.id, r.id FROM app_user u, role r
+  //         WHERE u.employee_id = $1 AND r.code = 'HR_OFFICER'`,
+  //       [people.hrOfficer],
+  //     );
+  //
+  //     const rerouted = await requests.route(asTheHeadOfHr(), stuck);
+  //
+  //     expect(rerouted.request.status).toBe('SUBMITTED');
+  //     expect(rerouted.request.awaitingApprovalFrom).toBe('HR');
+  //
+  //     /* And nothing was decided on the way: the officer still has to say yes. */
+  //     expect(await decisions.forRequest(stuck)).toEqual([]);
+  //     expect((await requests.approve(asAnOfficer(), stuck)).request.status).toBe('APPROVED');
+  //   });
 
   /* It is HR's, and not the requester's — the alert asks for a change to the organisation. */
   it('and is not the requester’s to do', async () => {
@@ -635,6 +735,8 @@ describe('sending a stuck request back into its chain', () => {
 describe('the skips table', () => {
   it('records a skip once, however many writers reach the same conclusion', async () => {
     await twentyDaysFor(people.ceo);
+    /* So Kwame's manager stage has somewhere to go, and a skip to record. */
+    await admin.query('UPDATE organisation_setting SET ceo_employee_id = $1', [people.opsDirector]);
 
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
 
@@ -649,6 +751,7 @@ describe('the skips table', () => {
 
   it('and refuses to be edited or removed, on the owner connection', async () => {
     await twentyDaysFor(people.ceo);
+    await admin.query('UPDATE organisation_setting SET ceo_employee_id = $1', [people.opsDirector]);
 
     const { request } = await requests.submit(asTheChiefExecutive(), aRequest(people.ceo));
     const [skip] = await routing.forRequest(request.id);

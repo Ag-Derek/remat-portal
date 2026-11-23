@@ -34,6 +34,7 @@ import type { LeaveRequest } from '../../src/apps/leave/leave-request/leave-requ
 import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Per-occasion leave asked for with nothing granted yet, and granted on approval. FR 32g.
@@ -96,6 +97,8 @@ beforeEach(async () => {
   await clear();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   compassionateId = (await admin.query("SELECT id FROM leave_type WHERE code = 'COMPASSIONATE'"))
     .rows[0].id;

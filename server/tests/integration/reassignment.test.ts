@@ -36,6 +36,7 @@ import { NotificationService } from '../../src/apps/leave/notification/notificat
 import { recordingMailer } from '../support/recording-mailer.js';
 import { seed } from '../../seeds/seed.mjs';
 import { delegationService } from '../support/delegations.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * Pending leave follows the reporting line. FR 07, §8.4.
@@ -142,13 +143,15 @@ beforeEach(async () => {
   await clear();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await years.byLabel(system, '2026'))!;
   annualId = (await admin.query("SELECT id FROM leave_type WHERE code = 'ANNUAL'")).rows[0].id;
 
   await admin.query('BEGIN');
   await admin.query('DELETE FROM leave_type_approval_step WHERE leave_type_id = $1', [annualId]);
-  await admin.query('SELECT ensure_statutory_approval_chains()');
+  await admin.query('SELECT ensure_statutory_approval_chains(true)');
   await admin.query('COMMIT');
 });
 
@@ -401,6 +404,10 @@ describe('a request whose new manager has already decided it', () => {
    * settle. FR 48d.
    */
   it('is left where it is, because running out of people to ask never approves anything', async () => {
+    /* Nobody named Chief Executive, so the manager stage's stand-in is empty too and there is
+       nobody new to ask. (HR was the stand-in while it approved leave.) */
+    await admin.query('TRUNCATE organisation_setting');
+
     const { request } = await requests.submit(asTheOfficer(), aRequest(people.officer));
 
     expect(request.awaitingApprovalFrom).toBe('HR');
@@ -427,9 +434,11 @@ describe('a request whose new manager has already decided it', () => {
 
 describe('a request that stopped because nobody could decide it', () => {
   beforeEach(async () => {
-    /* The manager's desk and nothing else, so the stand-in is HR — and HR is emptied, which
-       is what leaves the request with nowhere to go at all. */
+    /* The manager's desk and nothing else, so the stand-in is the Chief Executive — and
+       nobody is named, which is what leaves the request with nowhere to go at all. HR was the
+       stand-in while it approved leave, so it is emptied too. */
     await annualLeaveGoesTo('MANAGER');
+    await admin.query('TRUNCATE organisation_setting');
     await admin.query(
       `DELETE FROM user_role
         WHERE role_id IN (SELECT id FROM role WHERE code IN ('HR_OFFICER', 'HR_ADMIN'))`,

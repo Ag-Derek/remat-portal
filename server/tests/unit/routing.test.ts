@@ -39,6 +39,18 @@ const ORDINARY: readonly ApproverRole[] = ['MANAGER', 'HR'];
 /** HR then the Chief Executive, and no manager stage at all. FR 32h, §4.3.1. */
 const UNPAID: readonly ApproverRole[] = ['HR', 'CEO'];
 
+/*
+ * The two above are the chains as they were while HR approved leave, and most of this file still
+ * walks them: the HR desk is kept, so the walk has to stay right for a chain that names it. The
+ * chains every type has now are these two.
+ */
+
+/** The manager alone: every type but the two unpaid ones, while HR is out of leave approval. */
+const MANAGER_ONLY: readonly ApproverRole[] = ['MANAGER'];
+
+/** The Chief Executive alone: the two unpaid types, while HR is out of leave approval. */
+const CEO_ONLY: readonly ApproverRole[] = ['CEO'];
+
 /** Every desk staffed by somebody who is not the requester. */
 const ANYBODY: DesksAvailable = { MANAGER: 'CAN_DECIDE', HR: 'CAN_DECIDE', CEO: 'CAN_DECIDE' };
 
@@ -121,31 +133,58 @@ describe('a chain every desk can answer', () => {
 describe('a manager stage nobody can answer', () => {
   const noManager = withDesks({ MANAGER: 'NOBODY_STAFFS_IT' });
 
-  it('skips to HR, and records the skip', () => {
-    expect(route(ORDINARY, noManager)).toEqual({
+  /* HR is out of leave approval for now, so the manager's desk falls to the Chief Executive.
+     The two tests for when it fell to HR are kept below, to restore with `STAND_IN_FOR`. */
+  it('skips to the Chief Executive, and records the skip', () => {
+    expect(route(MANAGER_ONLY, noManager)).toEqual({
       kind: 'DESK',
-      desk: 'HR',
+      desk: 'CEO',
       skips: [
         {
           stage: 'MANAGER',
-          routedTo: 'HR',
+          routedTo: 'CEO',
           because: expect.stringContaining('no manager') as string,
         },
       ],
     });
   });
 
-  /* And HR's own stage is then answered by the same signature rather than asked twice. */
-  it('and HR deciding once settles both stages', () => {
-    const skips = route(ORDINARY, noManager).skips;
+  it('and the Chief Executive deciding settles it, as an ordinary one-stage decision', () => {
+    const skips = route(MANAGER_ONLY, noManager).skips;
 
-    expect(route(ORDINARY, noManager, ['HR'], skips)).toEqual({
+    expect(route(MANAGER_ONLY, noManager, ['CEO'], skips)).toEqual({
       kind: 'DECIDED',
       skips: [],
-      /** FR 48d. One signature settled both stages, so the request says so. */
-      singleApprover: true,
+      /** FR 48d. A chain of one stage is not the exception. */
+      singleApprover: false,
     });
   });
+
+  //   it('skips to HR, and records the skip', () => {
+  //     expect(route(ORDINARY, noManager)).toEqual({
+  //       kind: 'DESK',
+  //       desk: 'HR',
+  //       skips: [
+  //         {
+  //           stage: 'MANAGER',
+  //           routedTo: 'HR',
+  //           because: expect.stringContaining('no manager') as string,
+  //         },
+  //       ],
+  //     });
+  //   });
+  //
+  //   /* And HR's own stage is then answered by the same signature rather than asked twice. */
+  //   it('and HR deciding once settles both stages', () => {
+  //     const skips = route(ORDINARY, noManager).skips;
+  //
+  //     expect(route(ORDINARY, noManager, ['HR'], skips)).toEqual({
+  //       kind: 'DECIDED',
+  //       skips: [],
+  //       /** FR 48d. One signature settled both stages, so the request says so. */
+  //       singleApprover: true,
+  //     });
+  //   });
 
   /* Nothing is approved by the stage being empty: HR still has to say yes. */
   it('and nothing is decided by the manager stage being empty', () => {
@@ -213,24 +252,41 @@ describe('an HR stage only the requester staffs', () => {
 describe('a CEO stage the requester holds', () => {
   const theyAreTheCeo = withDesks({ MANAGER: 'NOBODY_STAFFS_IT', CEO: 'ONLY_THE_REQUESTER' });
 
-  /* Their unpaid leave is HR then the Chief Executive; HR takes the first stage as usual,
-     and the second falls back to the desk that has already answered it. */
-  it('falls to HR, and HR deciding once settles it', () => {
-    expect(route(UNPAID, theyAreTheCeo)).toEqual({ kind: 'DESK', desk: 'HR', skips: [] });
+  /* HR is out of leave approval for now, so the Chief Executive's desk falls to nobody and
+     their own leave stops, with the alert, rather than being agreed by the person who asked.
+     The tests for when it fell to HR are kept below, to restore with `STAND_IN_FOR`. */
+  it('has nobody to fall to, so their unpaid leave stops', () => {
+    const stopped = route(CEO_ONLY, theyAreTheCeo);
 
-    expect(route(UNPAID, theyAreTheCeo, ['HR'])).toEqual({
-      kind: 'DECIDED',
-      skips: [
-        {
-          stage: 'CEO',
-          routedTo: 'HR',
-          because: expect.stringContaining('nobody decides their own request') as string,
-        },
-      ],
-      /** FR 48d. */
-      singleApprover: true,
+    expect(stopped).toMatchObject({ kind: 'UNROUTABLE', stranded: 'CEO', skips: [] });
+    expect(stopped.kind === 'UNROUTABLE' && stopped.because).toContain('no other desk');
+  });
+
+  it('and their annual leave stops too, at the manager stage', () => {
+    expect(route(MANAGER_ONLY, theyAreTheCeo)).toMatchObject({
+      kind: 'UNROUTABLE',
+      stranded: 'MANAGER',
     });
   });
+
+  //   /* Their unpaid leave is HR then the Chief Executive; HR takes the first stage as usual,
+  //      and the second falls back to the desk that has already answered it. */
+  //   it('falls to HR, and HR deciding once settles it', () => {
+  //     expect(route(UNPAID, theyAreTheCeo)).toEqual({ kind: 'DESK', desk: 'HR', skips: [] });
+  //
+  //     expect(route(UNPAID, theyAreTheCeo, ['HR'])).toEqual({
+  //       kind: 'DECIDED',
+  //       skips: [
+  //         {
+  //           stage: 'CEO',
+  //           routedTo: 'HR',
+  //           because: expect.stringContaining('nobody decides their own request') as string,
+  //         },
+  //       ],
+  //       /** FR 48d. */
+  //       singleApprover: true,
+  //     });
+  //   });
 
   /* And with no HR at all it stops, rather than being agreed by the person who asked. */
   it('and stops rather than approving itself where HR is empty too', () => {
@@ -239,22 +295,23 @@ describe('a CEO stage the requester holds', () => {
     expect(route(UNPAID, alone)).toMatchObject({ kind: 'UNROUTABLE', stranded: 'HR' });
   });
 
-  /* And their own annual leave: no manager, so HR takes both stages. */
-  it('and their annual leave goes to HR for both stages', () => {
-    const first = route(ORDINARY, theyAreTheCeo);
-
-    expect(first).toMatchObject({ kind: 'DESK', desk: 'HR' });
-    expect(route(ORDINARY, theyAreTheCeo, ['HR'], first.skips)).toMatchObject({ kind: 'DECIDED' });
-  });
+  //   /* And their own annual leave: no manager, so HR takes both stages. */
+  //   it('and their annual leave goes to HR for both stages', () => {
+  //     const first = route(ORDINARY, theyAreTheCeo);
+  //
+  //     expect(first).toMatchObject({ kind: 'DESK', desk: 'HR' });
+  //     expect(route(ORDINARY, theyAreTheCeo, ['HR'], first.skips)).toMatchObject({ kind: 'DECIDED' });
+  //   });
 });
 
 /* ---------------------------------------------- neither one nor the other. FR 48b */
 
 describe('a stage with neither its desk nor its stand-in', () => {
   it('leaves the request unroutable, naming the stage it stopped at', () => {
-    const nobody = withDesks({ MANAGER: 'NOBODY_STAFFS_IT', HR: 'NOBODY_STAFFS_IT' });
+    const nobody = withDesks({ MANAGER: 'NOBODY_STAFFS_IT', CEO: 'NOBODY_STAFFS_IT' });
 
-    /* HR is the manager stage's stand-in and is empty too, so the walk stops at MANAGER. */
+    /* The Chief Executive is the manager stage's stand-in and is empty too, so the walk stops
+       at MANAGER. (While HR approved leave, HR was the stand-in.) */
     expect(route(ORDINARY, nobody)).toMatchObject({ kind: 'UNROUTABLE', stranded: 'MANAGER' });
   });
 
@@ -495,18 +552,23 @@ describe('what a desk amounts to', () => {
   });
 
   /**
-   * And every desk has exactly one stand-in, which is not itself.
+   * And every desk has at most one stand-in, which is not itself.
    *
    * The ladder is one deep on purpose: a stand-in for a stand-in is a chain of substitutions
-   * nobody configured and nobody could read off a screen.
+   * nobody configured and nobody could read off a screen. While HR is out of leave approval the
+   * Chief Executive's desk has none; it had HR.
    */
-  it('and every desk has one stand-in, which is a different desk', () => {
+  it('and every desk has at most one stand-in, which is a different desk', () => {
     for (const desk of APPROVER_ROLES) {
       const standIn = STAND_IN_FOR[desk];
 
-      expect(APPROVER_ROLES).toContain(standIn);
-      expect(standIn).not.toBe(desk);
+      if (standIn !== null) {
+        expect(APPROVER_ROLES).toContain(standIn);
+        expect(standIn).not.toBe(desk);
+      }
     }
+
+    expect(STAND_IN_FOR).toEqual({ MANAGER: 'CEO', HR: 'CEO', CEO: null });
   });
 });
 
@@ -577,7 +639,7 @@ describe('a chain of three desks', () => {
  * somebody is told is agreed when nobody looked at it.
  */
 describe('over every state the three desks can be in', () => {
-  const chains = [ORDINARY, UNPAID, ['MANAGER', 'HR', 'CEO'] as const];
+  const chains = [ORDINARY, UNPAID, MANAGER_ONLY, CEO_ONLY, ['MANAGER', 'HR', 'CEO'] as const];
 
   function everyCombination(): DesksAvailable[] {
     const combinations: DesksAvailable[] = [];
@@ -631,10 +693,13 @@ describe('over every state the three desks can be in', () => {
           continue;
         }
 
-        const standIn = STAND_IN_FOR[routed.stranded] as ApproverRole;
+        const standIn = STAND_IN_FOR[routed.stranded];
 
         expect(canDecide(available, routed.stranded)).toBe(false);
-        expect(canDecide(available, standIn)).toBe(false);
+
+        if (standIn !== null) {
+          expect(canDecide(available, standIn)).toBe(false);
+        }
       }
     }
   });

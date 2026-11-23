@@ -1644,7 +1644,7 @@ describe('moving a balance, FR 26', () => {
         const refusal = leaveRequestPolicy.approve(manager('akosua'), at('HR'));
 
         expect(refusal.told).toContain('approval chain');
-        expect(refusal.told).toContain('unpaid leave goes to HR');
+        expect(refusal.told).toContain('unpaid leave goes to the Chief Executive');
         expect(refusal.because).not.toBeNull();
       });
     });

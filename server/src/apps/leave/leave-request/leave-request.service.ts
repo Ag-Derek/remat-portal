@@ -42,6 +42,7 @@ import {
   deskOccupants,
   type DesksAvailable,
   desksAvailable,
+  desksAsked,
   routeFrom,
   standingOf,
   whatWouldRouteIt,
@@ -174,6 +175,16 @@ export interface LeftUndecided {
 }
 
 /** An ask to cancel agreed leave, as HR answers it. FR 47. */
+/** What {@link LeaveRequestService.closeTheHrStage} did. */
+export interface HrStageClosed {
+  /** Decided, or handed on to the next desk. */
+  closed: LeaveApproved[];
+  /** Still HR's, because a recorded skip sends a stage there. */
+  leftWithHr: LeaveRequest[];
+  /** Refused by a rule on the way, and why. */
+  failed: LeftUndecided[];
+}
+
 export interface WithdrawalToAnswer {
   requestId: string;
   employeeName: string;
@@ -945,6 +956,8 @@ export class LeaveRequestService {
     comment: string | null,
     /** NFR DAT 02, §8.1. What the screen deciding this was drawn from. */
     versionSeen: string | null = null,
+    /** Only {@link LeaveRequestService.closeTheHrStage} sets it. See `DecisionAtADesk`. */
+    closingADroppedStage = false,
   ): Promise<LeaveApproved> {
     const request = await this.requests.findById(id);
 
@@ -1005,6 +1018,7 @@ export class LeaveRequestService {
       skipped: await this.routing.forRequest(request.id),
       available,
       occupants,
+      closingADroppedStage,
     });
 
     /** FR 44, §7.2. */
@@ -1046,6 +1060,7 @@ export class LeaveRequestService {
       reasonForGivingBack: reasonForRelease(type.name, request, request.days, 'REFUSED'),
       /* FR 32g. Only posted on the final yes, and only where the balance is short. */
       grantIfShort: await this.grantOnApproval(employee, type, request),
+      closingADroppedStage,
     });
 
     await this.tellThemAbout(decided, employee, type.name);
@@ -1537,6 +1552,69 @@ export class LeaveRequestService {
     });
 
     return rerouted;
+  }
+
+  /**
+   * Closes the HR stage on every request HR was holding when it was taken out of the chains.
+   *
+   * HR is out of leave approval for now (see `DEFAULT_APPROVAL_CHAIN`), and a request already
+   * standing at the HR desk would otherwise be refused by {@link ApprovalChainChanged} whoever
+   * tried to decide it. Run once at start-up by the system and safe to run again: a request is
+   * only touched while it is waiting at a desk its chain no longer names, so a second run finds
+   * nothing.
+   *
+   * The stage is closed through the ordinary decision door, as a decision by the system at the
+   * HR desk, so the lock, the ledger and every rule the database holds still apply:
+   *
+   *   - **Somebody has already decided it** (usually the manager): their answer stands. The
+   *     system's decision says the same thing, so a manager's yes approves the leave and their
+   *     no refuses it, and the days are taken or given back as if the last desk had said it.
+   *   - **Nobody has decided it yet** (unpaid leave, which went HR then CEO): it is handed on
+   *     to whichever desk the new chain names, with nothing decided about the leave itself.
+   *
+   * A request still at HR because a recorded skip sent a stage there — the Chief Executive's
+   * own leave, routed around them before HR was taken out — is left where it is: HR is still
+   * the desk that answers it, so it is reported rather than decided.
+   */
+  async closeTheHrStage(actor: Actor): Promise<HrStageClosed> {
+    this.guard.enforce(leaveRequestPolicy.chaseTheCompany(actor));
+
+    const closed: LeaveApproved[] = [];
+    const leftWithHr: LeaveRequest[] = [];
+    const failed: LeftUndecided[] = [];
+
+    for (const request of await this.requests.awaitingAnyDesk()) {
+      if (request.awaitingApprovalFrom !== 'HR') {
+        continue;
+      }
+
+      const type = await this.typeFor(request.leaveTypeId);
+      const skipped = await this.routing.forRequest(request.id);
+
+      if (desksAsked(type.approvalChain, skipped).includes('HR')) {
+        leftWithHr.push(request);
+        continue;
+      }
+
+      const latest = (await this.decisions.forRequest(request.id)).at(-1);
+      const action: DecidingAction =
+        latest === undefined || saysYes(latest.action) ? 'APPROVE' : 'REFUSE';
+
+      const comment =
+        latest === undefined
+          ? 'HR no longer approves leave. This stage was closed automatically and the request ' +
+            'went on to the next approver without HR deciding anything about it.'
+          : 'HR no longer approves leave. This stage was closed automatically, and the ' +
+            'decision already made on this request stands.';
+
+      try {
+        closed.push(await this.decide(actor, request.id, action, comment, null, true));
+      } catch (error) {
+        failed.push({ requestId: request.id, because: error });
+      }
+    }
+
+    return { closed, leftWithHr, failed };
   }
 
   /**

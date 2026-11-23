@@ -49,6 +49,7 @@ import { seed } from '../../seeds/seed.mjs';
 import { holidayRecalculationService } from '../support/holiday-recalculations.js';
 import { delegationService } from '../support/delegations.js';
 import { currentDate } from '../../src/core/calendar/time.js';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /** HR reporting over HTTP, against a real ledger. FR 63. */
 
@@ -176,6 +177,8 @@ beforeEach(async () => {
   );
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = (await admin.query<{ id: string }>("SELECT id FROM leave_year WHERE label = '2026'"))
     .rows[0].id;

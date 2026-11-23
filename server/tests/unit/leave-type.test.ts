@@ -118,7 +118,7 @@ describe('a new type', () => {
          rather than left to the writer, so that a type created through a form
          that said nothing about approvals reads as the type it is straight away.
          What a chain is and what makes one nonsense is ./approval-chain.test.ts. */
-      approvalChain: ['MANAGER', 'HR'],
+      approvalChain: ['MANAGER'],
     });
   });
 

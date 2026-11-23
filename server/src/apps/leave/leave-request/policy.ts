@@ -447,8 +447,11 @@ export const leaveRequestPolicy = {
       because: 'is not the approver this request is currently waiting on',
       told:
         'Leave is approved by each desk in its type’s approval chain, in order, and ' +
-        'this request is not waiting on you. Most kinds of leave go to the manager ' +
-        'and then to HR; unpaid leave goes to HR and then to the Chief Executive. FR 38a.',
+        'this request is not waiting on you. Most kinds of leave go to the manager; ' +
+        'unpaid leave goes to the Chief Executive. FR 38a.',
+      // While HR approved leave, the last sentence was:
+      // 'Most kinds of leave go to the manager and then to HR; unpaid leave goes to HR and ' +
+      // 'then to the Chief Executive. FR 38a.'
     });
   },
 

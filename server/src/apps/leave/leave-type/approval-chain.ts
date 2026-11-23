@@ -7,8 +7,16 @@ export const APPROVER_ROLES = ['MANAGER', 'HR', 'CEO'] as const;
 
 export type ApproverRole = (typeof APPROVER_ROLES)[number];
 
-/** Manager then HR. */
-export const DEFAULT_APPROVAL_CHAIN: readonly ApproverRole[] = ['MANAGER', 'HR'];
+/**
+ * The manager alone.
+ *
+ * HR is out of leave approval for now: the manager decides, and the Chief Executive sees
+ * everybody's leave and can reverse any decision. The HR desk itself is kept — it is still one
+ * of {@link APPROVER_ROLES}, so an HR Administrator can put it back into a chain on the
+ * approval chains screen — and the old default is below, to restore with it.
+ */
+export const DEFAULT_APPROVAL_CHAIN: readonly ApproverRole[] = ['MANAGER'];
+// export const DEFAULT_APPROVAL_CHAIN: readonly ApproverRole[] = ['MANAGER', 'HR'];
 
 /**
  * The longest a chain can be, which follows from there being three desks rather than from anybody's view about how many approvals are sensible.

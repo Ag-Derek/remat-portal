@@ -6,7 +6,7 @@ import { signedInAs, theSystem } from '../../src/core/auth/actor.js';
 import { Guard, NotAuthorised } from '../../src/core/auth/policy.js';
 import { databaseFor } from '../../src/core/db/index.js';
 import type { Database } from '../../src/core/db/schema.js';
-import { DEFAULT_APPROVAL_CHAIN } from '../../src/apps/leave/leave-type/approval-chain.js';
+import type { ApproverRole } from '../../src/apps/leave/leave-type/approval-chain.js';
 import {
   type BalanceStatement,
   type BalanceStatementLine,
@@ -27,6 +27,7 @@ import { Transactions } from '../../src/core/db/transaction.js';
 import { BalanceService } from '../../src/apps/leave/balance/balance.service.js';
 import { BalanceStatementService } from '../../src/apps/leave/balance/balance-statement.service.js';
 import { seed } from '../../seeds/seed.mjs';
+import { hrStillApprovesLeave } from '../support/hr-approves.js';
 
 /**
  * The balance screen against a real database. FR 53, §7.4.
@@ -94,6 +95,8 @@ beforeEach(async () => {
   await restoreTypes();
 
   people = (await seed(admin)) as Record<string, string>;
+  /* The chains as they were while HR approved leave, which is what this file proves. */
+  await hrStillApprovesLeave(admin);
 
   y2026 = await yearIdOf('2026');
   y2027 = await yearIdOf('2027');
@@ -507,8 +510,9 @@ async function askFor(employeeId: string, leaveTypeId: string, days: number) {
  * judges the pair at COMMIT and answers "was approved without HR" to anything that got
  * past the first two.
  *
- * So the fixture is a real manager-then-HR approval, which is `DEFAULT_APPROVAL_CHAIN` and
- * is what every type here is configured with. The first call moves the request on a stage
+ * So the fixture is a real manager-then-HR approval, which is what every type here is
+ * configured with by `hrStillApprovesLeave` — the default chain is the manager alone while HR
+ * is out of leave approval. The first call moves the request on a stage
  * and posts nothing, and the second is the last word and posts the `DEDUCTION`.
  * What these tests are about is the figure that lands on the screen;
  * ./approval-chain.test.ts is where the walk itself is proved.
@@ -527,7 +531,7 @@ function yes(request: LeaveRequest) {
   return {
     request,
     action: 'APPROVE' as const,
-    chain: [...DEFAULT_APPROVAL_CHAIN],
+    chain: ['MANAGER', 'HR'] as ApproverRole[],
     chiefExecutiveId: null,
     /** FR 48b. Every desk staffed by somebody who is not the requester. */
     available: {
