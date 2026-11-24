@@ -2343,6 +2343,333 @@ button.clients-pill.is-missing:hover {
   font-size: 1.125rem;
 }
 
+/* The company pipeline's figures, #289, as the mockup's card: the weighted pipeline large at the
+   left, then the value recorded and the counts, wrapping under one another when narrow. */
+.clients-pipeline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap) 2rem;
+  margin: 0 0 var(--gap);
+  padding: 1.1rem 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-pipeline-summary > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.clients-pipeline-summary dt {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.clients-pipeline-summary dd {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+
+.clients-pipeline-summary small {
+  font-size: 0.8125rem;
+}
+
+.clients-pipeline-weighted {
+  flex: 1 1 18rem;
+}
+
+.clients-pipeline-weighted .clients-figure {
+  font-size: 2.25rem;
+  line-height: 1.1;
+}
+
+.clients-pipeline-weighted .clients-figure.is-missing {
+  font-size: 1.25rem;
+}
+
+/* The dashboard, #289: the pipeline's card, the stages, then two panels side by side that stack
+   when there is no room for both. */
+.clients-dashboard {
+  display: grid;
+  gap: var(--gap);
+  margin-bottom: 1.5rem;
+  container-type: inline-size;
+}
+
+.clients-dashboard .clients-pipeline-summary {
+  margin: 0;
+}
+
+/* Searching every client from the company pipeline, #289: the box, and under it, as you type, a
+   card listing each client found, its type and owner, and where it stands. */
+.clients-search {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 var(--gap);
+}
+
+.clients-search .filter-search {
+  position: relative;
+  display: block;
+}
+
+.clients-search input {
+  width: 100%;
+}
+
+.clients-search-results {
+  display: grid;
+  max-height: 22rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.clients-search-results > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.clients-search-results a {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 1rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.clients-search-results a:hover,
+.clients-search-results a:focus-visible {
+  background: var(--accent-soft);
+}
+
+.clients-search-name {
+  font-weight: 600;
+}
+
+.clients-search-results small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-search-results .clients-search-stands {
+  color: var(--ink-faint);
+}
+
+.clients-search-none {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+/* Each currency's largest deal, CLI 78: a quiet line, or a red box once it is half the figure. */
+.clients-shares {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-share {
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.clients-share.is-warning {
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--card));
+  background: color-mix(in srgb, var(--warn) 8%, var(--card));
+  color: var(--ink);
+}
+
+.clients-share.is-warning strong {
+  color: var(--warn);
+}
+
+/* Who needs reassigning, CLI 96: an amber edge, then each person with their things under them. */
+.clients-panel.is-attention {
+  border-left: 3px solid var(--away-ink);
+}
+
+.clients-reassign {
+  margin: 0;
+  list-style: none;
+}
+
+.clients-reassign > li {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.875rem;
+}
+
+.clients-reassign-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.clients-reassign p,
+.clients-reassign dl {
+  margin: 0;
+}
+
+.clients-reassign dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+}
+
+.clients-reassign dt {
+  min-width: 6rem;
+  color: var(--ink-faint);
+}
+
+.clients-reassign dd {
+  margin: 0;
+}
+
+.clients-dashboard-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+
+.clients-dashboard-body {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1.1rem;
+}
+
+.clients-dashboard-body > p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Each stage: its name, a bar as long as its count, and the count with its weighted value. */
+.clients-stage-bars {
+  display: grid;
+  margin: 0;
+  padding: 0 1.25rem 1rem;
+  list-style: none;
+}
+
+.clients-stage-bars > li {
+  display: grid;
+  grid-template-columns: 9rem minmax(3rem, 1fr) minmax(8rem, auto);
+  align-items: center;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.875rem;
+}
+
+.clients-stage-bar-track {
+  display: block;
+  height: 0.6rem;
+}
+
+.clients-stage-bar-track > span {
+  display: block;
+  min-width: 0.75rem;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.clients-stage-bar-track > span.is-empty {
+  background: var(--line-strong);
+}
+
+.clients-stage-bar-figure {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@container (max-width: 34rem) {
+  .clients-stage-bars > li {
+    grid-template-columns: 1fr auto;
+    row-gap: 0.3rem;
+  }
+
+  .clients-stage-bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* A short list of names, each with what is said of it at the right. */
+.clients-dashboard-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.clients-dashboard-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.clients-dashboard-list > li > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.clients-dashboard-list a {
+  font-weight: 600;
+}
+
+/* How many POCs are at each health, three figures in a row. */
+.clients-health-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  margin: 0;
+}
+
+.clients-health-counts > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.clients-health-counts dt {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.clients-health-counts dd {
+  margin: 0;
+}
+
 /* How many open ones a total leaves out (CLI 77). */
 .clients-figure-note {
   color: var(--away-ink);

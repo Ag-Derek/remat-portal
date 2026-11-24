@@ -19,6 +19,7 @@ import {
   type Client,
   ClientNotFound,
   type ClientPermissions,
+  type ClientAtAGlance,
   type ClientSummary,
   type ClientType,
   type Person,
@@ -46,7 +47,16 @@ import {
   readNoteChange,
 } from './note.js';
 import type { ClientsNoteRepository } from './note.db.js';
-import type { PipelineEntry } from './pipeline.js';
+import {
+  choicesOf,
+  type CompanyPipeline,
+  filtered,
+  type PipelineDeal,
+  type PipelineEntry,
+  readPipelineFilters,
+  totalsOf,
+  weightedOf,
+} from './pipeline.js';
 import { type ClientsAccess } from './policy.js';
 import { viewOf } from './opportunity.service.js';
 import { clientsPolicy } from './policy.js';
@@ -62,6 +72,7 @@ import {
 } from './product-in-use.js';
 import { AlreadyThere, type ClientsProductInUseRepository } from './product-in-use.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
+import { CANNOT_TAKE_OVER, canTakeOver, type ClientsStandings, type Standing } from './standing.js';
 
 export class ClientService {
   constructor(
@@ -73,12 +84,14 @@ export class ClientService {
     /** #277. A client's deals, which its page lists, and what has happened to them (#278). */
     private readonly opportunities: Pick<
       ClientsOpportunityRepository,
-      'of' | 'activityOf' | 'pipeline'
+      'of' | 'activityOf' | 'pipeline' | 'companyPipeline'
     >,
     /** #278. Its notes, each with a heading. */
     private readonly notes: ClientsNoteRepository,
     /** #280. What has been logged there, and its next steps. */
     private readonly activities: Pick<ClientsActivityRepository, 'activitiesOf' | 'stepsOf'>,
+    /** #289. Whose things need a new owner, because they left or hold no role (CLI 96). */
+    private readonly standings: Pick<ClientsStandings, 'of'>,
     /** The company's today, against which a next step is overdue (CLI 64). */
     private readonly today: () => CalendarDate = () => currentDate(),
     /** The moment, against which an activity's 24 hours to be corrected run (CLI 62). */
@@ -209,7 +222,7 @@ export class ClientService {
     }
     if (change.ownerId !== undefined && change.ownerId !== client.owner.id) {
       this.guard.enforce(clientsPolicy.reassign(actor, access, 'client', id));
-      await this.mustHoldARole(change.ownerId);
+      await this.mustTakeOver(change.ownerId);
     }
 
     await this.clients.change(actor, id, change);
@@ -229,9 +242,42 @@ export class ClientService {
       throw new Error('A pipeline was asked for by nobody.');
     }
 
+    return this.asOfToday(await this.opportunities.pipeline(actor.employeeId));
+  }
+
+  /**
+   * The company pipeline: every open deal the filters leave, whoever owns it, by client A to Z,
+   * each with its weighted value, and the figures over them per currency (CLI 76, CLI 98, TDD 7,
+   * 8). What each filter offers comes from every open deal. Anybody with a role's, values and
+   * probabilities included (CLI 90).
+   *
+   * Every open deal is read in one query and filtered here: there are under a hundred (TDD 17,
+   * item 7), and the choices need them all.
+   */
+  async companyPipeline(actor: Actor, query: Record<string, unknown>): Promise<CompanyPipeline> {
+    this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor)));
+    const filters = readPipelineFilters(query);
+
+    const every = await this.opportunities.companyPipeline();
+    const shown = filtered(every, filters);
+    const standings = await this.standings.of(shown.map(({ deal }) => deal.owner.id));
+
+    return {
+      deals: this.asOfToday(shown).map((entry) => ({
+        ...entry,
+        weighted: weightedOf(entry.deal),
+        ownerStanding: standings.get(entry.deal.owner.id) ?? null,
+      })),
+      totals: totalsOf(shown),
+      choices: choicesOf(every),
+    };
+  }
+
+  /** Each deal saying whether its next step is overdue, against the company's today. */
+  private asOfToday(deals: PipelineDeal[]): PipelineEntry[] {
     const today = this.today();
 
-    return (await this.opportunities.pipeline(actor.employeeId)).map((entry) => ({
+    return deals.map((entry) => ({
       ...entry,
       overdue: entry.nextStep !== null && entry.nextStep.dueOn < today,
     }));
@@ -244,6 +290,16 @@ export class ClientService {
     return this.clients.list();
   }
 
+  /**
+   * Every client by name, with where it stands, for the search on the company pipeline: those
+   * with no open deal too, live, lost, exited or just added (#289). Anybody with a role's (CLI 90).
+   */
+  async atAGlance(actor: Actor): Promise<ClientAtAGlance[]> {
+    this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor)));
+
+    return this.clients.atAGlance();
+  }
+
   /** The products that may be added to a client, by line. Anybody with a role's. */
   async offeredProducts(actor: Actor) {
     this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor)));
@@ -251,11 +307,18 @@ export class ClientService {
     return this.productsInUse.offered();
   }
 
-  /** Everybody holding a clients role, whom a BD manager may move a client to. */
-  async holders(actor: Actor): Promise<Person[]> {
+  /**
+   * Everybody holding a clients role, each saying whether a BD manager may move things to them:
+   * whether they are at the company today too (#289). A screen moving something offers only
+   * those who can take over; one choosing a next step's owner offers everybody, as before.
+   */
+  async holders(actor: Actor): Promise<(Person & { canTakeOver: boolean })[]> {
     this.guard.enforce(clientsPolicy.read(actor, await this.accessOf(actor)));
 
-    return this.clients.holders();
+    const people = await this.clients.holders();
+    const flagged = await this.standings.of(people.map((person) => person.id));
+
+    return people.map((person) => ({ ...person, canTakeOver: !flagged.has(person.id) }));
   }
 
   /**
@@ -268,12 +331,15 @@ export class ClientService {
   ): Promise<{
     client: Client & { opportunities: DealView[]; notes: NoteView[]; nextSteps: NextStepView[] };
     may: ClientPermissions;
+    /** Why its owner can no longer look after it, or null where they can (CLI 96). #289. */
+    ownerStanding: Standing | null;
   }> {
     const access = await this.accessOf(actor);
     this.guard.enforce(clientsPolicy.read(actor, access, id));
 
     const client = await this.clientOrRefuse(id);
     const [steps, today] = [await this.activities.stepsOf(id), this.today()];
+    const standings = await this.standings.of([client.owner.id]);
 
     return {
       client: {
@@ -290,6 +356,7 @@ export class ClientService {
         reassign: clientsPolicy.reassign(actor, access, 'client', id).allowed,
         contribute: clientsPolicy.contribute(actor, access, 'addContact').allowed,
       },
+      ownerStanding: standings.get(client.owner.id) ?? null,
     };
   }
 
@@ -450,12 +517,10 @@ export class ClientService {
    * Whoever looks after a client holds a clients role, or it would be owned by somebody who
    * cannot open it.
    */
-  private async mustHoldARole(employeeId: string): Promise<void> {
-    if ((await this.grants.rolesOf(employeeId)).length === 0) {
-      throw new InvalidClient(
-        'ownerId',
-        'Whoever looks after a client needs a role in clients. Choose somebody who has one.',
-      );
+  /** A client goes only to somebody who would not need replacing themselves (#289). */
+  private async mustTakeOver(employeeId: string): Promise<void> {
+    if (!(await canTakeOver(this.standings, employeeId))) {
+      throw new InvalidClient('ownerId', CANNOT_TAKE_OVER);
     }
   }
 

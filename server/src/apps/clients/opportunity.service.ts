@@ -204,6 +204,9 @@ export function viewOf(actor: Actor, access: ClientsAccess, deal: Opportunity): 
       move,
       decidePoc: change && !isSigned(deal.stage),
       lose: change && refusalOfLoss(deal) === null,
+      /* #289. A BD manager's, while it is open: an ended deal keeps its owner. */
+      reassign:
+        deal.outcome === 'OPEN' && clientsPolicy.reassign(actor, access, 'deal', deal.id).allowed,
     },
     moves: move ? optionsOf(deal) : [],
   };

@@ -10,6 +10,10 @@ import { EmployeeRepository } from '../../src/core/organisation/employee/employe
 import { portalRoutes } from '../../src/core/portal/routes.js';
 import { ClientsClientRepository } from '../../src/apps/clients/client.db.js';
 import { ClientService } from '../../src/apps/clients/client.service.js';
+import { DashboardService } from '../../src/apps/clients/dashboard.service.js';
+import { ClientsStandings } from '../../src/apps/clients/standing.js';
+import { ClientsReassignRepository } from '../../src/apps/clients/reassign.db.js';
+import { ReassignService } from '../../src/apps/clients/reassign.service.js';
 import { ClientsContactRepository } from '../../src/apps/clients/contact.db.js';
 import { ClientsProductInUseRepository } from '../../src/apps/clients/product-in-use.db.js';
 import { clientsDoor } from '../../src/apps/clients/door.js';
@@ -100,6 +104,21 @@ export async function startClientsApp(
   const opportunities = new ClientsOpportunityRepository(db);
   const activities = new ClientsActivityRepository(db);
 
+  const standings = new ClientsStandings(grants, new EmployeeRepository(db));
+  const pocs = new PocService(
+    guard,
+    grants,
+    new ClientsPocRepository(db),
+    new StageForPoc(
+      opportunities,
+      new ClientsReasonRepository(db),
+      grants,
+      new EmployeeRepository(db),
+      new CompanyCalendar(db),
+    ),
+    standings,
+  );
+
   const router = clientsRoutes({
     door: clientsDoor(guard, grants),
     grants,
@@ -121,6 +140,7 @@ export async function startClientsApp(
       opportunities,
       new ClientsNoteRepository(db),
       activities,
+      standings,
     ),
     opportunities: new OpportunityService(
       guard,
@@ -131,18 +151,15 @@ export async function startClientsApp(
     ),
     stages: new StageService(guard, grants, opportunities, new ClientsReasonRepository(db)),
     activities: new ActivityService(guard, grants, clientRecords, activities),
-    pocs: new PocService(
+    pocs,
+    reassign: new ReassignService(
       guard,
       grants,
-      new ClientsPocRepository(db),
-      new StageForPoc(
-        opportunities,
-        new ClientsReasonRepository(db),
-        grants,
-        new EmployeeRepository(db),
-        new CompanyCalendar(db),
-      ),
+      opportunities,
+      new ClientsReassignRepository(db),
+      standings,
     ),
+    dashboard: new DashboardService(guard, grants, opportunities, clientRecords, pocs, standings),
     documents: new DocumentService(
       guard,
       grants,

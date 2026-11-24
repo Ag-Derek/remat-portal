@@ -44,7 +44,7 @@ interface DealJson {
   statedInterest: string | null;
   createdAt: string;
   /** What the person who asked may do to it. */
-  may: { change: boolean; move: boolean; decidePoc: boolean };
+  may: { change: boolean; move: boolean; decidePoc: boolean; reassign: boolean };
   /** Where they could move it: every stage where they may move it at all. */
   moves: { stage: string; open: boolean; why: string | null; needsNote: boolean }[];
 }
@@ -220,7 +220,11 @@ describe('opening a deal', () => {
     for (const as of [associate, bdManager]) {
       const response = await app.send('GET', `/api/clients/opportunities/${deal.id}`, as);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual(deal);
+      /* #289. Only a BD manager may move it to a new owner. */
+      expect(await response.json()).toEqual({
+        ...deal,
+        may: { ...deal.may, reassign: as === bdManager },
+      });
     }
   });
 
@@ -247,7 +251,7 @@ describe('opening a deal', () => {
     /* The associate reads it, and may not change the BD manager's deal. */
     expect(page.opportunities[0]).toEqual({
       ...second,
-      may: { change: false, move: false, decidePoc: false, lose: false },
+      may: { change: false, move: false, decidePoc: false, lose: false, reassign: false },
       moves: [],
     });
   });
@@ -465,7 +469,7 @@ describe('editing a deal', () => {
       outcome: 'LOST',
       endedOn: expect.any(String),
       ending: { reason: { id: expect.any(String), label: 'Price' }, note: null },
-      may: { change: false, move: false, decidePoc: false, lose: false },
+      may: { change: false, move: false, decidePoc: false, lose: false, reassign: false },
       moves: [],
     });
   });

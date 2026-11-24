@@ -342,7 +342,7 @@ interface PocJson {
     owner: { id: string };
   };
   csLead: { id: string; name: string };
-  csLeadHoldsARole: boolean;
+  csLeadStanding: { reason: string; exitDate: string | null } | null;
   startedOn: string;
   decisionOn: string;
   extension: { days: number; plan: string; by: { id: string }; at: string } | null;
@@ -1100,7 +1100,10 @@ describe('the CS lead', () => {
     const [grant] = (await grants.live()).filter((live) => live.employeeId === people.officer);
     await grants.end(grant.id, people.headOfHr, 'REVOKED');
 
-    expect((await pageOf(id, bdManager)).csLeadHoldsARole).toBe(false);
+    expect((await pageOf(id, bdManager)).csLeadStanding).toEqual({
+      reason: 'NO_ROLE',
+      exitDate: null,
+    });
   });
 });
 
@@ -1122,7 +1125,7 @@ describe('the POC list and page', () => {
         lineName: 'Symphony',
         deal: { productName: 'Federation', stage: 'POC', outcome: 'OPEN' },
         csLead: { id: people.officer },
-        csLeadHoldsARole: true,
+        csLeadStanding: null,
         startedOn: PINNED_DATE,
         decisionOn: DECIDED_BY,
         phase: 'FOUNDATION',

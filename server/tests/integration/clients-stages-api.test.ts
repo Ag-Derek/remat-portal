@@ -438,6 +438,7 @@ describe('a deal with a POC', () => {
       move: false,
       decidePoc: false,
       lose: false,
+      reassign: true,
     });
   });
 });
@@ -916,6 +917,7 @@ describe('who may move a deal', () => {
       move: false,
       decidePoc: false,
       lose: false,
+      reassign: false,
     });
     expect((await find(deal.id)).stage).toBe('DISCOVERY');
   });

@@ -47,6 +47,7 @@ import type { StageForPoc } from './stage-for-poc.js';
 import { type ClientsAccess, clientsPolicy } from './policy.js';
 import { isAnId } from './product.js';
 import type { ClientsRoleRepository } from './role.db.js';
+import { CANNOT_TAKE_OVER, canTakeOver, type ClientsStandings, type Standing } from './standing.js';
 
 export class PocService {
   constructor(
@@ -55,6 +56,8 @@ export class PocService {
     private readonly pocs: ClientsPocRepository,
     /** The moves only a POC ending makes on its deal: converted or exited (#279, #287). */
     private readonly stages: Pick<StageForPoc, 'convert' | 'exit'>,
+    /** #289. Whose POCs need a new CS lead (CLI 96). */
+    private readonly standings: Pick<ClientsStandings, 'of'>,
     /** The company's today, which a POC's phase and days are counted to (TDD 6.1). */
     private readonly today: () => CalendarDate = () => currentDate(),
     /** This moment, which the 48-hour clock is read against (#286). */
@@ -72,7 +75,12 @@ export class PocService {
     const today = this.today();
     const now = this.now();
 
-    return (await this.pocs.running()).map((poc) => viewOf(actor, access, poc, today, now));
+    const running = await this.pocs.running();
+    const standings = await this.standings.of(running.map((poc) => poc.csLead.id));
+
+    return running.map((poc) =>
+      viewOf(actor, access, poc, today, now, standings.get(poc.csLead.id) ?? null),
+    );
   }
 
   /** One POC's page: its deal, clock, review meetings and those held (CLI 100). */
@@ -81,15 +89,16 @@ export class PocService {
     this.guard.enforce(clientsPolicy.read(actor, access, id));
 
     const poc = await this.pocOrRefuse(id);
-    const [reviews, held, healthHistory, usageReadings] = await Promise.all([
+    const [reviews, held, healthHistory, usageReadings, standings] = await Promise.all([
       this.pocs.reviewSteps(poc.id),
       this.pocs.reviewsHeld(poc.id),
       this.pocs.healthHistory(poc.id),
       this.pocs.usageReadings(poc.id),
+      this.standings.of([poc.csLead.id]),
     ]);
 
     return {
-      ...viewOf(actor, access, poc, this.today(), this.now()),
+      ...viewOf(actor, access, poc, this.today(), this.now(), standings.get(poc.csLead.id) ?? null),
       reviews,
       held,
       healthHistory,
@@ -210,10 +219,9 @@ export class PocService {
     }
 
     const employeeId = readNewLead(body);
-    if ((await this.grants.rolesOf(employeeId)).length === 0) {
-      throw new InvalidPocLead(
-        'A CS lead needs a role in clients, to see the POC and run it. Choose somebody who has one.',
-      );
+    /* #289. Somebody who would not need replacing themselves. */
+    if (!(await canTakeOver(this.standings, employeeId))) {
+      throw new InvalidPocLead(CANNOT_TAKE_OVER);
     }
 
     if (employeeId !== poc.csLead.id) {
@@ -310,11 +318,13 @@ function viewOf(
   poc: Poc,
   today: CalendarDate,
   now: Date,
+  csLeadStanding: Standing | null,
 ): PocView {
   const running = poc.deal.outcome === 'OPEN';
 
   return {
     ...poc,
+    csLeadStanding,
     phase: phaseOf(poc.startedOn, today),
     day: dayOf(poc.startedOn, today),
     daysToDecision: daysToDecision(poc.decisionOn, today),

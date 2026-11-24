@@ -124,7 +124,38 @@ export class ClientsOpportunityRepository {
    * longest without contact first.
    */
   async pipeline(ownerId: string): Promise<PipelineDeal[]> {
-    const rows = await this.query()
+    const rows = await this.pipelineQuery()
+      .where('o.owner_id', '=', ownerId)
+      .orderBy(sql`ns.step_due_on IS NULL`)
+      .orderBy('ns.step_due_on')
+      .orderBy(sql`last_contact NULLS FIRST`)
+      .orderBy('o.id')
+      .execute();
+
+    return rows.map(pipelineDealFrom);
+  }
+
+  /**
+   * The company pipeline: every open deal, whoever owns it, in one query (CLI 98, TDD 7), as My
+   * pipeline reads each. By client A to Z, so that a client's deals sit together (the user, 24
+   * November 2026), then by product.
+   */
+  async companyPipeline(): Promise<PipelineDeal[]> {
+    const rows = await this.pipelineQuery()
+      .orderBy(sql`lower(c.name)`)
+      .orderBy(sql`lower(p.name)`)
+      .orderBy('o.id')
+      .execute();
+
+    return rows.map(pipelineDealFrom);
+  }
+
+  /**
+   * Open deals as a pipeline reads them: each with its client's type, its earliest open next step,
+   * whoever's it is, and the last day anything but a note was logged against it.
+   */
+  private pipelineQuery() {
+    return this.query()
       .innerJoin('clients_client_type as t', 't.id', 'c.type_id')
       .leftJoinLateral(
         (eb) =>
@@ -152,6 +183,7 @@ export class ClientsOpportunityRepository {
         'ns.step_due_on',
         'ns.step_owner_id',
         'ns.step_owner_name',
+        't.id as client_type_id',
         't.name as client_type',
         (eb) =>
           eb
@@ -161,32 +193,7 @@ export class ClientsOpportunityRepository {
             .where('a.kind', '<>', 'NOTE')
             .as('last_contact'),
       ])
-      .where('o.owner_id', '=', ownerId)
-      .where('o.outcome', '=', 'OPEN')
-      .orderBy(sql`ns.step_due_on IS NULL`)
-      .orderBy('ns.step_due_on')
-      .orderBy(sql`last_contact NULLS FIRST`)
-      .orderBy('o.id')
-      .execute();
-
-    return rows.map((row) => ({
-      deal: opportunityFrom(row),
-      nextStep:
-        row.step_id === null ||
-        row.step_description === null ||
-        row.step_due_on === null ||
-        row.step_owner_id === null ||
-        row.step_owner_name === null
-          ? null
-          : {
-              id: row.step_id,
-              description: row.step_description,
-              dueOn: row.step_due_on,
-              owner: { id: row.step_owner_id, name: row.step_owner_name },
-            },
-      clientType: row.client_type,
-      lastContact: row.last_contact ?? null,
-    }));
+      .where('o.outcome', '=', 'OPEN');
   }
 
   /**
@@ -937,6 +944,7 @@ function deals(db: Kysely<Database>) {
       'c.name as client_name',
       'o.product_id',
       'p.name as product_name',
+      'p.line_id',
       'l.name as line_name',
       'o.owner_id',
       sql<string>`e.first_name || ' ' || e.last_name`.as('owner_name'),
@@ -996,11 +1004,50 @@ function openInGroup(group: 'QUALIFICATION' | 'PRE_POC') {
 
 type Row = Awaited<ReturnType<ReturnType<typeof deals>['executeTakeFirstOrThrow']>>;
 
+/** A pipeline's row: a deal, its client's type, its next step and its last contact. */
+type PipelineRow = Row & {
+  client_type_id: string;
+  client_type: string;
+  step_id: string | null;
+  step_description: string | null;
+  step_due_on: CalendarDate | null;
+  step_owner_id: string | null;
+  step_owner_name: string | null;
+  last_contact: CalendarDate | null;
+};
+
+function pipelineDealFrom(row: PipelineRow): PipelineDeal {
+  return {
+    deal: opportunityFrom(row),
+    nextStep:
+      row.step_id === null ||
+      row.step_description === null ||
+      row.step_due_on === null ||
+      row.step_owner_id === null ||
+      row.step_owner_name === null
+        ? null
+        : {
+            id: row.step_id,
+            description: row.step_description,
+            dueOn: row.step_due_on,
+            owner: { id: row.step_owner_id, name: row.step_owner_name },
+          },
+    clientTypeId: row.client_type_id,
+    clientType: row.client_type,
+    lastContact: row.last_contact ?? null,
+  };
+}
+
 function opportunityFrom(row: Row): Opportunity {
   return {
     id: row.id,
     client: { id: row.client_id, name: row.client_name },
-    product: { id: row.product_id, name: row.product_name, lineName: row.line_name },
+    product: {
+      id: row.product_id,
+      name: row.product_name,
+      lineId: row.line_id,
+      lineName: row.line_name,
+    },
     owner: { id: row.owner_id, name: row.owner_name },
     stage: row.stage as Stage,
     outcome: row.outcome as Outcome,

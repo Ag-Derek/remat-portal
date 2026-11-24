@@ -23,6 +23,8 @@ import type { Checklist, Tick } from './checklist.js';
 import type { ChecklistService } from './checklist.service.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
+import type { DashboardService } from './dashboard.service.js';
+import type { ReassignService } from './reassign.service.js';
 import type { Contact } from './contact.js';
 import {
   DocumentTooLarge,
@@ -70,6 +72,10 @@ export interface ClientsRoutes {
   pocs?: PocService;
   /** Deals' and POCs' checks and their ticks. #284. Optional, for the same reason. */
   checklists?: ChecklistService;
+  /** The dashboard. #289. Optional, for the same reason. */
+  dashboard?: DashboardService;
+  /** A BD manager moving deals, or everything of one person's. #289. Optional, likewise. */
+  reassign?: ReassignService;
 }
 
 export function clientsRoutes({
@@ -84,6 +90,8 @@ export function clientsRoutes({
   documents,
   pocs,
   checklists,
+  dashboard,
+  reassign,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -132,6 +140,37 @@ export function clientsRoutes({
 
   if (checklists !== undefined) {
     checklistRoutes(routes, checklists);
+  }
+
+  if (reassign !== undefined) {
+    /** `{ ownerId }`: moves an open deal, with what goes with it (CLI 92). #289. */
+    routes.post(
+      '/clients/opportunities/:id/owner',
+      answer(async (request, response) => {
+        await reassign.moveDeal(actorOf(response), idOf(request), request.body);
+        return { moved: true };
+      }),
+    );
+
+    /**
+     * `{ fromId, toId }`: moves every client, open deal and running POC of one person's to another,
+     * answering how many of each moved (CLI 92, CLI 96). #289.
+     */
+    routes.post(
+      '/clients/reassign',
+      answer(async (request, response) => reassign.moveAll(actorOf(response), request.body)),
+    );
+  }
+
+  if (dashboard !== undefined) {
+    /**
+     * The dashboard: the weighted pipeline, each open stage, the clients gone quiet and the POCs by
+     * health (CLI 102). #289.
+     */
+    routes.get(
+      '/clients/dashboard',
+      answer(async (_request, response) => dashboard.dashboard(actorOf(response))),
+    );
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -385,6 +424,35 @@ function clientRoutes(routes: Router, clients: ClientService): void {
     })),
   );
 
+  /**
+   * The company pipeline, `?line=&product=&stage=&owner=&clientType=`: every open deal the filters
+   * leave, by client A to Z, each with its weighted value; the weighted and recorded totals over
+   * them, per currency; and what each filter offers (CLI 76, CLI 98). Read in one query (TDD 7).
+   */
+  routes.get(
+    '/clients/pipeline/company',
+    answer(async (request, response) => {
+      const pipeline = await clients.companyPipeline(
+        actorOf(response),
+        request.query as Record<string, unknown>,
+      );
+
+      return {
+        ...pipeline,
+        deals: pipeline.deals.map((entry) => ({ ...entry, deal: opportunityAsJson(entry.deal) })),
+      };
+    }),
+  );
+
+  /**
+   * Every client by name, with where it stands: open deals, products in use, its latest ending.
+   * What the company pipeline's search looks through (#289).
+   */
+  routes.get(
+    '/clients/search',
+    answer(async (_request, response) => ({ clients: await clients.atAGlance(actorOf(response)) })),
+  );
+
   /** Every client by name, with its type and owner. */
   routes.get(
     '/clients/clients',
@@ -395,12 +463,13 @@ function clientRoutes(routes: Router, clients: ClientService): void {
   routes.get(
     '/clients/clients/:id',
     answer(async (request, response) => {
-      const { client, may } = await clients.page(actorOf(response), idOf(request));
+      const { client, may, ownerStanding } = await clients.page(actorOf(response), idOf(request));
 
       return {
         ...(clientAsJson(client) as object),
         nextSteps: client.nextSteps.map(nextStepAsJson),
         may,
+        ownerStanding,
       };
     }),
   );

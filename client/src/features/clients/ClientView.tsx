@@ -9,7 +9,7 @@ import {
   type ClientContact,
   type ClientPage,
   type ClientProductInUse,
-  type ClientsNamed,
+  type ClientsHolder,
   type ClientsOfferedProduct,
   type ClientType,
   clientPage,
@@ -29,7 +29,7 @@ import { ClientDeals, OpportunityFigures } from './Deals';
 import { ClientDocuments } from './Documents';
 import { ClientNotes } from './Notes';
 import { ClientNextSteps } from './NextSteps';
-import { Dialog, DialogFoot, Field, Missing, useSending } from './ui';
+import { Dialog, DialogFoot, Field, Missing, standingInWords, useSending } from './ui';
 
 /**
  * One client: who they are, what is in play with them and what it is worth, the products they
@@ -137,6 +137,12 @@ export function ClientView({ id, onSignedOut }: { id: string; onSignedOut: () =>
                 <span className="visually-hidden">Owner: </span>
                 {client.owner.name}
               </span>
+              {/* CLI 96, #289: they cannot look after it any more. */}
+              {client.ownerStanding === null ? null : (
+                <span className="clients-pill is-missing">
+                  {standingInWords(client.ownerStanding)} · needs a new owner
+                </span>
+              )}
               {client.may.reassign ? (
                 <EditButton
                   label={`Change who owns ${client.name}`}
@@ -546,9 +552,14 @@ function OwnerDialog({
   onClose,
   onSignedOut,
 }: DialogProps & { client: ClientPage }) {
-  const [people, setPeople] = useState<ClientsNamed[] | undefined>(undefined);
+  const [people, setPeople] = useState<ClientsHolder[] | undefined>(undefined);
   const [ownerId, setOwnerId] = useState(client.owner.id);
   const sending = useSending(onSaved, onSignedOut);
+  /* Whom it may move to (#289): somebody who could take it over, and whoever has it now. */
+  const owners = [
+    ...(people ?? []).filter((person) => person.canTakeOver || person.id === client.owner.id),
+    ...((people ?? []).some((person) => person.id === client.owner.id) ? [] : [client.owner]),
+  ];
 
   useEffect(() => {
     clientsHolders()
@@ -566,7 +577,11 @@ function OwnerDialog({
           sending.send(() => changeClient(client.id, { ownerId }));
         }}
       >
-        <Field label="Owner" error={sending.errorFor('ownerId')}>
+        <Field
+          label="Owner"
+          error={sending.errorFor('ownerId')}
+          hint="Their open steps on the client move with it. Its deals stay with their owners."
+        >
           {({ id, describedBy }) => (
             <select
               id={id}
@@ -577,7 +592,7 @@ function OwnerDialog({
                 setOwnerId(event.target.value);
               }}
             >
-              {(people ?? [client.owner]).map((person) => (
+              {owners.map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.name}
                 </option>

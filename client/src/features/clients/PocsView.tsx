@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import {
   addPocAction,
-  type ClientsNamed,
+  type ClientsHolder,
   clientsHolders,
   convertPoc,
   type Currency,
@@ -36,7 +36,7 @@ import { REVIEW_NAME } from './Activity';
 import { initialsOf } from './ClientView';
 import { Ladder, STAGE_NAME } from './Deals';
 import { ChecklistGroups } from './Checklist';
-import { Dialog, DialogFoot, Field, useSending } from './ui';
+import { Dialog, DialogFoot, Field, standingInWords, useSending } from './ui';
 
 /**
  * POCs. #285, Clients SRS CLI 32 to CLI 34, CLI 100, CLI 101.
@@ -79,14 +79,14 @@ const REVIEW_SHORT: Record<ReviewKind, string> = {
 
 const HEALTHS: PocHealth[] = ['ON_TRACK', 'AT_RISK', 'STALLED'];
 
-const HEALTH_NAME: Record<PocHealth, string> = {
+export const HEALTH_NAME: Record<PocHealth, string> = {
   ON_TRACK: 'On Track',
   AT_RISK: 'At Risk',
   STALLED: 'Stalled',
 };
 
 /** Its health as a pill: green, amber or red, with the words, which carry it alone. */
-function HealthPill({ health }: { health: PocHealth }) {
+export function HealthPill({ health }: { health: PocHealth }) {
   return (
     <span className={`clients-pill is-health is-${health.toLowerCase().replace('_', '-')}`}>
       <span className="visually-hidden">Health: </span>
@@ -128,7 +128,7 @@ function askedOf(health: PocHealth) {
 }
 
 /** Its flags, each a short red line. Nothing at all where there are none. */
-function Flags({ flags }: { flags: PocFlag[] }) {
+export function Flags({ flags }: { flags: PocFlag[] }) {
   if (flags.length === 0) return null;
 
   return (
@@ -144,7 +144,7 @@ function Flags({ flags }: { flags: PocFlag[] }) {
 }
 
 /** "33 days to go", "Decision today", or "3 days past its decision date". */
-function decisionInWords(daysToDecision: number): string {
+export function decisionInWords(daysToDecision: number): string {
   if (daysToDecision > 1) return `${String(daysToDecision)} days to go`;
   if (daysToDecision === 1) return '1 day to go';
   if (daysToDecision === 0) return 'Decision today';
@@ -281,8 +281,10 @@ export function PocsList({ onSignedOut }: { onSignedOut: () => void }) {
                 </td>
                 <td data-label="CS lead">
                   <span>{poc.csLead.name}</span>
-                  {poc.csLeadHoldsARole ? null : (
-                    <small className="clients-figure-note">Needs a new CS lead</small>
+                  {poc.csLeadStanding === null ? null : (
+                    <small className="clients-figure-note">
+                      {standingInWords(poc.csLeadStanding)} · needs a new CS lead
+                    </small>
                   )}
                 </td>
               </tr>
@@ -369,9 +371,9 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
                   }}
                 />
               ) : null}
-              {poc.csLeadHoldsARole ? null : (
+              {poc.csLeadStanding === null ? null : (
                 <span className="clients-pill is-missing">
-                  No longer has a role · needs a new CS lead
+                  {standingInWords(poc.csLeadStanding)} · needs a new CS lead
                 </span>
               )}
 
@@ -1704,7 +1706,7 @@ function ExitDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
 
 /** Handing the POC, and its open review meetings, to another CS lead: a BD manager's. */
 function LeadDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
-  const [people, setPeople] = useState<ClientsNamed[] | undefined>(undefined);
+  const [people, setPeople] = useState<ClientsHolder[] | undefined>(undefined);
   const [employeeId, setEmployeeId] = useState(poc.csLead.id);
   const sending = useSending(onDone, onSignedOut);
   const other = sending.other(['employeeId']);
@@ -1717,12 +1719,9 @@ function LeadDialog({ poc, onDone, onClose, onSignedOut }: DialogProps) {
       });
   }, [onSignedOut]);
 
-  const choices =
-    people === undefined
-      ? [poc.csLead]
-      : people.some((person) => person.id === poc.csLead.id)
-        ? people
-        : [poc.csLead, ...people];
+  /* Somebody who could take it over (#289), and whoever leads it now. */
+  const able = (people ?? []).filter((person) => person.canTakeOver || person.id === poc.csLead.id);
+  const choices = able.some((person) => person.id === poc.csLead.id) ? able : [poc.csLead, ...able];
 
   return (
     <Dialog

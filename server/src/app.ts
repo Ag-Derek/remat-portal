@@ -81,6 +81,10 @@ import { clientsRoutes } from './apps/clients/routes.js';
 import type { ClientsRoleRepository } from './apps/clients/role.db.js';
 import type { ClientsClientRepository } from './apps/clients/client.db.js';
 import { ClientService } from './apps/clients/client.service.js';
+import { DashboardService } from './apps/clients/dashboard.service.js';
+import { ClientsStandings } from './apps/clients/standing.js';
+import type { ClientsReassignRepository } from './apps/clients/reassign.db.js';
+import { ReassignService } from './apps/clients/reassign.service.js';
 import type { ClientsContactRepository } from './apps/clients/contact.db.js';
 import type { ClientsProductInUseRepository } from './apps/clients/product-in-use.db.js';
 import type { ClientsOpportunityRepository } from './apps/clients/opportunity.db.js';
@@ -254,6 +258,8 @@ export interface Application {
   clientsDocuments?: ClientsDocumentRepository;
   /** #285. POCs, started as their deals are signed. */
   clientsPocs?: ClientsPocRepository;
+  /** #289. Moving deals, and everything of one person's, to somebody else. */
+  clientsReassign?: ClientsReassignRepository;
   /** #284. Deals' and POCs' checks and their ticks. */
   clientsChecks?: ClientsCheckRepository;
   /** #284. The checklists themselves, which setup keeps: no setup routes without them. */
@@ -610,6 +616,30 @@ export function buildApp(parts: Application): Express {
             activities: parts.clientsActivities,
           };
 
+    /* #289. Whose clients, deals and POCs need a new owner or CS lead (CLI 96). */
+    const standings = new ClientsStandings(clientsRoles, parts.employees);
+
+    /* #287. A POC ends by converting or exiting its deal, which only it may do. The dashboard
+       (#289) shows the POCs as this lists them. */
+    const pocs =
+      parts.clientsPocs === undefined ||
+      clientParts === undefined ||
+      parts.clientsCalendar === undefined
+        ? undefined
+        : new PocService(
+            parts.guard,
+            clientsRoles,
+            parts.clientsPocs,
+            new StageForPoc(
+              clientParts.opportunities,
+              clientParts.reasons,
+              clientsRoles,
+              parts.employees,
+              parts.clientsCalendar,
+            ),
+            standings,
+          );
+
     app.use(
       '/api',
       clientsRoutes({
@@ -642,6 +672,7 @@ export function buildApp(parts: Application): Express {
                 clientParts.opportunities,
                 clientParts.notes,
                 clientParts.activities,
+                standings,
               ),
         opportunities:
           clientParts === undefined
@@ -671,23 +702,27 @@ export function buildApp(parts: Application): Express {
                 clientParts.clients,
                 clientParts.activities,
               ),
-        /* #287. A POC ends by converting or exiting its deal, which only it may do. */
-        pocs:
-          parts.clientsPocs === undefined ||
-          clientParts === undefined ||
-          parts.clientsCalendar === undefined
+        pocs,
+        reassign:
+          clientParts === undefined || parts.clientsReassign === undefined
             ? undefined
-            : new PocService(
+            : new ReassignService(
                 parts.guard,
                 clientsRoles,
-                parts.clientsPocs,
-                new StageForPoc(
-                  clientParts.opportunities,
-                  clientParts.reasons,
-                  clientsRoles,
-                  parts.employees,
-                  parts.clientsCalendar,
-                ),
+                clientParts.opportunities,
+                parts.clientsReassign,
+                standings,
+              ),
+        dashboard:
+          clientParts === undefined || pocs === undefined
+            ? undefined
+            : new DashboardService(
+                parts.guard,
+                clientsRoles,
+                clientParts.opportunities,
+                clientParts.clients,
+                pocs,
+                standings,
               ),
         checklists:
           parts.clientsChecks === undefined

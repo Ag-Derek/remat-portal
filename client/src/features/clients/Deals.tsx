@@ -3,7 +3,7 @@ import {
   answerDealPoc,
   type ClientPage,
   clientsHolders,
-  type ClientsNamed,
+  type ClientsHolder,
   type ClientsOfferedProduct,
   changeDeal,
   type Currency,
@@ -18,6 +18,7 @@ import {
   moveDeal,
   offeredProducts,
   openDeal,
+  reassignDeal,
   type WaitingOnWhat,
 } from '../../api';
 import { AddButton, EditButton } from '../../ActionButtons';
@@ -998,8 +999,11 @@ function DealDialog({
   const [hasPoc, setHasPoc] = useState<boolean | null>(deal?.hasPoc ?? null);
   /* A new deal's owner, which a BD manager chooses: whoever looks after the client, to start. */
   const assigns = deal === undefined && client.may.reassign;
-  const [people, setPeople] = useState<ClientsNamed[] | undefined>(undefined);
-  const [ownerId, setOwnerId] = useState(client.owner.id);
+  /* An open deal's owner, which a BD manager may move it from (#289): to somebody who could take
+     it over, with the old owner's open steps on it and its POC's lead. */
+  const reassigns = deal !== undefined && deal.may.reassign;
+  const [people, setPeople] = useState<ClientsHolder[] | undefined>(undefined);
+  const [ownerId, setOwnerId] = useState(deal?.owner.id ?? client.owner.id);
   /* Settled once its contract is signed (CLI 19): shown, not offered. */
   const pocSettled = deal !== undefined && !deal.may.decidePoc;
   const pocLabel = useId();
@@ -1031,7 +1035,7 @@ function DealDialog({
   }, [deal, client.opportunities, onSignedOut]);
 
   useEffect(() => {
-    if (!assigns) {
+    if (!assigns && !reassigns) {
       return;
     }
 
@@ -1040,7 +1044,16 @@ function DealDialog({
       .catch((error: unknown) => {
         if (isNotSignedIn(error)) onSignedOut();
       });
-  }, [assigns, onSignedOut]);
+  }, [assigns, reassigns, onSignedOut]);
+
+  /* Whom it may move to, and whoever has it now, who may be somebody who cannot keep it. */
+  const owners =
+    deal === undefined
+      ? []
+      : [
+          ...(people ?? []).filter((person) => person.canTakeOver || person.id === deal.owner.id),
+          ...((people ?? []).some((person) => person.id === deal.owner.id) ? [] : [deal.owner]),
+        ];
 
   const lines = [...new Set((products ?? []).map((product) => product.lineName))];
   const thisYear = new Date().getFullYear();
@@ -1072,7 +1085,10 @@ function DealDialog({
             /* Only a BD manager names an owner; anybody else owns what they open. */
             ...(assigns ? { ownerId } : {}),
           })
-        : changeDeal(deal.id, details),
+        : changeDeal(deal.id, details).then(() =>
+            /* Moved after the edit, which its owner may no longer make once it is moved. */
+            reassigns && ownerId !== deal.owner.id ? reassignDeal(deal.id, ownerId) : undefined,
+          ),
     );
   };
 
@@ -1139,6 +1155,36 @@ function DealDialog({
                 }}
               >
                 {(people ?? [client.owner]).map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        ) : null}
+
+        {reassigns ? (
+          <Field
+            label="Owner"
+            error={sending.errorFor('ownerId')}
+            hint={
+              deal.poc === null
+                ? 'Their open steps on this deal move with it.'
+                : 'Their open steps on this deal, and its POC with its review meetings, move with it.'
+            }
+          >
+            {({ id, describedBy }) => (
+              <select
+                id={id}
+                value={ownerId}
+                aria-describedby={describedBy}
+                disabled={sending.busy || people === undefined}
+                onChange={(event) => {
+                  setOwnerId(event.target.value);
+                }}
+              >
+                {owners.map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.name}
                   </option>

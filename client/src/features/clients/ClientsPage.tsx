@@ -3,6 +3,8 @@ import { type ClientsViews, clientsViews, isNotSignedIn } from '../../api';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientView } from './ClientView';
+import { CompanyPipeline } from './CompanyPipeline';
+import { Dashboard } from './Dashboard';
 import { NewClientDialog } from './NewClient';
 import { LogActivityPage } from './LogActivity';
 import { MyPipeline } from './MyPipeline';
@@ -19,7 +21,8 @@ import { useAddress } from './ui';
  * build has no card and sends `#/clients` back to the portal.
  *
  * The views so far: My pipeline at `#/clients`, which Clients opens on (CLI 97), each client in it
- * opening at `#/clients/client/{id}` (#276); setup, a BD manager's, at `#/clients/setup`; roles, a System
+ * opening at `#/clients/client/{id}` (#276); the company pipeline, every open deal, at
+ * `#/clients/company`, and the dashboard at `#/clients/dashboard` (#289); setup, a BD manager's, at `#/clients/setup`; roles, a System
  * Administrator's, at `#/clients/roles`; past proposals, anybody's with a role, at
  * `#/clients/proposals` (#281); and the POCs running at `#/clients/pocs`, one at
  * `#/clients/poc/{id}` (#285). Which tabs are drawn is the server's answer, from
@@ -69,6 +72,8 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
     (view.name === 'proposals' && views?.pastProposals === true) ||
     (view.name === 'pocs' && views?.pocs === true) ||
     (view.name === 'log' && reads) ||
+    (view.name === 'company' && reads) ||
+    (view.name === 'dashboard' && reads) ||
     view.name === 'client' ||
     view.name === 'poc'
       ? view.name
@@ -128,6 +133,19 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
                 My pipeline
               </a>
             ) : null}
+            {reads ? (
+              <a href="#/clients/company" aria-current={showing === 'company' ? 'page' : undefined}>
+                Company pipeline
+              </a>
+            ) : null}
+            {reads ? (
+              <a
+                href="#/clients/dashboard"
+                aria-current={showing === 'dashboard' ? 'page' : undefined}
+              >
+                Dashboard
+              </a>
+            ) : null}
             {views.pocs ? (
               <a href="#/clients/pocs" aria-current={showing === 'pocs' ? 'page' : undefined}>
                 POCs
@@ -166,6 +184,10 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
           <RolesView onSignedOut={onSignedOut} />
         ) : showing === 'proposals' ? (
           <ProposalsView onSignedOut={onSignedOut} />
+        ) : showing === 'company' ? (
+          <CompanyPipeline onSignedOut={onSignedOut} />
+        ) : showing === 'dashboard' ? (
+          <Dashboard onSignedOut={onSignedOut} />
         ) : showing === 'pocs' ? (
           <PocsList onSignedOut={onSignedOut} />
         ) : showing === 'poc' && view.id !== undefined ? (
@@ -188,7 +210,17 @@ export function ClientsPage({ onSignedOut }: { onSignedOut: () => void }) {
   );
 }
 
-type ClientsView = 'pipeline' | 'client' | 'log' | 'setup' | 'roles' | 'proposals' | 'pocs' | 'poc';
+type ClientsView =
+  | 'pipeline'
+  | 'company'
+  | 'dashboard'
+  | 'client'
+  | 'log'
+  | 'setup'
+  | 'roles'
+  | 'proposals'
+  | 'pocs'
+  | 'poc';
 
 /**
  * Which view the address names, and the client, POC or deal for one. Logging is at `clients/log`
@@ -214,6 +246,12 @@ function viewOf(path: string): { name: ClientsView; id?: string; dealId?: string
 
   if (poc !== null) {
     return { name: 'poc', id: poc[1] };
+  }
+  if (path === 'clients/company') {
+    return { name: 'company' };
+  }
+  if (path === 'clients/dashboard') {
+    return { name: 'dashboard' };
   }
   if (path === 'clients/pocs') {
     return { name: 'pocs' };
