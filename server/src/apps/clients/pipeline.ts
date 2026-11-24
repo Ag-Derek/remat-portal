@@ -157,61 +157,25 @@ export function choicesOf(deals: readonly PipelineDeal[]): PipelineChoices {
 }
 
 /**
- * A deal's weighted value: its value times its probability of closing (CLI 76), to the nearest
- * pesewa or cent, half up. Null where it has no value or no probability, which is not counted
- * rather than counted as nothing (CLI 06).
- */
-export function weightedOf(deal: Pick<Opportunity, 'value' | 'probability'>): Money | null {
-  if (deal.value === null || deal.probability === null) {
-    return null;
-  }
-
-  return {
-    amountMinor: hundredthsHalfUp(deal.value.amountMinor * deal.probability),
-    currency: deal.value.currency,
-  };
-}
-
-/**
- * The figures over a set of open deals (CLI 75, CLI 76, TDD 8). Each sum is per currency and
- * never across them; a currency that nothing is counted in is left out, not shown as nothing.
- * The weighted sum is of value times probability, rounded once on the total, not row by row.
+ * The figures over a set of open deals (CLI 75, TDD 8): the value recorded, per currency and never
+ * across them, a currency with nothing in it left out rather than shown as nothing. No weighted
+ * figure: the user, 24 November 2026, "remove it, lead with recorded", as on the client page, since
+ * a deal that closes brings its whole value.
  */
 export interface PipelineTotals {
-  /** Over deals with both a value and a probability. */
-  weighted: Money[];
-  /** Every value recorded, whether or not it has a probability. */
   recorded: Money[];
   opportunities: number;
   clients: number;
-  /**
-   * What the totals leave out, so that neither reads as complete when it is not (CLI 77): deals
-   * with no value, which neither total counts and which are in no currency; and deals with a value
-   * but no probability, which are recorded but not weighed. One count each, for every currency.
-   */
+  /** Deals with no value, which no total counts and which are in no currency (CLI 77). */
   noValue: number;
-  noProbability: number;
 }
 
 export function totalsOf(deals: readonly PipelineDeal[]): PipelineTotals {
-  const weighted: Money[] = [];
   const recorded: Money[] = [];
 
   for (const currency of CURRENCIES) {
     const valued = deals.filter(({ deal }) => deal.value?.currency === currency);
-    const counted = valued.filter(({ deal }) => deal.probability !== null);
 
-    if (counted.length > 0) {
-      weighted.push({
-        currency,
-        amountMinor: hundredthsHalfUp(
-          counted.reduce(
-            (sum, { deal }) => sum + (deal.value?.amountMinor ?? 0) * (deal.probability ?? 0),
-            0,
-          ),
-        ),
-      });
-    }
     if (valued.length > 0) {
       recorded.push({
         currency,
@@ -221,25 +185,16 @@ export function totalsOf(deals: readonly PipelineDeal[]): PipelineTotals {
   }
 
   return {
-    weighted,
     recorded,
     opportunities: deals.length,
     clients: new Set(deals.map(({ deal }) => deal.client.id)).size,
     noValue: deals.filter(({ deal }) => deal.value === null).length,
-    noProbability: deals.filter(({ deal }) => deal.value !== null && deal.probability === null)
-      .length,
   };
-}
-
-/** A whole number of hundredths, to the nearest whole, half up. Amounts are never negative. */
-function hundredthsHalfUp(hundredths: number): number {
-  return Math.floor((hundredths + 50) / 100);
 }
 
 /** The company pipeline as the screen reads it: the deals filtered, their figures, the choices. */
 export interface CompanyPipeline {
   deals: (PipelineEntry & {
-    weighted: Money | null;
     /** Why its owner can no longer look after it, or null where they can (CLI 96). */
     ownerStanding: Standing | null;
   })[];

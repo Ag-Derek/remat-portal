@@ -1,6 +1,6 @@
 /**
  * The dashboard: the whole department's pipeline in figures (#289, Clients SRS CLI 102). Laid out
- * as the user's mockup has it: the weighted pipeline, where every open deal sits by stage, the
+ * as the user's mockup has it: the value recorded, where every open deal sits by stage, the
  * clients gone quiet, and the POCs by health.
  *
  * Worked out here from what the services read, with no database, so that every rule is tested on
@@ -8,7 +8,7 @@
  */
 
 import { type CalendarDate, calendarDaysBetween } from '../../core/calendar/time.js';
-import { CURRENCIES, type Currency, type Money } from './opportunity.js';
+import type { Money } from './opportunity.js';
 import { type PipelineDeal, type PipelineTotals, totalsOf } from './pipeline.js';
 import { POC_HEALTHS, type PocHealth, type PocView } from './poc.js';
 import { type Stage, STAGES } from './stage.js';
@@ -22,15 +22,15 @@ export const QUIET_AFTER_DAYS = 30;
 export const OPEN_STAGES: readonly Stage[] = STAGES.filter((stage) => stage !== 'LIVE');
 
 /**
- * One stage's deals (CLI 102): how many, and their weighted value per currency (the user, 24
+ * One stage's deals (CLI 102): how many, and their recorded value per currency (the user, 24
  * November 2026), with what that leaves out. Every open stage is listed, an empty one too.
  */
 export interface StageFigures {
   stage: Stage;
   opportunities: number;
-  weighted: Money[];
+  /** The value recorded at the stage, per currency. */
+  recorded: Money[];
   noValue: number;
-  noProbability: number;
 }
 
 /** A client nobody has spoken to in over {@link QUIET_AFTER_DAYS} days. */
@@ -40,24 +40,6 @@ export interface QuietClient {
   lastContact: CalendarDate;
   /** Whole days since, today being 0. */
   daysAgo: number;
-}
-
-/** From this share of its currency's figure, one deal is a warning (the user, 24 November 2026). */
-export const LARGEST_WARNS_FROM = 50;
-
-/**
- * The single deal that holds the most of one currency's weighted figure, and how much (CLI 78).
- */
-export interface LargestShare {
-  currency: Currency;
-  deal: { id: string; client: { id: string; name: string }; productName: string };
-  weighted: Money;
-  /** A whole percentage of the currency's weighted figure, half up. */
-  percent: number;
-  /** How many deals that figure is made of; one, and this deal is all of it. */
-  counted: number;
-  /** At {@link LARGEST_WARNS_FROM} or over: one deal moving changes the whole number. */
-  warns: boolean;
 }
 
 /** One deal or POC, as the reassignment list names it: "Ecobank · CreditStudio". */
@@ -90,8 +72,6 @@ export interface Dashboard {
   totals: PipelineTotals;
   /** By person's name; nobody where nothing needs it. */
   reassign: Reassignment[];
-  /** One per currency with anything weighed in it, in the totals' order. */
-  largest: LargestShare[];
   stages: StageFigures[];
   /**
    * Clients with an open deal gone quiet, the longest first (the user, 24 November 2026). Those
@@ -130,61 +110,16 @@ export function dashboardOf(
   return {
     totals: totalsOf(deals),
     reassign: reassignmentsOf(owned, deals, pocs, standings),
-    largest: largestOf(deals),
     stages: OPEN_STAGES.map((stage) => {
-      const { opportunities, weighted, noValue, noProbability } = totalsOf(
+      const { opportunities, recorded, noValue } = totalsOf(
         deals.filter(({ deal }) => deal.stage === stage),
       );
 
-      return { stage, opportunities, weighted, noValue, noProbability };
+      return { stage, opportunities, recorded, noValue };
     }),
     ...quietOf(contacts, today),
     pocs: pocsOf(pocs),
   };
-}
-
-/**
- * Per currency, the deal weighed most, and its share of the currency's figure: worked out on the
- * exact sums, value times probability, so that rounding the total never moves the share. Where two
- * deals weigh the same, the first by client A to Z. A currency whose figure is nothing, every deal
- * in it at 0%, has no share to give and is left out.
- */
-function largestOf(deals: readonly PipelineDeal[]): LargestShare[] {
-  const shares: LargestShare[] = [];
-
-  for (const currency of CURRENCIES) {
-    const counted = deals.filter(
-      ({ deal }) => deal.value?.currency === currency && deal.probability !== null,
-    );
-    const exact = ({ deal }: PipelineDeal) =>
-      (deal.value?.amountMinor ?? 0) * (deal.probability ?? 0);
-
-    const total = counted.reduce((sum, one) => sum + exact(one), 0);
-    const largest = counted.reduce<PipelineDeal | undefined>(
-      (most, one) => (most === undefined || exact(one) > exact(most) ? one : most),
-      undefined,
-    );
-    if (largest === undefined || total === 0) {
-      continue;
-    }
-
-    /* Half up in whole numbers, so that an exact half is never a float a hair below it. */
-    const percent = Math.floor((exact(largest) * 200 + total) / (total * 2));
-    shares.push({
-      currency,
-      deal: {
-        id: largest.deal.id,
-        client: largest.deal.client,
-        productName: largest.deal.product.name,
-      },
-      weighted: { currency, amountMinor: Math.floor((exact(largest) + 50) / 100) },
-      percent,
-      counted: counted.length,
-      warns: percent >= LARGEST_WARNS_FROM,
-    });
-  }
-
-  return shares;
 }
 
 /**

@@ -45,7 +45,7 @@ interface Named {
 }
 
 interface DashboardJson {
-  totals: { weighted: Money[]; opportunities: number; noValue: number };
+  totals: { recorded: Money[]; opportunities: number; noValue: number };
   reassign: {
     person: { id: string; name: string };
     standing: Standing;
@@ -53,15 +53,7 @@ interface DashboardJson {
     deals: Named[];
     pocs: Named[];
   }[];
-  largest: {
-    currency: string;
-    deal: { id: string; client: { id: string; name: string }; productName: string };
-    weighted: Money;
-    percent: number;
-    counted: number;
-    warns: boolean;
-  }[];
-  stages: { stage: string; opportunities: number; weighted: Money[]; noValue: number }[];
+  stages: { stage: string; opportunities: number; recorded: Money[]; noValue: number }[];
   quiet: { id: string; name: string; lastContact: string; daysAgo: number }[];
   neverContacted: number;
   pocs: {
@@ -157,50 +149,7 @@ async function dashboardOf(as: Asker): Promise<DashboardJson> {
 }
 
 describe('the dashboard', () => {
-  it("gives the largest deal's share of each currency's figure (CLI 78)", async () => {
-    const adb = await aClient('ADB');
-    const ecobank = await aClient('Ecobank');
-    const federation = await aDeal(adb, 'Federation', {
-      value: { amount: '864000', currency: 'USD' },
-      probability: 100,
-    });
-    await aDeal(adb, 'CreditStudio', {
-      value: { amount: '190000', currency: 'USD' },
-      probability: 50,
-    });
-    await aDeal(ecobank, 'CreditStudio', {
-      value: { amount: '75600', currency: 'USD' },
-      probability: 70,
-    });
-    const cedis = await aDeal(ecobank, 'OnboardStudio', {
-      value: { amount: '40000', currency: 'GHS' },
-      probability: 25,
-    });
-
-    const { largest } = await dashboardOf(bdManager);
-
-    expect(largest).toEqual([
-      {
-        currency: 'GHS',
-        deal: { id: cedis, client: { id: ecobank, name: 'Ecobank' }, productName: 'OnboardStudio' },
-        weighted: { currency: 'GHS', amountMinor: 1_000_000 },
-        percent: 100,
-        counted: 1,
-        warns: true,
-      },
-      {
-        /* 864,000 of 1,011,920. */
-        currency: 'USD',
-        deal: { id: federation, client: { id: adb, name: 'ADB' }, productName: 'Federation' },
-        weighted: { currency: 'USD', amountMinor: 86_400_000 },
-        percent: 85,
-        counted: 3,
-        warns: true,
-      },
-    ]);
-  });
-
-  it('weighs the whole pipeline, and each open stage on its own', async () => {
+  it('totals the whole pipeline, and each open stage on its own', async () => {
     const adb = await aClient('ADB');
     await aDeal(adb, 'CreditStudio', {
       value: { amount: '75600', currency: 'USD' },
@@ -215,9 +164,9 @@ describe('the dashboard', () => {
     const { totals, stages } = await dashboardOf(associate);
 
     expect(totals).toMatchObject({
-      weighted: [
-        { currency: 'GHS', amountMinor: 1_000_000 },
-        { currency: 'USD', amountMinor: 5_292_000 },
+      recorded: [
+        { currency: 'GHS', amountMinor: 4_000_000 },
+        { currency: 'USD', amountMinor: 7_560_000 },
       ],
       opportunities: 3,
       noValue: 1,
@@ -233,11 +182,10 @@ describe('the dashboard', () => {
     expect(stages[0]).toEqual({
       stage: 'DISCOVERY',
       opportunities: 3,
-      weighted: totals.weighted,
+      recorded: totals.recorded,
       noValue: 1,
-      noProbability: 0,
     });
-    expect(stages[1]).toMatchObject({ opportunities: 0, weighted: [] });
+    expect(stages[1]).toMatchObject({ opportunities: 0, recorded: [] });
   });
 
   it('lists clients with an open deal gone quiet, and counts those never spoken to', async () => {

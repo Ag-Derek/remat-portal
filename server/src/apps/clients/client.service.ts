@@ -55,7 +55,6 @@ import {
   type PipelineEntry,
   readPipelineFilters,
   totalsOf,
-  weightedOf,
 } from './pipeline.js';
 import { type ClientsAccess } from './policy.js';
 import { viewOf } from './opportunity.service.js';
@@ -247,7 +246,7 @@ export class ClientService {
 
   /**
    * The company pipeline: every open deal the filters leave, whoever owns it, by client A to Z,
-   * each with its weighted value, and the figures over them per currency (CLI 76, CLI 98, TDD 7,
+   * and the figures over them per currency (CLI 98, TDD 7,
    * 8). What each filter offers comes from every open deal. Anybody with a role's, values and
    * probabilities included (CLI 90).
    *
@@ -265,7 +264,6 @@ export class ClientService {
     return {
       deals: this.asOfToday(shown).map((entry) => ({
         ...entry,
-        weighted: weightedOf(entry.deal),
         ownerStanding: standings.get(entry.deal.owner.id) ?? null,
       })),
       totals: totalsOf(shown),

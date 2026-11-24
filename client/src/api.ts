@@ -3693,18 +3693,15 @@ export interface PipelineFilters {
 
 /** The company pipeline: the deals the filters leave, their figures, and what each filter offers. */
 export interface CompanyPipelineView {
-  /** By client A to Z. Weighted is null where the deal has no value or no probability. */
-  deals: (PipelineEntry & { weighted: Money | null; ownerStanding: ClientsStanding | null })[];
+  /** By client A to Z. */
+  deals: (PipelineEntry & { ownerStanding: ClientsStanding | null })[];
   /** Over the deals shown. A currency with nothing in it is left out, never added to another. */
   totals: {
-    weighted: Money[];
     recorded: Money[];
     opportunities: number;
     clients: number;
-    /** Deals with no value, in neither total (CLI 77). */
+    /** Deals with no value, in no total (CLI 77). */
     noValue: number;
-    /** Deals with a value but no probability: recorded, not weighed. */
-    noProbability: number;
   };
   /** Only what some open deal has, whatever is filtered. */
   choices: {
@@ -3715,7 +3712,7 @@ export interface CompanyPipelineView {
   };
 }
 
-/** Every open deal the filters leave, whoever owns it (CLI 98), with the weighted totals (CLI 76). */
+/** Every open deal the filters leave, whoever owns it (CLI 98), with the recorded totals. */
 export async function companyPipeline(filters: PipelineFilters): Promise<CompanyPipelineView> {
   const query = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value !== ''),
@@ -3740,26 +3737,13 @@ export interface ClientsDashboard {
     /** Whether the reader may move all of it at once: a BD manager. */
     mayMoveAll: boolean;
   }[];
-  /** Per currency with anything weighed: the deal weighed most, and its share (CLI 78). */
-  largest: {
-    currency: Currency;
-    deal: { id: string; client: ClientsNamed; productName: string };
-    weighted: Money;
-    /** Whole percent of that currency's weighted figure. */
-    percent: number;
-    /** How many deals the figure is made of. */
-    counted: number;
-    /** Half the figure or more: the server's call, shown in red. */
-    warns: boolean;
-  }[];
   /** Every open stage, Discovery to POC, the empty ones too. */
   stages: {
     stage: DealStage;
     opportunities: number;
-    /** Per currency; empty where nothing at the stage is weighed. */
-    weighted: Money[];
+    /** The value recorded at the stage, per currency; empty where none is. */
+    recorded: Money[];
     noValue: number;
-    noProbability: number;
   }[];
   /** Clients with an open deal nobody has spoken to in over 30 days, the longest first. */
   quiet: { id: string; name: string; lastContact: string; daysAgo: number }[];

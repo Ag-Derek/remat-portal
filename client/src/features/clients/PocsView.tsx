@@ -96,7 +96,7 @@ export function HealthPill({ health }: { health: PocHealth }) {
 }
 
 /** What each flag says. The server raises them; the words are the screen's. */
-const FLAG_NAME: Record<PocFlag['kind'], string> = {
+export const FLAG_NAME: Record<PocFlag['kind'], string> = {
   NO_CORRECTIVE_ACTION: 'No corrective action 48 hours after At Risk',
   EXIT_DECISION: 'Stalled seven days with no reset: decide whether to exit',
   LOW_USAGE: 'Below 50% usage at Day 63: unlikely to convert',

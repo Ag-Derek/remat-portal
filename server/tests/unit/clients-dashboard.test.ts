@@ -55,10 +55,10 @@ describe('where every open deal sits', () => {
 
     expect(stages.map((one) => one.stage)).toEqual(OPEN_STAGES);
     expect(OPEN_STAGES).not.toContain('LIVE');
-    expect(stages.every((one) => one.opportunities === 0 && one.weighted.length === 0)).toBe(true);
+    expect(stages.every((one) => one.opportunities === 0 && one.recorded.length === 0)).toBe(true);
   });
 
-  it("counts each stage's deals, and weighs them per currency", () => {
+  it("counts each stage's deals, and totals their value per currency", () => {
     const { stages } = dashboardOf(
       [
         aDeal('QUALIFICATION', [10_000, 'USD'], 50),
@@ -75,20 +75,22 @@ describe('where every open deal sits', () => {
     expect(at('QUALIFICATION')).toEqual({
       stage: 'QUALIFICATION',
       opportunities: 3,
-      weighted: [
-        { currency: 'GHS', amountMinor: 10_000 },
-        { currency: 'USD', amountMinor: 5_000 },
+      recorded: [
+        { currency: 'GHS', amountMinor: 20_000 },
+        { currency: 'USD', amountMinor: 10_000 },
       ],
       noValue: 1,
-      noProbability: 0,
     });
-    expect(at('NEGOTIATION')).toMatchObject({ opportunities: 1, weighted: [], noProbability: 1 });
+    expect(at('NEGOTIATION')).toMatchObject({
+      opportunities: 1,
+      recorded: [{ currency: 'USD', amountMinor: 8_000 }],
+    });
   });
 
   it('totals the whole pipeline as the company pipeline does', () => {
     const { totals } = dashboardOf([aDeal('POC', [10_000, 'USD'], 70)], [], [], TODAY);
 
-    expect(totals.weighted).toEqual([{ currency: 'USD', amountMinor: 7_000 }]);
+    expect(totals.recorded).toEqual([{ currency: 'USD', amountMinor: 10_000 }]);
     expect(totals.opportunities).toBe(1);
   });
 });
@@ -139,113 +141,6 @@ describe('clients gone quiet', () => {
 
     expect(dashboard.quiet).toEqual([]);
     expect(dashboard.neverContacted).toBe(2);
-  });
-});
-
-describe("the largest deal's share of each currency's figure (CLI 78)", () => {
-  it('names the deal, per currency, with its share and whether it warns', () => {
-    const big = aDeal('NEGOTIATION', [6_000, 'USD'], 100);
-    const small = aDeal('PROPOSAL', [2_000, 'USD'], 100);
-    const cedis = aDeal('PROPOSAL', [1_000, 'GHS'], 40);
-    const { largest } = dashboardOf(
-      [
-        small,
-        big,
-        cedis,
-        aDeal('PROPOSAL', [1_000, 'GHS'], 30),
-        aDeal('PROPOSAL', [1_000, 'GHS'], 30),
-      ],
-      [],
-      [],
-      TODAY,
-    );
-
-    expect(largest).toEqual([
-      {
-        currency: 'GHS',
-        deal: { id: cedis.deal.id, client: cedis.deal.client, productName: 'Federation' },
-        weighted: { currency: 'GHS', amountMinor: 400 },
-        percent: 40,
-        counted: 3,
-        warns: false,
-      },
-      {
-        currency: 'USD',
-        deal: { id: big.deal.id, client: big.deal.client, productName: 'Federation' },
-        weighted: { currency: 'USD', amountMinor: 6_000 },
-        percent: 75,
-        counted: 2,
-        warns: true,
-      },
-    ]);
-  });
-
-  it('rounds half up, and warns from 50%', () => {
-    /* 99 of 200 is 49.5%: shown as 50%, which warns. */
-    const { largest } = dashboardOf(
-      [
-        aDeal('PROPOSAL', [99, 'USD'], 100),
-        aDeal('PROPOSAL', [55, 'USD'], 100),
-        aDeal('PROPOSAL', [46, 'USD'], 100),
-      ],
-      [],
-      [],
-      TODAY,
-    );
-
-    expect(largest[0]).toMatchObject({ currency: 'USD', percent: 50, warns: true });
-
-    const below = dashboardOf(
-      [
-        aDeal('PROPOSAL', [98, 'USD'], 100),
-        aDeal('PROPOSAL', [51, 'USD'], 100),
-        aDeal('PROPOSAL', [51, 'USD'], 100),
-      ],
-      [],
-      [],
-      TODAY,
-    ).largest;
-    expect(below[0]).toMatchObject({ percent: 49, warns: false });
-  });
-
-  it('works on the exact sums, not the rounded ones', () => {
-    /* Three half-cents and a cent and a half: rounded first, it would be 2 of 5, 40%. */
-    const halves = [1, 2, 3].map(() => aDeal('PROPOSAL', [50, 'USD'], 1));
-    const larger = aDeal('PROPOSAL', [150, 'USD'], 1);
-
-    expect(dashboardOf([...halves, larger], [], [], TODAY).largest[0]).toMatchObject({
-      deal: { id: larger.deal.id },
-      percent: 50,
-    });
-  });
-
-  it('takes the first by client A to Z where two weigh the same', () => {
-    const first = aDeal('PROPOSAL', [1_000, 'USD'], 50);
-    const second = aDeal('PROPOSAL', [1_000, 'USD'], 50);
-
-    expect(dashboardOf([first, second], [], [], TODAY).largest[0]).toMatchObject({
-      deal: { id: first.deal.id },
-      percent: 50,
-    });
-  });
-
-  it('is all of it where it is the only deal weighed', () => {
-    const only = aDeal('POC', [1_000, 'GHS'], 70);
-
-    expect(
-      dashboardOf([only, aDeal('POC', [9_000, 'GHS'], null), aDeal('POC')], [], [], TODAY).largest,
-    ).toEqual([expect.objectContaining({ percent: 100, counted: 1, warns: true })]);
-  });
-
-  it('gives no share for a currency weighed at nothing, nor one with nothing weighed', () => {
-    expect(
-      dashboardOf(
-        [aDeal('PROPOSAL', [1_000, 'USD'], 0), aDeal('PROPOSAL', [1_000, 'GHS'], null)],
-        [],
-        [],
-        TODAY,
-      ).largest,
-    ).toEqual([]);
   });
 });
 

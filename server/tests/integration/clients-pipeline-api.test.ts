@@ -270,15 +270,8 @@ interface Money {
 }
 
 interface CompanyJson {
-  deals: (PipelineJson['deals'][number] & { weighted: Money | null })[];
-  totals: {
-    weighted: Money[];
-    recorded: Money[];
-    opportunities: number;
-    clients: number;
-    noValue: number;
-    noProbability: number;
-  };
+  deals: PipelineJson['deals'];
+  totals: { recorded: Money[]; opportunities: number; clients: number; noValue: number };
   choices: {
     lines: { id: string; name: string; products: { id: string; name: string }[] }[];
     stages: string[];
@@ -446,38 +439,26 @@ describe('the company pipeline, filtered (CLI 09, CLI 98)', () => {
   });
 });
 
-describe('the weighted pipeline (CLI 75, CLI 76, CLI 77)', () => {
-  it('weighs each deal, totals each currency on its own, and counts what is left out', async () => {
-    const dollars = await aDeal(adb, bdManager, 'CreditStudio', {
+describe('the recorded totals (CLI 75, CLI 77)', () => {
+  it('totals each currency on its own, over what is shown, and counts deals with no value', async () => {
+    await aDeal(adb, bdManager, 'CreditStudio', {
       value: { amount: '75600', currency: 'USD' },
       probability: 70,
     });
     await aDeal(adb, bdManager, 'OnboardStudio', {
       value: { amount: '190000', currency: 'USD' },
-      probability: 50,
     });
     await aDeal(ecobank, associate, 'CreditStudio', {
       value: { amount: '40000', currency: 'GHS' },
       probability: 25,
     });
-    const unweighed = await aDeal(ecobank, associate, 'OnboardStudio', {
+    await aDeal(ecobank, associate, 'OnboardStudio', {
       value: { amount: '12000', currency: 'GHS' },
     });
-    /* No value at all: in neither total, and in no currency. */
+    /* No value at all: in no total, and in no currency. */
     await aDeal(adb, bdManager, 'MicroStudio', { probability: 40 });
 
-    const all = await companyOf(associate);
-
-    expect(all.deals.find((entry) => entry.deal.id === dollars)?.weighted).toEqual({
-      amountMinor: 5_292_000,
-      currency: 'USD',
-    });
-    expect(all.deals.find((entry) => entry.deal.id === unweighed)?.weighted).toBeNull();
-    expect(all.totals).toEqual({
-      weighted: [
-        { currency: 'GHS', amountMinor: 1_000_000 },
-        { currency: 'USD', amountMinor: 14_792_000 },
-      ],
+    expect((await companyOf(associate)).totals).toEqual({
       recorded: [
         { currency: 'GHS', amountMinor: 5_200_000 },
         { currency: 'USD', amountMinor: 26_560_000 },
@@ -485,17 +466,14 @@ describe('the weighted pipeline (CLI 75, CLI 76, CLI 77)', () => {
       opportunities: 5,
       clients: 2,
       noValue: 1,
-      noProbability: 1,
     });
 
     /* Narrowed to the bank's owner, the figures are only theirs. */
     expect((await companyOf(associate, `?owner=${people.officer}`)).totals).toEqual({
-      weighted: [{ currency: 'GHS', amountMinor: 1_000_000 }],
       recorded: [{ currency: 'GHS', amountMinor: 5_200_000 }],
       opportunities: 2,
       clients: 1,
       noValue: 0,
-      noProbability: 1,
     });
   });
 });

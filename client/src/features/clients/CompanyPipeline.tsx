@@ -4,20 +4,20 @@ import {
   type CompanyPipelineView,
   type DealStage,
   isNotSignedIn,
-  type Money,
   type PipelineFilters,
 } from '../../api';
 import { money } from '../../format';
 import { Notice, type Problem, problemFrom } from '../../problem';
 import { ClientSearch } from './ClientSearch';
 import { STAGE_NAME } from './Deals';
+import { PipelineTiles } from './Tiles';
 import { standingInWords } from './ui';
 
 /**
  * The company pipeline: every open deal, whoever owns it (CLI 98), laid out as the mockup's second
- * page has it. Above, the weighted pipeline, the value recorded, and how many opportunities and
+ * page has it. Above, the value recorded, and how many opportunities and
  * clients, each sum per currency and never one across them (CLI 75, CLI 76). Below, client,
- * product, owner, stage, value, probability and weighted value. By client A to Z, so a client's
+ * product, owner, stage, value and probability. By client A to Z, so a client's
  * deals sit together (the user, 24 November 2026), and every deal is shown: there are too few to
  * need pages (TDD 17, item 7).
  *
@@ -77,7 +77,7 @@ export function CompanyPipeline({ onSignedOut }: { onSignedOut: () => void }) {
         </div>
       ) : (
         <>
-          <PipelineSummary totals={view.totals} />
+          <PipelineTiles totals={view.totals} />
 
           <div className="filter-bar clients-toolbar">
             <label>
@@ -177,9 +177,6 @@ export function CompanyPipeline({ onSignedOut }: { onSignedOut: () => void }) {
                     <th scope="col" className="is-figure">
                       Probability
                     </th>
-                    <th scope="col" className="is-figure">
-                      Weighted
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -191,108 +188,10 @@ export function CompanyPipeline({ onSignedOut }: { onSignedOut: () => void }) {
             </div>
           )}
 
-          {filtering ? (
-            <p className="clients-footnote">
-              The figures above are for the deals shown. Clear the filters for the whole company.
-            </p>
-          ) : null}
+          {filtering ? <p className="clients-footnote">Totals are for the deals shown.</p> : null}
         </>
       )}
     </section>
-  );
-}
-
-/**
- * The weighted pipeline large, with what it is under it; then the value recorded, and how many
- * opportunities and clients. Each sum is per currency, side by side (CLI 75).
- */
-export function PipelineSummary({ totals }: { totals: CompanyPipelineView['totals'] }) {
-  return (
-    <dl className="clients-pipeline-summary">
-      <div className="clients-pipeline-weighted">
-        <dt>Weighted pipeline</dt>
-        <dd>
-          <Figures amounts={totals.weighted} none="Nothing to weigh" />
-          <small className="muted">Each value times its probability of close</small>
-          <LeftOut line={notCountedLine(totals)} />
-        </dd>
-      </div>
-      <div>
-        <dt>Recorded value</dt>
-        <dd>
-          <Figures amounts={totals.recorded} none="No value" />
-          <LeftOut line={noValueLine(totals)} />
-        </dd>
-      </div>
-      <div>
-        <dt>Opportunities</dt>
-        <dd>
-          <span className="clients-figure">{totals.opportunities}</span>
-        </dd>
-      </div>
-      <div>
-        <dt>Clients</dt>
-        <dd>
-          <span className="clients-figure">{totals.clients}</span>
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-/**
- * What a total leaves out, beside it (CLI 77): in amber where something is, so the figure is not
- * read as complete; quietly where nothing is, so it is plain the count was not forgotten.
- */
-function LeftOut({ line }: { line: { words: string; missing: boolean } }) {
-  return <small className={line.missing ? 'clients-gap' : 'muted'}>{line.words}</small>;
-}
-
-type Totals = CompanyPipelineView['totals'];
-
-/** "21 of the 30 are not counted: 18 have no value, 3 have no probability." */
-function notCountedLine({ opportunities, noValue, noProbability }: Totals) {
-  const left = noValue + noProbability;
-  if (left === 0) {
-    return { words: 'Every deal is counted.', missing: false };
-  }
-
-  const why = [
-    noValue === 0 ? null : `${String(noValue)} ${noValue === 1 ? 'has' : 'have'} no value`,
-    noProbability === 0
-      ? null
-      : `${String(noProbability)} ${noProbability === 1 ? 'has' : 'have'} no probability`,
-  ]
-    .filter((part) => part !== null)
-    .join(', ');
-
-  return {
-    words: `${String(left)} of the ${String(opportunities)} ${left === 1 ? 'is' : 'are'} not counted: ${why}.`,
-    missing: true,
-  };
-}
-
-/** "18 have no value." */
-function noValueLine({ noValue }: Totals) {
-  return noValue === 0
-    ? { words: 'Every deal has a value.', missing: false }
-    : { words: `${String(noValue)} ${noValue === 1 ? 'has' : 'have'} no value.`, missing: true };
-}
-
-/** One figure per currency side by side, or a named gap where there is none (CLI 06). */
-function Figures({ amounts, none }: { amounts: Money[]; none: string }) {
-  if (amounts.length === 0) {
-    return <span className="clients-figure is-missing">{none}</span>;
-  }
-
-  return (
-    <span className="clients-figure-group">
-      {amounts.map((amount) => (
-        <span key={amount.currency} className="clients-figure">
-          {money(amount)}
-        </span>
-      ))}
-    </span>
   );
 }
 
@@ -332,13 +231,6 @@ function CompanyRow({ entry }: { entry: CompanyPipelineView['deals'][number] }) 
           <span className="clients-gap">No probability</span>
         ) : (
           <span>{`${String(deal.probability)}%`}</span>
-        )}
-      </td>
-      <td data-label="Weighted" className="is-figure">
-        {entry.weighted === null ? (
-          <span className="clients-gap">Not counted</span>
-        ) : (
-          <strong>{money(entry.weighted)}</strong>
         )}
       </td>
     </tr>

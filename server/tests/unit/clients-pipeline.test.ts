@@ -7,11 +7,10 @@ import {
   type PipelineDeal,
   readPipelineFilters,
   totalsOf,
-  weightedOf,
 } from '../../src/apps/clients/pipeline.js';
 import type { Stage } from '../../src/apps/clients/stage.js';
 
-/** The company pipeline's filters and figures, with no database. #289, CLI 75, 76, 98, TDD 8. */
+/** The company pipeline's filters and figures, with no database. #289, CLI 75, 77, 98, TDD 8. */
 
 let next = 0;
 
@@ -53,81 +52,26 @@ function aDeal(shape: Shape = {}): PipelineDeal {
   };
 }
 
-describe("a deal's weighted value (CLI 76)", () => {
-  it('is its value times its probability', () => {
-    expect(
-      weightedOf({ value: { amountMinor: 7_560_000, currency: 'USD' }, probability: 70 }),
-    ).toEqual({ amountMinor: 5_292_000, currency: 'USD' });
-  });
-
-  it('is rounded to the nearest cent, half up', () => {
-    expect(weightedOf({ value: { amountMinor: 50, currency: 'GHS' }, probability: 1 })).toEqual({
-      amountMinor: 1,
-      currency: 'GHS',
-    });
-    expect(weightedOf({ value: { amountMinor: 49, currency: 'GHS' }, probability: 1 })).toEqual({
-      amountMinor: 0,
-      currency: 'GHS',
-    });
-  });
-
-  it('is not counted with no value, or no probability', () => {
-    expect(weightedOf({ value: null, probability: 50 })).toBeNull();
-    expect(
-      weightedOf({ value: { amountMinor: 100, currency: 'USD' }, probability: null }),
-    ).toBeNull();
-  });
-
-  it('is nothing at 0%, which is counted', () => {
-    expect(weightedOf({ value: { amountMinor: 100, currency: 'USD' }, probability: 0 })).toEqual({
-      amountMinor: 0,
-      currency: 'USD',
-    });
-  });
-});
-
-describe('the totals (CLI 75, CLI 76, TDD 8)', () => {
-  it('never adds cedis to dollars', () => {
+describe('the totals (CLI 75, TDD 8)', () => {
+  it('records every value, never adding cedis to dollars', () => {
     const totals = totalsOf([
       aDeal({ value: [10_000, 'USD'], probability: 50 }),
-      aDeal({ value: [20_000, 'GHS'], probability: 50 }),
+      aDeal({ value: [20_000, 'GHS'], probability: null }),
       aDeal({ value: [30_000, 'USD'], probability: 100 }),
+      aDeal({ value: null, probability: 90 }),
     ]);
 
-    expect(totals.weighted).toEqual([
-      { currency: 'GHS', amountMinor: 10_000 },
-      { currency: 'USD', amountMinor: 35_000 },
-    ]);
     expect(totals.recorded).toEqual([
       { currency: 'GHS', amountMinor: 20_000 },
       { currency: 'USD', amountMinor: 40_000 },
     ]);
   });
 
-  it('rounds once, on the total, not row by row', () => {
-    /* Each is half a cent, which row by row would round to a cent each: 3 cents, not 2. */
-    const halves = [1, 2, 3].map(() => aDeal({ value: [50, 'USD'], probability: 1 }));
-
-    expect(totalsOf(halves).weighted).toEqual([{ currency: 'USD', amountMinor: 2 }]);
-  });
-
-  it('weighs only deals with both a value and a probability, and records every value', () => {
-    const totals = totalsOf([
-      aDeal({ value: [10_000, 'USD'], probability: 50 }),
-      aDeal({ value: [99_000, 'USD'], probability: null }),
-      aDeal({ value: null, probability: 90 }),
+  it('leaves out a currency nothing is recorded in, rather than showing nothing', () => {
+    expect(totalsOf([aDeal({ value: [10_000, 'GHS'] })]).recorded).toEqual([
+      { currency: 'GHS', amountMinor: 10_000 },
     ]);
-
-    expect(totals.weighted).toEqual([{ currency: 'USD', amountMinor: 5_000 }]);
-    expect(totals.recorded).toEqual([{ currency: 'USD', amountMinor: 109_000 }]);
-  });
-
-  it('leaves out a currency nothing is counted in, rather than showing nothing', () => {
-    const totals = totalsOf([aDeal({ value: [10_000, 'GHS'], probability: null })]);
-
-    expect(totals.weighted).toEqual([]);
-    expect(totals.recorded).toEqual([{ currency: 'GHS', amountMinor: 10_000 }]);
-    expect(totalsOf([]).weighted).toEqual([]);
+    expect(totalsOf([aDeal()]).recorded).toEqual([]);
   });
 
   it('counts the opportunities, and the clients they are for', () => {
@@ -141,28 +85,16 @@ describe('the totals (CLI 75, CLI 76, TDD 8)', () => {
     expect(totals.clients).toBe(2);
   });
 
-  /* CLI 77: what the totals leave out, by why. */
-  it('counts the deals with no value, and those with a value but no probability', () => {
+  /* CLI 77: what the total leaves out. */
+  it('counts the deals with no value, whatever their probability', () => {
     const totals = totalsOf([
-      aDeal({ value: [10_000, 'USD'], probability: 50 }),
       aDeal({ value: [10_000, 'USD'], probability: null }),
-      aDeal({ value: [10_000, 'GHS'], probability: null }),
       aDeal({ value: null, probability: 40 }),
-      /* No value is the reason, whether or not it has a probability. */
       aDeal({ value: null, probability: null }),
-      /* 0% is a probability, and counted. */
-      aDeal({ value: [10_000, 'USD'], probability: 0 }),
     ]);
 
     expect(totals.noValue).toBe(2);
-    expect(totals.noProbability).toBe(2);
-  });
-
-  it('counts nothing missing where every deal has both', () => {
-    const totals = totalsOf([aDeal({ value: [10_000, 'USD'], probability: 50 })]);
-
-    expect([totals.noValue, totals.noProbability]).toEqual([0, 0]);
-    expect([totalsOf([]).noValue, totalsOf([]).noProbability]).toEqual([0, 0]);
+    expect(totalsOf([]).noValue).toBe(0);
   });
 });
 

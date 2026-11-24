@@ -48,8 +48,8 @@ import { Dialog, DialogFoot, Field, useSending } from './ui';
  * probability, so that it cannot be read as complete when it is not (CLI 77).
  *
  * No weighted value here: the user found value times probability says little about one client,
- * since a deal that closes brings in its whole value. The company pipeline and the dashboard
- * still owe CLI 76's weighted total (#289).
+ * since a deal that closes brings in its whole value. The company pipeline and the dashboard lead
+ * with the value recorded too, for the same reason (the user, 24 November 2026, #289).
  */
 export function OpportunityFigures({ deals }: { deals: readonly Deal[] }) {
   const open = deals.filter((deal) => deal.outcome === 'OPEN');

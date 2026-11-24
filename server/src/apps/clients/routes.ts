@@ -164,7 +164,7 @@ export function clientsRoutes({
 
   if (dashboard !== undefined) {
     /**
-     * The dashboard: the weighted pipeline, each open stage, the clients gone quiet and the POCs by
+     * The dashboard: the value recorded, each open stage, the clients gone quiet and the POCs by
      * health (CLI 102). #289.
      */
     routes.get(
@@ -426,7 +426,7 @@ function clientRoutes(routes: Router, clients: ClientService): void {
 
   /**
    * The company pipeline, `?line=&product=&stage=&owner=&clientType=`: every open deal the filters
-   * leave, by client A to Z, each with its weighted value; the weighted and recorded totals over
+   * leave, by client A to Z, and the recorded totals over
    * them, per currency; and what each filter offers (CLI 76, CLI 98). Read in one query (TDD 7).
    */
   routes.get(

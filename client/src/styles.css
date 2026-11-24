@@ -2343,27 +2343,27 @@ button.clients-pill.is-missing:hover {
   font-size: 1.125rem;
 }
 
-/* The company pipeline's figures, #289, as the mockup's card: the weighted pipeline large at the
-   left, then the value recorded and the counts, wrapping under one another when narrow. */
-.clients-pipeline-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--gap) 2rem;
+/* Numbers at a glance, #289: a row of tiles on the company pipeline and the dashboard, each a small
+   label over a big figure. Money is one line per currency (CLI 75). */
+.clients-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: var(--gap);
   margin: 0 0 var(--gap);
-  padding: 1.1rem 1.25rem;
+}
+
+.clients-tile {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.9rem 1.1rem;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
-.clients-pipeline-summary > div {
-  display: grid;
-  gap: 0.3rem;
-  min-width: 0;
-}
-
-.clients-pipeline-summary dt {
+.clients-tile dt {
   color: var(--ink-faint);
   font-size: 0.75rem;
   font-weight: 600;
@@ -2371,40 +2371,299 @@ button.clients-pill.is-missing:hover {
   text-transform: uppercase;
 }
 
-.clients-pipeline-summary dd {
+.clients-tile dd {
   display: grid;
-  gap: 0.2rem;
+  justify-items: start;
+  gap: 0.35rem;
   margin: 0;
 }
 
-.clients-pipeline-summary small {
+.clients-tile-figure {
+  font-family: var(--face-figure);
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.clients-tile-figure.is-none {
+  color: var(--ink-faint);
+}
+
+.clients-tile-money {
+  display: grid;
+  gap: 0.1rem;
+  font-family: var(--face-figure);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.clients-tile-under {
+  color: var(--ink-soft);
   font-size: 0.8125rem;
 }
 
-.clients-pipeline-weighted {
-  flex: 1 1 18rem;
+/* What a figure leaves out, or why somebody needs replacing: a small amber chip, with the detail
+   on hover. Red for a POC's flags. */
+.clients-tile-chip {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--away) 45%, var(--card));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--away) 14%, var(--card));
+  color: var(--away-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
 }
 
-.clients-pipeline-weighted .clients-figure {
-  font-size: 2.25rem;
-  line-height: 1.1;
+.clients-tile-chip.is-warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--card));
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  color: var(--warn);
 }
 
-.clients-pipeline-weighted .clients-figure.is-missing {
-  font-size: 1.25rem;
-}
-
-/* The dashboard, #289: the pipeline's card, the stages, then two panels side by side that stack
-   when there is no room for both. */
+/* The dashboard, #289: tiles, then two rows of two panels that stack when there is no room. */
 .clients-dashboard {
+  /* POC health as a bar and its legend: the app's own status colours, and in the dark a step
+     each that stays apart for colour-blind readers against the dark card (checked with the
+     palette validator, 24 November 2026). */
+  --health-on-track: #1e8e3e;
+  --health-at-risk: #e8a200;
+  --health-stalled: #b3261e;
   display: grid;
   gap: var(--gap);
   margin-bottom: 1.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .clients-dashboard {
+    --health-on-track: #11712d;
+    --health-at-risk: #c08a00;
+    --health-stalled: #cf3b3b;
+  }
+}
+
+.clients-dashboard .clients-tiles {
+  margin: 0;
+}
+
+.clients-dashboard-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+
+.clients-chart {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
   container-type: inline-size;
 }
 
-.clients-dashboard .clients-pipeline-summary {
+.clients-chart h3 {
   margin: 0;
+  font-family: var(--face-text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.clients-chart > p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* A bar chart, one series, one hue: name, a thin bar from a shared baseline with a rounded data
+   end, and the figure at its tip. */
+.clients-bars {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-bars > li {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(2rem, 1fr) minmax(2.5rem, auto);
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.clients-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clients-bars.is-quiet .clients-bar-name {
+  font-weight: 600;
+}
+
+.clients-bar-track {
+  display: block;
+  height: 0.875rem;
+}
+
+.clients-bar-track > span {
+  display: block;
+  min-width: 4px;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent);
+}
+
+.clients-bars.is-quiet .clients-bar-track > span {
+  background: var(--away);
+}
+
+.clients-bar-figure {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.clients-bar-figure small {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+@container (max-width: 26rem) {
+  .clients-bars > li {
+    grid-template-columns: 1fr auto;
+    row-gap: 0.2rem;
+  }
+
+  .clients-bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* POC health: one thin bar split by health, 2px of surface between its parts, then a legend of
+   counts. The status colours are validated for colour blindness in both themes. */
+.clients-segments {
+  display: flex;
+  gap: 2px;
+  height: 0.625rem;
+}
+
+.clients-segments > span,
+.clients-swatch {
+  background: var(--health-on-track);
+}
+
+.clients-segments > span {
+  flex-basis: 0;
+  min-width: 6px;
+  border-radius: 999px;
+}
+
+.clients-segments > .is-at-risk,
+.clients-swatch.is-at-risk {
+  background: var(--health-at-risk);
+}
+
+.clients-segments > .is-stalled,
+.clients-swatch.is-stalled {
+  background: var(--health-stalled);
+}
+
+.clients-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.clients-legend > li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.clients-swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+}
+
+/* Short rows: a name at the left, what is said of it at the right. */
+.clients-dash-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.clients-dash-rows > li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.clients-dash-rows a {
+  font-weight: 600;
+}
+
+.clients-dash-row-end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clients-dash-rows.is-people > li {
+  display: grid;
+  justify-content: stretch;
+}
+
+.clients-dash-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clients-dash-person > button {
+  margin-left: auto;
+}
+
+.clients-dash-rows details summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.clients-dash-rows details ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0;
+  padding: 0 0 0 1rem;
+}
+
+.clients-more {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 0.875rem;
+  cursor: pointer;
 }
 
 /* Searching every client from the company pipeline, #289: the box, and under it, as you type, a
@@ -2471,203 +2730,6 @@ button.clients-pill.is-missing:hover {
   margin: 0;
   color: var(--ink-soft);
   font-size: 0.875rem;
-}
-
-/* Each currency's largest deal, CLI 78: a quiet line, or a red box once it is half the figure. */
-.clients-shares {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.clients-share {
-  padding: 0.6rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-small);
-  background: var(--card);
-  color: var(--ink-soft);
-  font-size: 0.875rem;
-}
-
-.clients-share.is-warning {
-  border-color: color-mix(in srgb, var(--warn) 35%, var(--card));
-  background: color-mix(in srgb, var(--warn) 8%, var(--card));
-  color: var(--ink);
-}
-
-.clients-share.is-warning strong {
-  color: var(--warn);
-}
-
-/* Who needs reassigning, CLI 96: an amber edge, then each person with their things under them. */
-.clients-panel.is-attention {
-  border-left: 3px solid var(--away-ink);
-}
-
-.clients-reassign {
-  margin: 0;
-  list-style: none;
-}
-
-.clients-reassign > li {
-  display: grid;
-  gap: 0.35rem;
-  padding-top: 0.6rem;
-  border-top: 1px solid var(--line);
-  font-size: 0.875rem;
-}
-
-.clients-reassign-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.clients-reassign p,
-.clients-reassign dl {
-  margin: 0;
-}
-
-.clients-reassign dl > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.15rem 0.5rem;
-}
-
-.clients-reassign dt {
-  min-width: 6rem;
-  color: var(--ink-faint);
-}
-
-.clients-reassign dd {
-  margin: 0;
-}
-
-.clients-dashboard-pair {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  gap: var(--gap);
-  align-items: start;
-}
-
-.clients-dashboard-body {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0 1.25rem 1.1rem;
-}
-
-.clients-dashboard-body > p {
-  margin: 0;
-  font-size: 0.875rem;
-}
-
-/* Each stage: its name, a bar as long as its count, and the count with its weighted value. */
-.clients-stage-bars {
-  display: grid;
-  margin: 0;
-  padding: 0 1.25rem 1rem;
-  list-style: none;
-}
-
-.clients-stage-bars > li {
-  display: grid;
-  grid-template-columns: 9rem minmax(3rem, 1fr) minmax(8rem, auto);
-  align-items: center;
-  gap: 1rem;
-  padding: 0.45rem 0;
-  border-top: 1px solid var(--line);
-  font-size: 0.875rem;
-}
-
-.clients-stage-bar-track {
-  display: block;
-  height: 0.6rem;
-}
-
-.clients-stage-bar-track > span {
-  display: block;
-  min-width: 0.75rem;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.clients-stage-bar-track > span.is-empty {
-  background: var(--line-strong);
-}
-
-.clients-stage-bar-figure {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-@container (max-width: 34rem) {
-  .clients-stage-bars > li {
-    grid-template-columns: 1fr auto;
-    row-gap: 0.3rem;
-  }
-
-  .clients-stage-bar-track {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-}
-
-/* A short list of names, each with what is said of it at the right. */
-.clients-dashboard-list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 0.875rem;
-}
-
-.clients-dashboard-list > li {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 0.5rem 0;
-  border-top: 1px solid var(--line);
-}
-
-.clients-dashboard-list > li > div {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
-.clients-dashboard-list a {
-  font-weight: 600;
-}
-
-/* How many POCs are at each health, three figures in a row. */
-.clients-health-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 2rem;
-  margin: 0;
-}
-
-.clients-health-counts > div {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.clients-health-counts dt {
-  color: var(--ink-faint);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.clients-health-counts dd {
-  margin: 0;
 }
 
 /* How many open ones a total leaves out (CLI 77). */
