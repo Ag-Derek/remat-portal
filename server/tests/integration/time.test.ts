@@ -202,6 +202,8 @@ describe('the columns', () => {
       'approval_delegation.starts_on',
       /** #280. The day a call or meeting happened, which may be long before it was logged. */
       'clients_activity.happened_on',
+      /** #284. The day a checklist item stopped being copied onto new deals and POCs. */
+      'clients_checklist_item.retired_on',
       /** #276. When a client started and stopped using a product. */
       'clients_client_product.ended_on',
       'clients_client_product.since_on',

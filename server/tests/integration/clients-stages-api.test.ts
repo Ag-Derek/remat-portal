@@ -7,6 +7,7 @@ import { seed } from '../../seeds/seed.mjs';
 import { type Database, databaseFor } from '../../src/core/db/index.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { type Asker, type ClientsApp, startClientsApp } from '../support/clients-app.js';
+import { tickEveryCheck } from '../support/clients-checks.js';
 import { intoItsPoc as intoAPoc } from '../support/clients-poc.js';
 import { recordingDenials } from '../support/recording-denials.js';
 
@@ -438,6 +439,217 @@ describe('a deal with a POC', () => {
       decidePoc: false,
       lose: false,
     });
+  });
+});
+
+/* ------------------------------------------------------------------ the checklists */
+
+describe("a deal's checklist", () => {
+  async function groupsOf(owner: 'opportunity_id' | 'poc_id', id: string) {
+    const { rows } = await admin.query<{ grp: string; n: number }>(
+      `SELECT grp, count(*)::int AS n FROM clients_check WHERE ${owner} = $1 GROUP BY grp`,
+      [id],
+    );
+    return Object.fromEntries(rows.map((row) => [row.grp, row.n]));
+  }
+
+  /* #284, CLI 40: the criteria and gates as the deal leaves Discovery, the phase checks as its
+     contract is signed and its POC made. */
+  it('is copied onto the deal as it leaves Discovery, and onto its POC at signing', async () => {
+    const deal = await aDeal(associate, 'Federation');
+
+    await moved(associate, deal.id, 'PROPOSAL');
+    expect(await groupsOf('opportunity_id', deal.id)).toEqual({ QUALIFICATION: 6, PRE_POC: 8 });
+
+    await tickEveryCheck(admin, deal.id);
+    await answerPoc(associate, deal.id, true);
+    await moved(associate, deal.id, 'NEGOTIATION');
+    const signed = await moved(associate, deal.id, 'CONTRACT_SIGNED');
+    expect(signed.stage).toBe('POC');
+
+    const { rows } = await admin.query<{ poc_id: string }>(
+      'SELECT poc_id FROM clients_opportunity WHERE id = $1',
+      [deal.id],
+    );
+    expect(await groupsOf('poc_id', rows[0].poc_id)).toEqual({
+      FOUNDATION: 5,
+      DEEPENING: 6,
+      CONVERTING: 3,
+    });
+    expect(await groupsOf('opportunity_id', deal.id)).toEqual({ QUALIFICATION: 6, PRE_POC: 8 });
+  });
+});
+
+describe('the qualification gate', () => {
+  /** A deal's checks, by label, as the checklist answers them. */
+  async function checksOf(id: string): Promise<Record<string, string>> {
+    const response = await app.send('GET', `/api/clients/opportunities/${id}/checks`, associate);
+    const { checks } = (await response.json()) as { checks: { id: string; label: string }[] };
+    return Object.fromEntries(checks.map((check) => [check.label, check.id]));
+  }
+
+  function tick(id: string, ticked: boolean) {
+    return app.send('POST', `/api/clients/checks/${id}/tick`, associate, { ticked });
+  }
+
+  /* #284, done when: a Symphony deal with one criterion unticked cannot reach Negotiation, and the
+     message says which. CLI 22, CLI 44. */
+  it('holds a Symphony deal with one criterion unticked, naming it, until it is ticked', async () => {
+    const deal = await aDeal(associate, 'Federation');
+    await moved(associate, deal.id, 'QUALIFICATION');
+    await tickEveryCheck(admin, deal.id);
+    const checks = await checksOf(deal.id);
+    expect((await tick(checks['Point person identified'], false)).status).toBe(200);
+
+    expect(await refused(await move(associate, deal.id, { toStage: 'NEGOTIATION' }), 409)).toEqual({
+      error: 'GateOpen',
+      message:
+        'The Federation deal goes to Negotiation once its qualification criteria are ticked. ' +
+        'Still to tick: Point person identified.',
+      field: 'toStage',
+    });
+    expect(await find(deal.id)).toMatchObject({
+      stage: 'QUALIFICATION',
+      openCriteria: ['Point person identified'],
+    });
+
+    /* The screen offers Negotiation closed, with the same sentence. */
+    const view = (await find(deal.id)) as DealJson & {
+      moves: { stage: string; open: boolean; why: string | null }[];
+    };
+    expect(view.moves.find((option) => option.stage === 'NEGOTIATION')).toMatchObject({
+      open: false,
+      why: expect.stringContaining('Still to tick: Point person identified.') as unknown,
+    });
+
+    expect((await tick(checks['Point person identified'], true)).status).toBe(200);
+    expect(await moved(associate, deal.id, 'NEGOTIATION')).toMatchObject({ stage: 'NEGOTIATION' });
+  });
+
+  /* #284, done when: a Dura Capital deal moves through with no checklist. CLI 43. */
+  it('lets a Dura Capital deal through every stage, with no checklist', async () => {
+    const deal = await aDeal(associate, 'CreditStudio');
+
+    expect(await moved(associate, deal.id, 'NEGOTIATION')).toMatchObject({ openCriteria: [] });
+    await answerPoc(associate, deal.id, false);
+    await moved(associate, deal.id, 'CONTRACT_SIGNED');
+    expect(await moved(associate, deal.id, 'LIVE')).toMatchObject({ outcome: 'WON' });
+  });
+
+  /* CLI 41, SRS §17: the review meetings and POC set-up are asked only of a deal with a POC, and
+     of one that has not said yet (TDD 5). */
+  it('asks the POC-only criteria of a deal with a POC or undecided, and not of one without', async () => {
+    const deal = await aDeal(associate, 'Federation');
+    await moved(associate, deal.id, 'QUALIFICATION');
+    await tickEveryCheck(admin, deal.id);
+    const checks = await checksOf(deal.id);
+    const pocOnly = [
+      'All three stakeholders identified (decision maker, COO, IT contact), each committed to three review meetings',
+      'Integration pre-configuration started, at least 4 weeks before the start',
+    ];
+    for (const label of pocOnly) {
+      expect((await tick(checks[label], false)).status).toBe(200);
+    }
+
+    expect(await find(deal.id)).toMatchObject({ openCriteria: pocOnly });
+    expect(
+      await refused(await move(associate, deal.id, { toStage: 'NEGOTIATION' }), 409),
+    ).toMatchObject({ error: 'GateOpen' });
+
+    await answerPoc(associate, deal.id, false);
+    expect(await moved(associate, deal.id, 'NEGOTIATION')).toMatchObject({ openCriteria: [] });
+
+    await answerPoc(associate, deal.id, true);
+    expect(
+      await refused(await move(associate, deal.id, { toStage: 'CONTRACT_SIGNED' }), 409),
+    ).toMatchObject({ error: 'GateOpen' });
+  });
+
+  /* The user, 24 November 2026: at Discovery it has no checklist yet, so it is sent there first. */
+  it('sends a deal skipping Qualification from Discovery there first, naming every criterion', async () => {
+    const deal = await aDeal(associate, 'Federation');
+
+    const problem = await refused(await move(associate, deal.id, { toStage: 'NEGOTIATION' }), 409);
+    expect(problem.error).toBe('GateOpen');
+    expect(problem.message).toContain('Point person identified');
+    expect(problem.message).toMatch(/Move it to Qualification first/);
+    expect(await find(deal.id)).toMatchObject({ stage: 'DISCOVERY' });
+
+    /* Skipping Qualification on the way to Proposal is still allowed (the user, 23 November). */
+    expect(await moved(associate, deal.id, 'PROPOSAL')).toMatchObject({ stage: 'PROPOSAL' });
+  });
+});
+
+describe('the pre-POC gate', () => {
+  /** A Federation deal at Negotiation, its criteria ticked and its gates not, POC answered. */
+  async function atNegotiation(hasPoc: boolean): Promise<string> {
+    const deal = await aDeal(associate, 'Federation');
+    await moved(associate, deal.id, 'QUALIFICATION');
+    await tickEveryCheck(admin, deal.id, ['QUALIFICATION']);
+    expect((await answerPoc(associate, deal.id, hasPoc)).status).toBe(200);
+    await moved(associate, deal.id, 'NEGOTIATION');
+    return deal.id;
+  }
+
+  async function pocOf(id: string): Promise<string | null> {
+    const { rows } = await admin.query<{ poc_id: string | null }>(
+      'SELECT poc_id FROM clients_opportunity WHERE id = $1',
+      [id],
+    );
+    return rows[0].poc_id;
+  }
+
+  /* CLI 23, #284, #285: signing starts the POC, so the gates come before it. */
+  it('holds the signing of a deal with a POC, naming every gate open, and starts no POC', async () => {
+    const deal = await atNegotiation(true);
+
+    const problem = await refused(await move(associate, deal, { toStage: 'CONTRACT_SIGNED' }), 409);
+    expect(problem).toMatchObject({ error: 'GateOpen', field: 'toStage' });
+    expect(problem.message).toBe(
+      'The Federation deal goes to Contract signed once its pre-POC gates are ticked, since ' +
+        'signing starts its POC. Still to tick: Pricing shared; User list final; Metrics agreed; ' +
+        'Communication audit done; Week 6 midpoint review booked; IT and infrastructure ' +
+        'confirmed; Teams integration scoped; Client Intelligence Document on file.',
+    );
+    expect(await find(deal)).toMatchObject({ stage: 'NEGOTIATION' });
+    expect(await pocOf(deal)).toBeNull();
+
+    await tickEveryCheck(admin, deal, ['PRE_POC']);
+    expect(await moved(associate, deal, 'CONTRACT_SIGNED')).toMatchObject({ stage: 'POC' });
+    expect(await pocOf(deal)).not.toBeNull();
+  });
+
+  it('asks nothing of a deal without a POC', async () => {
+    const deal = await atNegotiation(false);
+
+    expect(await moved(associate, deal, 'CONTRACT_SIGNED')).toMatchObject({
+      stage: 'CONTRACT_SIGNED',
+      openGates: expect.any(Array) as unknown,
+    });
+  });
+
+  /* The user, 24 November 2026: one refusal naming both. */
+  it('names the criteria and the gates together where both are open', async () => {
+    const deal = await atNegotiation(true);
+    const { rows } = await admin.query<{ id: string }>(
+      `SELECT id FROM clients_check WHERE opportunity_id = $1 AND label = 'Point person identified'`,
+      [deal],
+    );
+    expect(
+      (
+        await app.send('POST', `/api/clients/checks/${rows[0].id}/tick`, associate, {
+          ticked: false,
+        })
+      ).status,
+    ).toBe(200);
+
+    const { message } = await refused(
+      await move(associate, deal, { toStage: 'CONTRACT_SIGNED' }),
+      409,
+    );
+    expect(message).toMatch(
+      /^The Federation deal goes to Contract signed once its qualification criteria and pre-POC gates are ticked\. Criteria still to tick: Point person identified\. Gates still to tick: Pricing shared; /,
+    );
   });
 });
 

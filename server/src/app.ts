@@ -93,6 +93,9 @@ import type { ClientsDocumentRepository } from './apps/clients/document.db.js';
 import { DocumentService } from './apps/clients/document.service.js';
 import type { ClientsActivityRepository } from './apps/clients/activity.db.js';
 import type { ClientsPocRepository } from './apps/clients/poc.db.js';
+import type { ClientsCheckRepository } from './apps/clients/checklist.db.js';
+import type { ClientsChecklistItemRepository } from './apps/clients/checklist-item.db.js';
+import { ChecklistService } from './apps/clients/checklist.service.js';
 import { PocService } from './apps/clients/poc.service.js';
 import { StageForPoc } from './apps/clients/stage-for-poc.js';
 import type { CompanyCalendar } from './core/calendar/company-calendar.js';
@@ -251,6 +254,10 @@ export interface Application {
   clientsDocuments?: ClientsDocumentRepository;
   /** #285. POCs, started as their deals are signed. */
   clientsPocs?: ClientsPocRepository;
+  /** #284. Deals' and POCs' checks and their ticks. */
+  clientsChecks?: ClientsCheckRepository;
+  /** #284. The checklists themselves, which setup keeps: no setup routes without them. */
+  clientsChecklistItems?: ClientsChecklistItemRepository;
   /** #287. The company's working days, which an exit's debrief falls five of after it. */
   clientsCalendar?: CompanyCalendar;
   /** Where a 500 is written down. */
@@ -612,7 +619,8 @@ export function buildApp(parts: Application): Express {
         setup:
           parts.clientsProducts === undefined ||
           parts.clientsClients === undefined ||
-          parts.clientsReasons === undefined
+          parts.clientsReasons === undefined ||
+          parts.clientsChecklistItems === undefined
             ? undefined
             : new SetupService(
                 parts.guard,
@@ -620,6 +628,7 @@ export function buildApp(parts: Application): Express {
                 parts.clientsProducts,
                 parts.clientsClients,
                 parts.clientsReasons,
+                parts.clientsChecklistItems,
               ),
         clients:
           clientParts === undefined
@@ -680,6 +689,10 @@ export function buildApp(parts: Application): Express {
                   parts.clientsCalendar,
                 ),
               ),
+        checklists:
+          parts.clientsChecks === undefined
+            ? undefined
+            : new ChecklistService(parts.guard, clientsRoles, parts.clientsChecks),
         /* #281. The bytes go to the same storage, and through the same scanner, as leave's. */
         documents:
           parts.clientsDocuments === undefined

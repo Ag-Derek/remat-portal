@@ -35,6 +35,7 @@ import { Notice, type Problem, problemFrom } from '../../problem';
 import { REVIEW_NAME } from './Activity';
 import { initialsOf } from './ClientView';
 import { Ladder, STAGE_NAME } from './Deals';
+import { ChecklistGroups } from './Checklist';
 import { Dialog, DialogFoot, Field, useSending } from './ui';
 
 /**
@@ -420,6 +421,17 @@ export function PocView({ id, onSignedOut }: { id: string; onSignedOut: () => vo
                   setOpen('review');
                 }}
               />
+              {/* #284. Its Foundation, Deepening and Converting checks. */}
+              <section className="clients-panel" aria-labelledby="clients-poc-checklist">
+                <header className="clients-panel-head">
+                  <h3 id="clients-poc-checklist">Checklist</h3>
+                </header>
+                <ChecklistGroups
+                  of={{ on: 'POC', id: poc.id }}
+                  empty="This product line has no checklist for this kind of client."
+                  onSignedOut={onSignedOut}
+                />
+              </section>
             </div>
 
             <aside className="clients-client-side">

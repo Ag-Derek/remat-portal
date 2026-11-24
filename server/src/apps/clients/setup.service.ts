@@ -3,8 +3,8 @@
  * #276, #279, Clients SRS CLI 07, CLI 08, CLI 54, TDD 3.
  *
  * Every method asks `clientsPolicy.setUp` first, before reading the request or looking anything
- * up, so somebody refused learns nothing from what they sent. Checklists join this service when
- * they are built.
+ * up, so somebody refused learns nothing from what they sent. The checklists too (#284, CLI 39 to
+ * CLI 42): the template deals and POCs are given copies of.
  */
 
 import type { Actor } from '../../core/auth/actor.js';
@@ -33,6 +33,17 @@ import {
   readReasonLabel,
 } from './reason.js';
 import type { ClientsReasonRepository } from './reason.db.js';
+import {
+  type ChecklistItem,
+  ChecklistItemNotFound,
+  InvalidChecklistItem,
+  readChecklistItemChange,
+  readCopyFrom,
+  readDirection,
+  readNewChecklistItem,
+  readWhichChecklist,
+} from './checklist.js';
+import type { ClientsChecklistItemRepository, WhichChecklist } from './checklist-item.db.js';
 import type { ClientsRoleRepository } from './role.db.js';
 
 export class SetupService {
@@ -50,6 +61,8 @@ export class SetupService {
       ClientsReasonRepository,
       'inSetup' | 'find' | 'add' | 'reword' | 'retire' | 'restore' | 'delete'
     >,
+    /** #284. The checklists deals and POCs are judged by copies of. */
+    private readonly checklists: ClientsChecklistItemRepository,
   ) {}
 
   /** Every line and its products, retired ones included and marked. */
@@ -234,6 +247,105 @@ export class SetupService {
     }
 
     await this.reasons.delete(actor, reason);
+  }
+
+  /* ----------------------------------------------------------- checklists, #284 */
+
+  /**
+   * One checklist, `{ lineId, clientTypeId }`: its items group by group, retired ones included
+   * and marked (CLI 39, CLI 42). None at all is a checklist nobody has written, which every gate
+   * passes (CLI 43).
+   */
+  async checklist(actor: Actor, query: unknown): Promise<ChecklistItem[]> {
+    await this.mustSetUp(actor);
+
+    return this.checklists.items(await this.checklistOrRefuse(readWhichChecklist(query)));
+  }
+
+  /**
+   * `{ lineId, clientTypeId, group, label, pocOnly? }`: a new item at the end of its group. Only
+   * a qualification criterion can be for POC deals only (CLI 41).
+   */
+  async addChecklistItem(actor: Actor, body: unknown): Promise<ChecklistItem> {
+    await this.mustSetUp(actor);
+
+    const item = readNewChecklistItem(body);
+    await this.checklistOrRefuse(item);
+
+    return this.checklists.add(actor, item);
+  }
+
+  /**
+   * `{ label?, pocOnly? }`: new words, or for POC deals only or not. Reaches only deals and POCs
+   * copied after (CLI 40): every copy already taken keeps what it was copied as.
+   */
+  async changeChecklistItem(actor: Actor, id: string, body: unknown): Promise<ChecklistItem> {
+    await this.mustSetUp(actor);
+
+    const item = await this.checklistItemOrRefuse(id);
+    await this.checklists.change(actor, item.id, readChecklistItemChange(body, item.group));
+
+    return this.checklistItemOrRefuse(id);
+  }
+
+  /** `{ direction: 'UP' | 'DOWN' }`: one place up or down its group. */
+  async moveChecklistItem(actor: Actor, id: string, body: unknown): Promise<void> {
+    await this.mustSetUp(actor);
+
+    const direction = readDirection(body);
+    await this.checklists.move(actor, await this.checklistItemOrRefuse(id), direction);
+  }
+
+  /** Copied onto nothing new from today. Every copy already taken keeps it (CLI 40). */
+  async retireChecklistItem(actor: Actor, id: string): Promise<void> {
+    await this.mustSetUp(actor);
+    await this.checklistItemOrRefuse(id);
+
+    await this.checklists.retire(actor, id, currentDate());
+  }
+
+  async restoreChecklistItem(actor: Actor, id: string): Promise<void> {
+    await this.mustSetUp(actor);
+    await this.checklistItemOrRefuse(id);
+
+    await this.checklists.restore(actor, id);
+  }
+
+  /**
+   * `{ lineId, clientTypeId, fromLineId, fromClientTypeId }`: fills an empty checklist with a
+   * copy of another's items in use, each then its own to change (the user, 24 November 2026).
+   * Answers with the checklist filled.
+   */
+  async copyChecklist(actor: Actor, body: unknown): Promise<ChecklistItem[]> {
+    await this.mustSetUp(actor);
+
+    const into = await this.checklistOrRefuse(readWhichChecklist(body));
+    const from = await this.checklistOrRefuse(readCopyFrom(body));
+    if (from.lineId === into.lineId && from.clientTypeId === into.clientTypeId) {
+      throw new InvalidChecklistItem('fromClientTypeId', 'Choose another checklist to copy from.');
+    }
+
+    await this.checklists.copy(actor, into, from);
+
+    return this.checklists.items(into);
+  }
+
+  /** The checklist asked for, where its line and client type both exist. */
+  private async checklistOrRefuse(which: WhichChecklist): Promise<WhichChecklist> {
+    await this.lineOrRefuse(which.lineId);
+    await this.clientTypeOrRefuse(which.clientTypeId);
+
+    return { lineId: which.lineId, clientTypeId: which.clientTypeId };
+  }
+
+  private async checklistItemOrRefuse(id: string): Promise<ChecklistItem> {
+    const item = isAnId(id) ? await this.checklists.find(id) : undefined;
+
+    if (item === undefined) {
+      throw new ChecklistItemNotFound();
+    }
+
+    return item;
   }
 
   private async reasonOrRefuse(id: string): Promise<ReasonInSetup> {

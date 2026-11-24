@@ -8,6 +8,7 @@ import { seed } from '../../seeds/seed.mjs';
 import { type Database, databaseFor } from '../../src/core/db/index.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { type Asker, type ClientsApp, startClientsApp } from '../support/clients-app.js';
+import { tickEveryCheck } from '../support/clients-checks.js';
 import { recordingDenials } from '../support/recording-denials.js';
 
 /**
@@ -109,7 +110,10 @@ async function typeNamed(name: string): Promise<string> {
   ).rows[0].id;
 }
 
-/** A deal at ADB, opened by `as`, who owns it, with the POC question answered. */
+/**
+ * A deal at ADB, opened by `as`, who owns it, with the POC question answered: moved to
+ * Qualification and its criteria ticked (#284), so it may go on to be signed.
+ */
 async function aDeal(
   as: Asker = associate,
   product = 'Federation',
@@ -121,8 +125,12 @@ async function aDeal(
     hasPoc,
   });
   expect(response.status).toBe(201);
+  const { id } = (await response.json()) as DealJson;
 
-  return (await response.json()) as DealJson;
+  await moved(as, id, 'QUALIFICATION');
+  await tickEveryCheck(admin, id);
+
+  return (await (await app.send('GET', `/api/clients/opportunities/${id}`, as)).json()) as DealJson;
 }
 
 async function moved(as: Asker, id: string, toStage: string, note?: string): Promise<DealJson> {

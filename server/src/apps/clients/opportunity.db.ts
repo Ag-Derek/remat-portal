@@ -956,7 +956,42 @@ function deals(db: Kysely<Database>) {
       'o.waiting_note',
       'o.stated_interest',
       'o.created_at',
+      openInGroup('QUALIFICATION').as('open_criteria'),
+      openInGroup('PRE_POC').as('open_gates'),
     ]);
+}
+
+/**
+ * The labels of a deal's checks in `group` that are not ticked, in their order (#284): from its own
+ * copy once it has one; before it leaves Discovery, from the checklist it will be given, for its
+ * product's line and its client's type. A check for POC deals only is left out once the deal is
+ * known to have no POC; while nobody has said, it is asked (TDD 5).
+ */
+function openInGroup(group: 'QUALIFICATION' | 'PRE_POC') {
+  return sql<string[]>`coalesce((
+    SELECT array_agg(open.label ORDER BY open.sort, open.id)
+      FROM (
+        SELECT k.label, k.sort, k.id
+          FROM clients_check k
+         WHERE o.checklist_copied_at IS NOT NULL
+           AND k.opportunity_id = o.id
+           AND k.grp = ${group}
+           AND NOT (k.poc_only AND o.has_poc IS FALSE)
+           AND NOT coalesce((SELECT t.ticked FROM clients_tick t
+                              WHERE t.check_id = k.id
+                              ORDER BY t.ticked_at DESC, t.id DESC
+                              LIMIT 1), false)
+        UNION ALL
+        SELECT i.label, i.sort, i.id
+          FROM clients_checklist_item i
+         WHERE o.checklist_copied_at IS NULL
+           AND i.line_id = p.line_id
+           AND i.client_type_id = c.type_id
+           AND i.grp = ${group}
+           AND i.retired_on IS NULL
+           AND NOT (i.poc_only AND o.has_poc IS FALSE)
+      ) open
+  ), '{}')`;
 }
 
 type Row = Awaited<ReturnType<ReturnType<typeof deals>['executeTakeFirstOrThrow']>>;
@@ -1003,5 +1038,7 @@ function opportunityFrom(row: Row): Opportunity {
         : { on: row.waiting_on as WaitingOnWhat, note: row.waiting_note },
     statedInterest: row.stated_interest,
     createdAt: row.created_at,
+    openCriteria: row.open_criteria,
+    openGates: row.open_gates,
   };
 }

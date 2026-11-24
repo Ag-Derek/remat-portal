@@ -49,8 +49,8 @@ beforeEach(async () => {
   await admin.query(
     'TRUNCATE clients_client_product, clients_stage_change, clients_value_change, clients_next_step, ' +
       'clients_document, clients_activity, ' +
-      'clients_poc_action, clients_poc_health, clients_poc_usage, ' +
-      'clients_opportunity, clients_poc, clients_product, ' +
+      'clients_poc_action, clients_poc_health, clients_poc_usage, clients_tick, clients_check, ' +
+      'clients_opportunity, clients_poc, clients_product, clients_checklist_item, ' +
       'clients_product_line RESTART IDENTITY',
   );
   people = (await seed(admin)) as Record<string, string>;
@@ -501,5 +501,242 @@ describe('which parts of clients a person has', () => {
       { setUp: false, manageRoles: true, pastProposals: false, pocs: false },
     ]);
     expect(await viewsOf(nobody)).toEqual([404, NO_SUCH_ROUTE]);
+  });
+});
+
+/* ------------------------------------------------------------------ checklists, #284 */
+
+describe('a checklist', () => {
+  interface ItemJson {
+    id: string;
+    group: string;
+    label: string;
+    sort: number;
+    pocOnly: boolean;
+    retiredOn: string | null;
+  }
+
+  let symphony: string;
+  let federation: string;
+  let types: Record<string, string>;
+
+  beforeEach(async () => {
+    symphony = await addLine('Symphony');
+    federation = await addProduct(symphony, 'Federation');
+    const { rows } = await admin.query<{ id: string; name: string }>(
+      'SELECT id, name FROM clients_client_type',
+    );
+    types = Object.fromEntries(rows.map((row) => [row.name, row.id]));
+  });
+
+  function listOf(type: string): string {
+    return `/api/clients/setup/checklists?lineId=${symphony}&clientTypeId=${types[type]}`;
+  }
+
+  async function itemsOf(type = 'Bank'): Promise<ItemJson[]> {
+    const response = await app.send('GET', listOf(type), bdManager);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { items: ItemJson[] }).items;
+  }
+
+  function add(group: string, label: string, extra: object = {}, type = 'Bank') {
+    return app.send('POST', '/api/clients/setup/checklists/items', bdManager, {
+      lineId: symphony,
+      clientTypeId: types[type],
+      group,
+      label,
+      ...extra,
+    });
+  }
+
+  async function added(group: string, label: string, type = 'Bank'): Promise<string> {
+    const response = await add(group, label, {}, type);
+    expect(response.status).toBe(201);
+    return ((await response.json()) as { id: string }).id;
+  }
+
+  function itemPath(id: string, act = ''): string {
+    return `/api/clients/setup/checklists/items/${id}${act === '' ? '' : `/${act}`}`;
+  }
+
+  const labelsOf = (items: ItemJson[]) => items.map((item) => `${item.group}: ${item.label}`);
+
+  /* CLI 39, CLI 42, CLI 43. */
+  it('starts empty, and is written item by item at the end of each group', async () => {
+    expect(await itemsOf()).toEqual([]);
+
+    await added('PRE_POC', 'Metrics agreed');
+    await added('QUALIFICATION', 'Point person identified');
+    await added('QUALIFICATION', 'Finance contact identified');
+
+    expect(
+      (await itemsOf()).map(({ group, label, sort, pocOnly }) => [group, label, sort, pocOnly]),
+    ).toEqual([
+      ['QUALIFICATION', 'Point person identified', 1, false],
+      ['QUALIFICATION', 'Finance contact identified', 2, false],
+      ['PRE_POC', 'Metrics agreed', 1, false],
+    ]);
+    expect(await itemsOf('Broker')).toEqual([]);
+  });
+
+  it('rewords, marks for POC deals only, and moves an item within its group', async () => {
+    const a = await added('QUALIFICATION', 'A');
+    await added('QUALIFICATION', 'B');
+    const c = await added('QUALIFICATION', 'C');
+
+    const up = await app.send('POST', itemPath(c, 'move'), bdManager, { direction: 'UP' });
+    expect(up.status).toBe(204);
+    /* At the top already, nothing moves. */
+    await app.send('POST', itemPath(a, 'move'), bdManager, { direction: 'UP' });
+    expect((await itemsOf()).map((item) => [item.label, item.sort])).toEqual([
+      ['A', 1],
+      ['C', 2],
+      ['B', 3],
+    ]);
+
+    const changed = await app.send('PATCH', itemPath(a), bdManager, {
+      label: '  Decision maker   committed ',
+      pocOnly: true,
+    });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({
+      label: 'Decision maker committed',
+      pocOnly: true,
+    });
+  });
+
+  it('is told what to fix in an item that makes no sense, or that another says already', async () => {
+    await added('QUALIFICATION', 'Point person identified');
+
+    expect(await (await add('PRE_POC', 'Pricing shared', { pocOnly: true })).json()).toMatchObject({
+      error: 'InvalidChecklistItem',
+      field: 'pocOnly',
+    });
+    expect((await add('MIDPOINT', 'Day 60 review')).status).toBe(400);
+    expect((await add('QUALIFICATION', '   ')).status).toBe(400);
+
+    const taken = await add('QUALIFICATION', ' point PERSON identified ');
+    expect(taken.status).toBe(409);
+    expect(await taken.json()).toEqual({
+      error: 'ChecklistItemLabelTaken',
+      message: '"point PERSON identified" is in this part of the checklist already.',
+      field: 'label',
+    });
+    /* The same words in another part, or on another checklist, are fine. */
+    expect((await add('PRE_POC', 'Point person identified')).status).toBe(201);
+    expect((await add('QUALIFICATION', 'Point person identified', {}, 'Broker')).status).toBe(201);
+  });
+
+  /* CLI 40: a deal is judged by its copy, so the editor changes only deals copied after. */
+  it('retires and restores, never deletes, and changes only deals copied after', async () => {
+    const point = await added('QUALIFICATION', 'Point person identified');
+    const finance = await added('QUALIFICATION', 'Finance contact identified');
+
+    const client = await app.send('POST', '/api/clients/clients', bdManager, {
+      name: 'ADB',
+      typeId: types.Bank,
+    });
+    const clientId = ((await client.json()) as { id: string }).id;
+
+    async function aDealAtQualification(): Promise<string> {
+      const opened = await app.send('POST', '/api/clients/opportunities', bdManager, {
+        clientId,
+        productId: federation,
+      });
+      expect(opened.status).toBe(201);
+      const { id } = (await opened.json()) as { id: string };
+      await app.send('POST', `/api/clients/opportunities/${id}/stage`, bdManager, {
+        toStage: 'QUALIFICATION',
+      });
+      return id;
+    }
+
+    async function checksOf(deal: string): Promise<string[]> {
+      const response = await app.send(
+        'GET',
+        `/api/clients/opportunities/${deal}/checks`,
+        bdManager,
+      );
+      return ((await response.json()) as { checks: { label: string }[] }).checks.map(
+        (check) => check.label,
+      );
+    }
+
+    const before = await aDealAtQualification();
+
+    await app.send('PATCH', itemPath(point), bdManager, { label: 'Point person named' });
+    expect((await app.send('POST', itemPath(finance, 'retire'), bdManager)).status).toBe(204);
+    expect((await itemsOf()).find((item) => item.id === finance)?.retiredOn).toBe(PINNED_DATE);
+
+    expect(await checksOf(before)).toEqual([
+      'Point person identified',
+      'Finance contact identified',
+    ]);
+
+    /* Lost, so the product is free for a new deal, copied now. */
+    const { rows } = await admin.query<{ id: string }>(
+      `SELECT id FROM clients_reason WHERE applies_to = 'LOST' AND retired_on IS NULL LIMIT 1`,
+    );
+    const lost = await app.send('POST', `/api/clients/opportunities/${before}/lose`, bdManager, {
+      reasonId: rows[0].id,
+    });
+    expect(lost.status).toBe(200);
+    expect(await checksOf(await aDealAtQualification())).toEqual(['Point person named']);
+
+    await app.send('POST', itemPath(finance, 'restore'), bdManager);
+    expect((await itemsOf()).find((item) => item.id === finance)?.retiredOn).toBeNull();
+  });
+
+  /* The user, 24 November 2026: an empty checklist filled from another, then its own. */
+  it('fills an empty checklist with a copy of another, and refuses one with items', async () => {
+    await added('QUALIFICATION', 'Decision maker committed');
+    const retired = await added('PRE_POC', 'Signed agreement');
+    await app.send('POST', itemPath(retired, 'retire'), bdManager);
+    await added('PRE_POC', 'Metrics agreed');
+
+    const copy = (into: string, from: string) =>
+      app.send('POST', '/api/clients/setup/checklists/copy', bdManager, {
+        lineId: symphony,
+        clientTypeId: types[into],
+        fromLineId: symphony,
+        fromClientTypeId: types[from],
+      });
+
+    const copied = await copy('Microfinance institution', 'Bank');
+    expect(copied.status).toBe(200);
+    expect(labelsOf(((await copied.json()) as { items: ItemJson[] }).items)).toEqual([
+      'QUALIFICATION: Decision maker committed',
+      'PRE_POC: Metrics agreed',
+    ]);
+
+    expect(await (await copy('Microfinance institution', 'Bank')).json()).toMatchObject({
+      error: 'ChecklistNotEmpty',
+    });
+    expect((await copy('Bank', 'Bank')).status).toBe(400);
+
+    /* Its own now: changing the copy leaves the one it came from as it was. */
+    const [first] = await itemsOf('Microfinance institution');
+    await app.send('PATCH', itemPath(first.id), bdManager, { label: 'Board member committed' });
+    expect(labelsOf(await itemsOf())).toContain('QUALIFICATION: Decision maker committed');
+  });
+
+  /* CLI 42, NFR CLI AUD 01. */
+  it("is a BD manager's alone to read or change, and every change is in the audit log", async () => {
+    const item = await added('QUALIFICATION', 'Point person identified');
+
+    expect((await app.send('GET', listOf('Bank'), associate)).status).toBe(403);
+    expect((await app.send('POST', itemPath(item, 'retire'), associate)).status).toBe(403);
+    expect((await app.send('GET', listOf('Bank'), nobody)).status).toBe(404);
+
+    await app.send('POST', itemPath(item, 'retire'), bdManager);
+    const { rows } = await admin.query(
+      `SELECT action, actor_employee_id FROM audit_log
+        WHERE entity = 'clients_checklist_item' AND entity_id = $1 ORDER BY id`,
+      [item],
+    );
+    expect(rows).toEqual([
+      { action: 'CREATE', actor_employee_id: people.commercialDirector },
+      { action: 'UPDATE', actor_employee_id: people.commercialDirector },
+    ]);
   });
 });

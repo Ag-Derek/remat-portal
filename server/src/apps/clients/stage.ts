@@ -67,6 +67,16 @@ export interface DealOnTheLadder {
   hasPoc: boolean | null;
   outcome: Outcome;
   product: { name: string };
+  /**
+   * The qualification criteria it still has to tick before it may go to Negotiation or beyond
+   * (CLI 22, #284), in their order: none on a line with no checklist (CLI 43).
+   */
+  openCriteria: readonly string[];
+  /**
+   * The pre-POC gates it still has to tick before it may be signed with a POC, which starts the
+   * POC (CLI 23, #284, #285). Asked only of a deal with a POC.
+   */
+  openGates: readonly string[];
 }
 
 /** One step a deal took, or its opening. Never changed once written (CLI 26). */
@@ -115,9 +125,14 @@ export function readStageMove(body: unknown): StageMove {
  * 6. Never out of POC, or to Live with a POC, by hand (CLI 24, POC_DECIDES): the POC's outcome
  *    decides.
  * 7. To Live only from Contract signed (CLI 24).
+ * 8. Into Negotiation or beyond only with every qualification criterion ticked (CLI 22, GATE_OPEN,
+ *    #284), the refusal naming those still open (CLI 44). A criterion for POC deals only is not
+ *    asked of a deal that will have none. Every forward move past it asks again, so one unticked
+ *    after the gate holds the next move (the user, 24 November 2026); a POC converting is not a
+ *    move by hand, and is not held.
  *
- * The qualification gate into Negotiation (CLI 22) and the pre-POC gate (CLI 23) join these with
- * the checklists.
+ * 9. Into Contract signed with a POC only with every pre-POC gate ticked (CLI 23, GATE_OPEN,
+ *    #284), since signing starts the POC (#285). Where both are open, one refusal names both.
  */
 export function refusalOfMove(deal: DealOnTheLadder, move: StageMove): Error | null {
   const { stage: from } = deal;
@@ -149,6 +164,12 @@ export function refusalOfMove(deal: DealOnTheLadder, move: StageMove): Error | n
   if (to === 'LIVE') {
     if (deal.hasPoc === true) return new PocDecides(product);
     if (from !== 'CONTRACT_SIGNED') return new LiveAfterSigning(product);
+  }
+
+  const criteria = rankOf(to) >= rankOf('NEGOTIATION') ? deal.openCriteria : [];
+  const gates = to === 'CONTRACT_SIGNED' && deal.hasPoc === true ? deal.openGates : [];
+  if (criteria.length > 0 || gates.length > 0) {
+    return new GateOpen(product, from, to, { criteria, gates });
   }
 
   return null;
@@ -312,6 +333,48 @@ export class LiveAfterSigning extends Error {
         'signed first.',
     );
     this.name = 'LiveAfterSigning';
+  }
+}
+
+/**
+ * TDD's GATE_OPEN (CLI 22, CLI 23, CLI 44, #284): the qualification criteria a deal has to tick
+ * before Negotiation, and the pre-POC gates before a deal with a POC is signed, which starts its
+ * POC (#285). One refusal names every one still open in both (the user, 24 November 2026). A deal
+ * at Discovery has no checklist to tick yet, being given it as it leaves, so it is told to move to
+ * Qualification first.
+ */
+export class GateOpen extends Error {
+  readonly field = 'toStage';
+  /** The qualification criteria still to tick, in their order. */
+  readonly criteria: readonly string[];
+  /** The pre-POC gates still to tick, in their order. */
+  readonly gates: readonly string[];
+
+  constructor(
+    productName: string,
+    from: Stage,
+    to: Stage,
+    open: { criteria: readonly string[]; gates: readonly string[] },
+  ) {
+    const { criteria, gates } = open;
+    const what =
+      criteria.length > 0 && gates.length > 0
+        ? `its qualification criteria and pre-POC gates are ticked. Criteria still to tick: ` +
+          `${criteria.join('; ')}. Gates still to tick: ${gates.join('; ')}.`
+        : criteria.length > 0
+          ? `its qualification criteria are ticked. Still to tick: ${criteria.join('; ')}.`
+          : `its pre-POC gates are ticked, since signing starts its POC. Still to tick: ` +
+            `${gates.join('; ')}.`;
+
+    super(
+      `The ${productName} deal goes to ${STAGE_NAME[to]} once ${what}` +
+        (from === 'DISCOVERY'
+          ? ' Move it to Qualification first, which gives it its checklist to tick.'
+          : ''),
+    );
+    this.name = 'GateOpen';
+    this.criteria = criteria;
+    this.gates = gates;
   }
 }
 

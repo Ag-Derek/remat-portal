@@ -24,6 +24,7 @@ import { AddButton, EditButton } from '../../ActionButtons';
 import { day, money } from '../../format';
 import { Icon } from '../../Icon';
 import { Notice, type Problem, problemFrom } from '../../problem';
+import { DealChecklistDialog } from './Checklist';
 import { Dialog, DialogFoot, Field, useSending } from './ui';
 
 /**
@@ -151,6 +152,8 @@ export function ClientDeals({
   const [moving, setMoving] = useState<Deal | null>(null);
   /* The deal being marked lost, if any. #279. */
   const [losing, setLosing] = useState<Deal | null>(null);
+  /* The deal whose checklist is open, if any. #284. */
+  const [checking, setChecking] = useState<Deal | null>(null);
   const close = () => {
     setOpen(null);
   };
@@ -187,6 +190,7 @@ export function ClientDeals({
           onHistory={(deal) => {
             onShowActivity(deal.id);
           }}
+          onChecklist={setChecking}
         />
       )}
 
@@ -204,8 +208,20 @@ export function ClientDeals({
             onHistory={(deal) => {
               onShowActivity(deal.id);
             }}
+            onChecklist={setChecking}
           />
         </details>
+      )}
+
+      {checking === null ? null : (
+        <DealChecklistDialog
+          title={`Checklist for the ${checking.product.name} deal`}
+          dealId={checking.id}
+          onClose={() => {
+            setChecking(null);
+          }}
+          onSignedOut={onSignedOut}
+        />
       )}
 
       {moving === null ? null : (
@@ -274,11 +290,14 @@ function DealTable({
   onEdit,
   onMove,
   onHistory,
+  onChecklist,
 }: {
   deals: readonly Deal[];
   onEdit: (deal: Deal) => void;
   onMove: (deal: Deal) => void;
   onHistory: (deal: Deal) => void;
+  /** Opens its qualification criteria and pre-POC gates (#284). */
+  onChecklist: (deal: Deal) => void;
 }) {
   return (
     <table className="clients-deals">
@@ -350,6 +369,22 @@ function DealTable({
                     Activity on the {deal.product.name} opportunity
                   </span>
                 </button>
+                {/* #284. Once it has left Discovery, which is when it is given its checklist. */}
+                {deal.stage === 'DISCOVERY' ? null : (
+                  <button
+                    type="button"
+                    className="iconic action-icon is-history"
+                    title="Checklist"
+                    onClick={() => {
+                      onChecklist(deal);
+                    }}
+                  >
+                    <Icon name="checklist" />
+                    <span className="visually-hidden">
+                      Checklist for the {deal.product.name} opportunity
+                    </span>
+                  </button>
+                )}
                 {deal.may.move ? (
                   <button
                     type="button"

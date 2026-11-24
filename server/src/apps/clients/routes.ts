@@ -19,6 +19,8 @@ import express, {
 import { actorOf } from '../../core/http/identify.js';
 import { accessOf, viewsOf } from './access.js';
 import type { ActivityService, Logged } from './activity.service.js';
+import type { Checklist, Tick } from './checklist.js';
+import type { ChecklistService } from './checklist.service.js';
 import type { Client } from './client.js';
 import type { ClientService } from './client.service.js';
 import type { Contact } from './contact.js';
@@ -66,6 +68,8 @@ export interface ClientsRoutes {
   documents?: DocumentService;
   /** Running POCs. #285. Optional, for the same reason. */
   pocs?: PocService;
+  /** Deals' and POCs' checks and their ticks. #284. Optional, for the same reason. */
+  checklists?: ChecklistService;
 }
 
 export function clientsRoutes({
@@ -79,6 +83,7 @@ export function clientsRoutes({
   activities,
   documents,
   pocs,
+  checklists,
 }: ClientsRoutes): Router {
   const routes = Router();
 
@@ -123,6 +128,10 @@ export function clientsRoutes({
 
   if (pocs !== undefined) {
     pocRoutes(routes, pocs);
+  }
+
+  if (checklists !== undefined) {
+    checklistRoutes(routes, checklists);
   }
 
   /** Who holds which role, and who could be granted one. */
@@ -285,6 +294,59 @@ function setupRoutes(routes: Router, setup: SetupService): void {
   routes.delete(
     '/clients/setup/reasons/:id',
     answer((request, response) => setup.deleteReason(actorOf(response), idOf(request))),
+  );
+
+  /* Checklists, #284, CLI 39 to CLI 42: one per product line and client type. */
+
+  /** `?lineId=&clientTypeId=`: its items, group by group, retired ones included and marked. */
+  routes.get(
+    '/clients/setup/checklists',
+    answer(async (request, response) => ({
+      items: await setup.checklist(actorOf(response), request.query),
+    })),
+  );
+
+  /** `{ lineId, clientTypeId, group, label, pocOnly? }`: added at the end of its group. */
+  routes.post(
+    '/clients/setup/checklists/items',
+    answer((request, response) => setup.addChecklistItem(actorOf(response), request.body), 201),
+  );
+
+  /** `{ label?, pocOnly? }`: only what is present changes. */
+  routes.patch(
+    '/clients/setup/checklists/items/:id',
+    answer((request, response) =>
+      setup.changeChecklistItem(actorOf(response), idOf(request), request.body),
+    ),
+  );
+
+  /** `{ direction: 'UP' | 'DOWN' }`. */
+  routes.post(
+    '/clients/setup/checklists/items/:id/move',
+    answer((request, response) =>
+      setup.moveChecklistItem(actorOf(response), idOf(request), request.body),
+    ),
+  );
+
+  routes.post(
+    '/clients/setup/checklists/items/:id/retire',
+    answer((request, response) => setup.retireChecklistItem(actorOf(response), idOf(request))),
+  );
+
+  routes.post(
+    '/clients/setup/checklists/items/:id/restore',
+    answer((request, response) => setup.restoreChecklistItem(actorOf(response), idOf(request))),
+  );
+
+  /**
+   * `{ lineId, clientTypeId, fromLineId, fromClientTypeId }`: fills an empty checklist with a copy
+   * of another's, answering with its items.
+   */
+  routes.post(
+    '/clients/setup/checklists/copy',
+    answer(async (request, response) => ({
+      items: await setup.copyChecklist(actorOf(response), request.body),
+    })),
   );
 }
 
@@ -621,6 +683,60 @@ function pocRoutes(routes: Router, pocs: PocService): void {
     '/clients/pocs/:id/lead',
     answer((request, response) => pocs.moveLead(actorOf(response), idOf(request), request.body)),
   );
+}
+
+/**
+ * A deal's and a POC's checks, and ticking them. #284, Clients SRS CLI 40, CLI 41, TDD 11.
+ */
+function checklistRoutes(routes: Router, checklists: ChecklistService): void {
+  /** A deal's qualification criteria and pre-POC gates, each ticked or not, and by whom. */
+  routes.get(
+    '/clients/opportunities/:id/checks',
+    answer(async (request, response) =>
+      checklistAsJson(await checklists.ofDeal(actorOf(response), idOf(request))),
+    ),
+  );
+
+  /** A POC's Foundation, Deepening and Converting checks. */
+  routes.get(
+    '/clients/pocs/:id/checks',
+    answer(async (request, response) =>
+      checklistAsJson(await checklists.ofPoc(actorOf(response), idOf(request))),
+    ),
+  );
+
+  /**
+   * `{ ticked }`: ticks or unticks it, answering with its whole checklist. A deal's are its
+   * owner's or a BD manager's; a POC's its CS lead's, its deal owner's or a BD manager's (CLI 41).
+   */
+  routes.post(
+    '/clients/checks/:id/tick',
+    answer(async (request, response) =>
+      checklistAsJson(await checklists.tick(actorOf(response), idOf(request), request.body)),
+    ),
+  );
+
+  /** Every tick and untick of it, the latest first. */
+  routes.get(
+    '/clients/checks/:id/ticks',
+    answer(async (request, response) => ({
+      ticks: (await checklists.history(actorOf(response), idOf(request))).map(tickAsJson),
+    })),
+  );
+}
+
+function checklistAsJson(checklist: Checklist): unknown {
+  return {
+    ...checklist,
+    checks: checklist.checks.map((check) => ({
+      ...check,
+      latest: check.latest === null ? null : tickAsJson(check.latest),
+    })),
+  };
+}
+
+function tickAsJson(tick: Tick): unknown {
+  return { ...tick, at: tick.at.toISOString() };
 }
 
 function stageRoutes(routes: Router, stages: StageService): void {
