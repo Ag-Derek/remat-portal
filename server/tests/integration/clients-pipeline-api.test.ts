@@ -263,3 +263,291 @@ describe('my pipeline', () => {
     expect((await app.send('GET', '/api/clients/pipeline', nobody)).status).toBe(404);
   });
 });
+
+interface Money {
+  amountMinor: number;
+  currency: string;
+}
+
+interface CompanyJson {
+  deals: PipelineJson['deals'];
+  totals: { recorded: Money[]; opportunities: number; clients: number; noValue: number };
+  choices: {
+    lines: { id: string; name: string; products: { id: string; name: string }[] }[];
+    stages: string[];
+    owners: { id: string; name: string }[];
+    clientTypes: { id: string; name: string }[];
+  };
+}
+
+async function companyOf(as: Asker, query = ''): Promise<CompanyJson> {
+  const response = await app.send('GET', `/api/clients/pipeline/company${query}`, as);
+  expect(response.status).toBe(200);
+
+  return (await response.json()) as CompanyJson;
+}
+
+async function companyPipelineOf(as: Asker): Promise<CompanyJson['deals']> {
+  return (await companyOf(as)).deals;
+}
+
+async function aBroker(name: string, as: Asker): Promise<string> {
+  const response = await app.send('POST', '/api/clients/clients', as, {
+    name,
+    typeId: (
+      await admin.query<{ id: string }>(`SELECT id FROM clients_client_type WHERE name = 'Broker'`)
+    ).rows[0].id,
+  });
+  expect(response.status).toBe(201);
+
+  return ((await response.json()) as { id: string }).id;
+}
+
+describe('the company pipeline', () => {
+  it("lists every open deal, whoever's, with what the pipeline shows of each", async () => {
+    const theirs = await aDeal(adb, bdManager, 'OnboardStudio', {
+      value: { amount: '75600', currency: 'USD' },
+      probability: 70,
+    });
+    const mine = await aDeal(ecobank, associate);
+    await aStep(ecobank, mine, YESTERDAY, people.officer);
+
+    const deals = await companyPipelineOf(associate);
+
+    expect(deals.map((entry) => entry.deal.id)).toEqual([theirs, mine]);
+    expect(deals[0]).toMatchObject({
+      deal: {
+        client: { id: adb, name: 'ADB' },
+        product: { name: 'OnboardStudio', lineName: 'Dura Capital' },
+        owner: { id: people.commercialDirector },
+        stage: 'DISCOVERY',
+        value: { amountMinor: 7_560_000, currency: 'USD' },
+        probability: 70,
+      },
+      clientType: 'Bank',
+    });
+    expect(deals[1]).toMatchObject({ overdue: true, deal: { owner: { id: people.officer } } });
+  });
+
+  it('leaves out deals that have ended', async () => {
+    const deal = await aDeal(ecobank, associate);
+    const reason = (
+      await admin.query<{ id: string }>(
+        `SELECT id FROM clients_reason WHERE applies_to = 'LOST' ORDER BY id LIMIT 1`,
+      )
+    ).rows[0].id;
+    const lost = await app.send('POST', `/api/clients/opportunities/${deal}/lose`, associate, {
+      reasonId: reason,
+    });
+    expect(lost.status).toBe(200);
+
+    expect(await companyPipelineOf(bdManager)).toEqual([]);
+  });
+
+  it('orders by client A to Z, ignoring case, then by product', async () => {
+    const zenith = await aClient('zenith Bank', associate);
+    const access = await aClient('Access Bank', bdManager);
+
+    const zenithDeal = await aDeal(zenith, associate);
+    const ecobankOnboard = await aDeal(ecobank, associate, 'OnboardStudio');
+    const ecobankCredit = await aDeal(ecobank, bdManager, 'CreditStudio');
+    const accessDeal = await aDeal(access, bdManager);
+    const adbDeal = await aDeal(adb, associate);
+
+    expect((await companyPipelineOf(bdManager)).map((entry) => entry.deal.id)).toEqual([
+      accessDeal,
+      adbDeal,
+      ecobankCredit,
+      ecobankOnboard,
+      zenithDeal,
+    ]);
+  });
+
+  it('is the same for a BD manager and an associate', async () => {
+    await aDeal(adb, bdManager);
+    await aDeal(ecobank, associate);
+
+    expect(await companyPipelineOf(associate)).toEqual(await companyPipelineOf(bdManager));
+  });
+
+  it('is refused silently to somebody with no role', async () => {
+    expect((await app.send('GET', '/api/clients/pipeline/company', nobody)).status).toBe(404);
+  });
+});
+
+describe('the company pipeline, filtered (CLI 09, CLI 98)', () => {
+  let durcap: string;
+  let symphony: string;
+  let bankType: string;
+  let brokerType: string;
+
+  beforeEach(async () => {
+    const lines = await admin.query<{ id: string; name: string }>(
+      'SELECT id, name FROM clients_product_line',
+    );
+    durcap = lines.rows.find((line) => line.name === 'Dura Capital')?.id ?? '';
+    symphony = lines.rows.find((line) => line.name === 'Symphony')?.id ?? '';
+    const types = await admin.query<{ id: string; name: string }>(
+      'SELECT id, name FROM clients_client_type',
+    );
+    bankType = types.rows.find((type) => type.name === 'Bank')?.id ?? '';
+    brokerType = types.rows.find((type) => type.name === 'Broker')?.id ?? '';
+  });
+
+  it('by a line, keeping every product in it, and by product, owner and client type', async () => {
+    const credit = await aDeal(adb, bdManager, 'CreditStudio');
+    const onboard = await aDeal(ecobank, associate, 'OnboardStudio');
+    const broker = await aBroker('OA Markets', associate);
+    const federation = await aDeal(broker, associate, 'Federation');
+
+    const idsOf = async (query: string) =>
+      (await companyOf(bdManager, query)).deals.map((entry) => entry.deal.id);
+
+    expect(await idsOf(`?line=${durcap}`)).toEqual([credit, onboard]);
+    expect(await idsOf(`?line=${symphony}`)).toEqual([federation]);
+    expect(await idsOf(`?product=${products.OnboardStudio}`)).toEqual([onboard]);
+    expect(await idsOf(`?owner=${people.officer}`)).toEqual([onboard, federation]);
+    expect(await idsOf(`?clientType=${brokerType}`)).toEqual([federation]);
+    expect(await idsOf(`?clientType=${bankType}&owner=${people.officer}`)).toEqual([onboard]);
+    expect(await idsOf('?stage=DISCOVERY&line=&product=')).toEqual([credit, onboard, federation]);
+    expect(await idsOf('?stage=PROPOSAL')).toEqual([]);
+  });
+
+  it('offers in each filter what every open deal has, whatever is filtered', async () => {
+    await aDeal(adb, bdManager, 'CreditStudio');
+    const broker = await aBroker('OA Markets', associate);
+    await aDeal(broker, associate, 'Federation');
+
+    const { choices } = await companyOf(associate, `?line=${durcap}`);
+
+    expect(choices.lines.map((line) => line.name)).toEqual(['Dura Capital', 'Symphony']);
+    expect(choices.lines[0].products).toEqual([
+      { id: products.CreditStudio, name: 'CreditStudio' },
+    ]);
+    expect(choices.stages).toEqual(['DISCOVERY']);
+    expect(choices.owners.map((owner) => owner.id).sort()).toEqual(
+      [people.commercialDirector, people.officer].sort(),
+    );
+    expect(choices.clientTypes.map((type) => type.name)).toEqual(['Bank', 'Broker']);
+  });
+
+  it('refuses a filter that is not one, saying which', async () => {
+    const response = await app.send('GET', '/api/clients/pipeline/company?stage=WON', associate);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: 'InvalidPipelineFilter', field: 'stage' });
+  });
+});
+
+describe('the recorded totals (CLI 75, CLI 77)', () => {
+  it('totals each currency on its own, over what is shown, and counts deals with no value', async () => {
+    await aDeal(adb, bdManager, 'CreditStudio', {
+      value: { amount: '75600', currency: 'USD' },
+      probability: 70,
+    });
+    await aDeal(adb, bdManager, 'OnboardStudio', {
+      value: { amount: '190000', currency: 'USD' },
+    });
+    await aDeal(ecobank, associate, 'CreditStudio', {
+      value: { amount: '40000', currency: 'GHS' },
+      probability: 25,
+    });
+    await aDeal(ecobank, associate, 'OnboardStudio', {
+      value: { amount: '12000', currency: 'GHS' },
+    });
+    /* No value at all: in no total, and in no currency. */
+    await aDeal(adb, bdManager, 'MicroStudio', { probability: 40 });
+
+    expect((await companyOf(associate)).totals).toEqual({
+      recorded: [
+        { currency: 'GHS', amountMinor: 5_200_000 },
+        { currency: 'USD', amountMinor: 26_560_000 },
+      ],
+      opportunities: 5,
+      clients: 2,
+      noValue: 1,
+    });
+
+    /* Narrowed to the bank's owner, the figures are only theirs. */
+    expect((await companyOf(associate, `?owner=${people.officer}`)).totals).toEqual({
+      recorded: [{ currency: 'GHS', amountMinor: 5_200_000 }],
+      opportunities: 2,
+      clients: 1,
+      noValue: 0,
+    });
+  });
+});
+
+/* ---------------------------------------------- searching every client, from the company pipeline */
+
+interface AtAGlanceJson {
+  id: string;
+  name: string;
+  type: { id: string; name: string };
+  owner: { id: string; name: string };
+  openDeals: number;
+  using: string[];
+  lastEnded: { outcome: string; productName: string } | null;
+}
+
+async function searchOf(as: Asker): Promise<AtAGlanceJson[]> {
+  const response = await app.send('GET', '/api/clients/search', as);
+  expect(response.status).toBe(200);
+
+  return ((await response.json()) as { clients: AtAGlanceJson[] }).clients;
+}
+
+describe('every client, for the search on the company pipeline', () => {
+  it('lists every client by name, with or without an open deal, saying where each stands', async () => {
+    /* ADB: two open deals. */
+    await aDeal(adb, bdManager, 'CreditStudio');
+    await aDeal(adb, bdManager, 'OnboardStudio');
+    /* Ecobank: lost its only deal, and uses a product it had before. */
+    const lost = await aDeal(ecobank, associate, 'CreditStudio');
+    const reason = (
+      await admin.query<{ id: string }>(
+        `SELECT id FROM clients_reason WHERE applies_to = 'LOST' ORDER BY id LIMIT 1`,
+      )
+    ).rows[0].id;
+    expect(
+      (
+        await app.send('POST', `/api/clients/opportunities/${lost}/lose`, associate, {
+          reasonId: reason,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.send('POST', `/api/clients/clients/${ecobank}/products`, associate, {
+          productId: products.Federation,
+          sinceOn: '2025-01-01',
+        })
+      ).status,
+    ).toBe(201);
+    /* Zenith: just added, nothing yet. */
+    const zenith = await aClient('zenith Bank', associate);
+
+    const found = await searchOf(associate);
+
+    expect(found.map((client) => client.name)).toEqual(['ADB', 'Ecobank', 'zenith Bank']);
+    expect(found[0]).toMatchObject({
+      id: adb,
+      type: { name: 'Bank' },
+      owner: { id: people.commercialDirector },
+      openDeals: 2,
+      using: [],
+      lastEnded: null,
+    });
+    expect(found[1]).toMatchObject({
+      id: ecobank,
+      openDeals: 0,
+      using: ['Federation'],
+      lastEnded: { outcome: 'LOST', productName: 'CreditStudio' },
+    });
+    expect(found[2]).toMatchObject({ id: zenith, openDeals: 0, using: [], lastEnded: null });
+  });
+
+  it('is refused silently to somebody with no role', async () => {
+    expect((await app.send('GET', '/api/clients/search', nobody)).status).toBe(404);
+  });
+});

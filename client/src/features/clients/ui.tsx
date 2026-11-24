@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
-import { ApiError, isNotSignedIn } from '../../api';
+import { ApiError, type ClientsStanding, isNotSignedIn } from '../../api';
+import { day } from '../../format';
 import { Icon } from '../../Icon';
 import { type Problem, problemFrom } from '../../problem';
 
@@ -253,4 +254,21 @@ export function DialogFoot({
       </button>
     </footer>
   );
+}
+
+/**
+ * Why somebody can no longer look after their clients, deals or POCs, in a few words (CLI 96):
+ * "Left 3 Nov 2026", "Suspended", "Not started yet", "No clients role". #289.
+ */
+export function standingInWords(standing: ClientsStanding): string {
+  switch (standing.reason) {
+    case 'LEFT':
+      return standing.exitDate === null ? 'Left' : `Left ${day(standing.exitDate)}`;
+    case 'SUSPENDED':
+      return 'Suspended';
+    case 'NOT_STARTED':
+      return 'Not started yet';
+    case 'NO_ROLE':
+      return 'No clients role';
+  }
 }

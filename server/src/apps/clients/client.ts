@@ -54,6 +54,18 @@ export interface Client {
 export type ClientSummary = Pick<Client, 'id' | 'name' | 'type' | 'owner'>;
 
 /**
+ * A client as the search on the company pipeline finds it (#289): with where it stands, so that
+ * one with no open deal, a live customer or a lost one, says so. Every client is one.
+ */
+export type ClientAtAGlance = ClientSummary & {
+  openDeals: number;
+  /** The products it uses today, by name. */
+  using: string[];
+  /** How its latest ended deal ended, and on what; null where none has. */
+  lastEnded: { outcome: 'WON' | 'LOST' | 'EXITED'; productName: string } | null;
+};
+
+/**
  * What the person reading a client page may do there: the policy's own answers, so the screen
  * offers only what the server would allow. The server still refuses whatever it refuses.
  */

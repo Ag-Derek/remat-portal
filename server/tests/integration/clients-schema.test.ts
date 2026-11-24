@@ -3499,6 +3499,8 @@ describe('the application role', () => {
       { table_name: 'clients_opportunity', column_name: 'ended_on' },
       { table_name: 'clients_opportunity', column_name: 'has_poc' },
       { table_name: 'clients_opportunity', column_name: 'outcome' },
+      /* #289. Its owner, moved by a BD manager while it is open. */
+      { table_name: 'clients_opportunity', column_name: 'owner_id' },
       /* #285. The POC it is put in as its contract is signed, once. */
       { table_name: 'clients_opportunity', column_name: 'poc_id' },
       { table_name: 'clients_opportunity', column_name: 'probability' },

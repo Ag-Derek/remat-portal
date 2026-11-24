@@ -26,6 +26,7 @@ import type { Person } from './client.js';
 import type { Outcome } from './opportunity.js';
 import { isAnId } from './product.js';
 import type { Stage } from './stage.js';
+import type { Standing } from './standing.js';
 
 /** Ten weeks, every day counted (CLI 31, TDD 6.1). Day 1 is the start. */
 export const POC_DAYS = 70;
@@ -537,8 +538,6 @@ export interface Poc {
     owner: Person;
   };
   csLead: Person;
-  /** Whether its CS lead still holds a clients role; one who does not needs replacing (CLI 96). */
-  csLeadHoldsARole: boolean;
   startedOn: CalendarDate;
   /** Ten weeks after the start, and the extension's days on top where it has one (#287). */
   decisionOn: CalendarDate;
@@ -581,6 +580,11 @@ export interface ReviewHeld {
  * TDD 6.1), and what they may do to it, the policy's answers.
  */
 export type PocView = Poc & {
+  /**
+   * Why its CS lead can no longer run it, or null where they can: not current staff, or no live
+   * clients role. One who cannot needs replacing (CLI 96, #289).
+   */
+  csLeadStanding: Standing | null;
   phase: PocPhase;
   /** Which day of its ten weeks today is; the start is day 1. */
   day: number;

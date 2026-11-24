@@ -142,7 +142,13 @@ describe('creating a client', () => {
     expect([response.status, await response.json()]).toEqual([
       200,
       /* #280. The page also lists its next steps, which a new client has none of. */
-      { ...client, nextSteps: [], may: { change: true, reassign: true, contribute: true } },
+      {
+        ...client,
+        nextSteps: [],
+        may: { change: true, reassign: true, contribute: true },
+        /* #289. Its owner is here and holds a role, so nobody needs to take it over. */
+        ownerStanding: null,
+      },
     ]);
   });
 
@@ -372,8 +378,8 @@ describe('changing a client', () => {
       400,
       {
         error: 'InvalidClient',
-        message:
-          'Whoever looks after a client needs a role in clients. Choose somebody who has one.',
+        /* #289. Somebody who would not need replacing themselves. */
+        message: 'Choose somebody who has a role in clients and is at the company today.',
         field: 'ownerId',
       },
     ]);

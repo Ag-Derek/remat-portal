@@ -3342,6 +3342,18 @@ export interface ClientPage extends ClientSummary {
   /** Open first, soonest due first, then closed ones, the last closed first. #280. */
   nextSteps: ClientNextStep[];
   may: ClientPermissions;
+  /** Why its owner can no longer look after it, so it needs a new one; null where they can. */
+  ownerStanding: ClientsStanding | null;
+}
+
+/**
+ * Why somebody can no longer look after their clients, deals or POCs (CLI 96): left, suspended,
+ * not started yet, or holding no clients role. #289.
+ */
+export interface ClientsStanding {
+  reason: 'LEFT' | 'SUSPENDED' | 'NOT_STARTED' | 'NO_ROLE';
+  /** Their last day, where they have left. */
+  exitDate: string | null;
 }
 
 /* ------------------------------------------------- activities and next steps, #280 */
@@ -3426,7 +3438,7 @@ export interface DealStageOption {
 export interface Deal {
   id: string;
   client: { id: string; name: string };
-  product: { id: string; name: string; lineName: string };
+  product: { id: string; name: string; lineId: string; lineName: string };
   owner: ClientsNamed;
   /** How far it has come, or where it ended. #278. */
   stage: DealStage;
@@ -3467,6 +3479,8 @@ export interface Deal {
     decidePoc: boolean;
     /** Marking it lost: the same, while it is open and its POC has not started. #279. */
     lose: boolean;
+    /** Moving it to a new owner: a BD manager's, while it is open. #289. */
+    reassign: boolean;
   };
   /** Every stage, where the reader may move it; none where they may not. */
   moves: DealStageOption[];
@@ -3666,6 +3680,99 @@ export interface PipelineEntry {
 export async function myPipeline(): Promise<PipelineEntry[]> {
   const { deals } = await request<{ deals: PipelineEntry[] }>('GET', '/api/clients/pipeline');
   return deals;
+}
+
+/** What the company pipeline is narrowed to. An empty string is every one. */
+export interface PipelineFilters {
+  line: string;
+  product: string;
+  stage: DealStage | '';
+  owner: string;
+  clientType: string;
+}
+
+/** The company pipeline: the deals the filters leave, their figures, and what each filter offers. */
+export interface CompanyPipelineView {
+  /** By client A to Z. */
+  deals: (PipelineEntry & { ownerStanding: ClientsStanding | null })[];
+  /** Over the deals shown. A currency with nothing in it is left out, never added to another. */
+  totals: {
+    recorded: Money[];
+    opportunities: number;
+    clients: number;
+    /** Deals with no value, in no total (CLI 77). */
+    noValue: number;
+  };
+  /** Only what some open deal has, whatever is filtered. */
+  choices: {
+    lines: { id: string; name: string; products: { id: string; name: string }[] }[];
+    stages: DealStage[];
+    owners: ClientsNamed[];
+    clientTypes: { id: string; name: string }[];
+  };
+}
+
+/** Every open deal the filters leave, whoever owns it (CLI 98), with the recorded totals. */
+export async function companyPipeline(filters: PipelineFilters): Promise<CompanyPipelineView> {
+  const query = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value !== ''),
+  ).toString();
+
+  return request<CompanyPipelineView>(
+    'GET',
+    `/api/clients/pipeline/company${query === '' ? '' : `?${query}`}`,
+  );
+}
+
+/** The dashboard (CLI 102): the whole company, unfiltered. #289. */
+export interface ClientsDashboard {
+  totals: CompanyPipelineView['totals'];
+  /** Everybody whose things need a new owner or CS lead, and all of them, by name (CLI 96). */
+  reassign: {
+    person: ClientsNamed;
+    standing: ClientsStanding;
+    clients: ClientsNamed[];
+    deals: { id: string; client: ClientsNamed; productName: string }[];
+    pocs: { id: string; client: ClientsNamed; productName: string }[];
+    /** Whether the reader may move all of it at once: a BD manager. */
+    mayMoveAll: boolean;
+  }[];
+  /** Every open stage, Discovery to POC, the empty ones too. */
+  stages: {
+    stage: DealStage;
+    opportunities: number;
+    /** The value recorded at the stage, per currency; empty where none is. */
+    recorded: Money[];
+    noValue: number;
+  }[];
+  /** Clients with an open deal nobody has spoken to in over 30 days, the longest first. */
+  quiet: { id: string; name: string; lastContact: string; daysAgo: number }[];
+  /** Clients with an open deal nobody has ever spoken to. */
+  neverContacted: number;
+  pocs: {
+    health: Record<PocHealth, number>;
+    /** Stalled, then At Risk, then flagged On Track. */
+    attention: Poc[];
+  };
+}
+
+export async function clientsDashboard(): Promise<ClientsDashboard> {
+  return request<ClientsDashboard>('GET', '/api/clients/dashboard');
+}
+
+/** A client as the company pipeline's search finds it, with where it stands. #289. */
+export type ClientAtAGlance = ClientSummary & {
+  openDeals: number;
+  /** The products it uses today, by name. */
+  using: string[];
+  /** How its latest ended deal ended, and on what; null where none has. */
+  lastEnded: { outcome: 'WON' | 'LOST' | 'EXITED'; productName: string } | null;
+};
+
+/** Every client by name, those with no open deal too, for the search to look through. */
+export async function clientsAtAGlance(): Promise<ClientAtAGlance[]> {
+  const { clients } = await request<{ clients: ClientAtAGlance[] }>('GET', '/api/clients/search');
+  return clients;
 }
 
 export async function clientsList(): Promise<ClientSummary[]> {
@@ -3914,10 +4021,39 @@ export async function reopenNextStep(id: string): Promise<ClientNextStep> {
   );
 }
 
-/** Everybody holding a clients role, whom a client may be moved to. */
-export async function clientsHolders(): Promise<ClientsNamed[]> {
-  const { people } = await request<{ people: ClientsNamed[] }>('GET', '/api/clients/holders');
+/** Somebody holding a clients role. */
+export type ClientsHolder = ClientsNamed & {
+  /** At the company today too, so a BD manager may move things to them. #289. */
+  canTakeOver: boolean;
+};
+
+/** Everybody holding a clients role, each saying whether things may be moved to them. */
+export async function clientsHolders(): Promise<ClientsHolder[]> {
+  const { people } = await request<{ people: ClientsHolder[] }>('GET', '/api/clients/holders');
   return people;
+}
+
+/**
+ * Moves an open deal to a new owner, with the old owner's open steps on it and its POC's lead.
+ * A BD manager's. #289.
+ */
+export async function reassignDeal(dealId: string, ownerId: string): Promise<void> {
+  await request<{ moved: true }>(
+    'POST',
+    `/api/clients/opportunities/${encodeURIComponent(dealId)}/owner`,
+    { ownerId },
+  );
+}
+
+/**
+ * Moves every client, open deal and running POC of one person's to another, saying how many of
+ * each moved. A BD manager's. #289.
+ */
+export async function moveEverything(
+  fromId: string,
+  toId: string,
+): Promise<{ clients: number; deals: number; pocs: number }> {
+  return request('POST', '/api/clients/reassign', { fromId, toId });
 }
 
 /** The details of a contact, as a form sends them: '' for anything not known. */
@@ -4052,8 +4188,8 @@ export interface Poc {
     owner: ClientsNamed;
   };
   csLead: ClientsNamed;
-  /** False where the CS lead no longer holds a clients role, and the POC needs a new one. */
-  csLeadHoldsARole: boolean;
+  /** Why the CS lead can no longer run it, so it needs a new one; null where they can. #289. */
+  csLeadStanding: ClientsStanding | null;
   /** 2026-11-02. */
   startedOn: string;
   /** Ten weeks after the start, and its extension's days on top where it has one. */

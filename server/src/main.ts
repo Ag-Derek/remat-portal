@@ -24,6 +24,7 @@ import { ClientsNoteRepository } from './apps/clients/note.db.js';
 import { ClientsReasonRepository } from './apps/clients/reason.db.js';
 import { ClientsActivityRepository } from './apps/clients/activity.db.js';
 import { ClientsPocRepository } from './apps/clients/poc.db.js';
+import { ClientsReassignRepository } from './apps/clients/reassign.db.js';
 import { ClientsCheckRepository } from './apps/clients/checklist.db.js';
 import { ClientsChecklistItemRepository } from './apps/clients/checklist-item.db.js';
 import { CompanyCalendar } from './core/calendar/company-calendar.js';
@@ -393,6 +394,7 @@ const app = buildApp({
   clientsDocuments: new ClientsDocumentRepository(db),
   /** #285. */
   clientsPocs: new ClientsPocRepository(db),
+  clientsReassign: new ClientsReassignRepository(db),
   /** #284. */
   clientsChecks: new ClientsCheckRepository(db),
   clientsChecklistItems: new ClientsChecklistItemRepository(db),

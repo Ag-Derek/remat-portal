@@ -30,6 +30,7 @@ import {
   type ReviewStep,
   rescheduledReviewOf,
 } from './poc.js';
+import { moveLeadWithin } from './reassign.db.js';
 import type { Stage } from './stage.js';
 
 /** The trigger refusing a POC the health it has already (#286). */
@@ -406,21 +407,7 @@ export class ClientsPocRepository {
    * 29, CLI 92, the user, 20 November 2026). The audit trigger on clients_poc keeps who it was.
    */
   async moveLead(by: Attribution, pocId: string, employeeId: string): Promise<void> {
-    await recording(this.db, by, async (on) => {
-      await on
-        .updateTable('clients_poc')
-        .set({ cs_lead_id: employeeId })
-        .where('id', '=', pocId)
-        .executeTakeFirstOrThrow();
-
-      await on
-        .updateTable('clients_next_step')
-        .set({ owner_id: employeeId })
-        .where('poc_id', '=', pocId)
-        .where('source', '=', 'REVIEW')
-        .where('done_at', 'is', null)
-        .execute();
-    });
+    await recording(this.db, by, (on) => moveLeadWithin(on, pocId, employeeId));
   }
 }
 
@@ -484,10 +471,6 @@ function pocs(db: Kysely<Database>) {
         sql<string>`owner.first_name || ' ' || owner.last_name`.as('owner_name'),
         'lead.id as lead_id',
         sql<string>`lead.first_name || ' ' || lead.last_name`.as('lead_name'),
-        sql<boolean>`EXISTS (SELECT 1 FROM clients_role r
-                            WHERE r.employee_id = poc.cs_lead_id AND r.ended_at IS NULL)`.as(
-          'lead_holds_a_role',
-        ),
         sql<CalendarDate>`poc.started_on::text`.as('started_on'),
         sql<CalendarDate>`poc.decision_on::text`.as('decision_on'),
         'poc.extension_days',
@@ -523,7 +506,6 @@ function pocFrom(row: PocRow): Poc {
       owner: { id: row.owner_id, name: row.owner_name },
     },
     csLead: { id: row.lead_id, name: row.lead_name },
-    csLeadHoldsARole: row.lead_holds_a_role,
     startedOn: row.started_on,
     decisionOn: row.decision_on,
     extension:

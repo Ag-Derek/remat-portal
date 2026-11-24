@@ -60,7 +60,7 @@ export interface Opportunity {
   id: string;
   client: { id: string; name: string };
   /** "CreditStudio", in "Dura Capital". */
-  product: { id: string; name: string; lineName: string };
+  product: { id: string; name: string; lineId: string; lineName: string };
   /** Who works it. */
   owner: Person;
   /** How far it has come (CLI 18). Where it ended, once it has. */
@@ -132,6 +132,8 @@ export interface DealPermissions {
   decidePoc: boolean;
   /** Marking it lost: the same people, while it is open and its POC has not started (#279). */
   lose: boolean;
+  /** Moving it to a new owner: a BD manager's, while it is open (CLI 92, #289). */
+  reassign: boolean;
 }
 
 /**
