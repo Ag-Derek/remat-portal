@@ -815,6 +815,8 @@ export interface ClientsOpportunityTable {
   waiting_note: Nullable<string>;
   stated_interest: Nullable<string>;
   created_at: ColumnType<Date, never, never>;
+  /** When it was given its checks, the first time it left Discovery; set by the database (#284). */
+  checklist_copied_at: ColumnType<Date | null, never, never>;
 }
 
 /**
@@ -1002,6 +1004,56 @@ export interface ClientsPocUsageTable {
   recorded_at: ColumnType<Date, never, never>;
 }
 
+/**
+ * One item of a checklist, kept per product line and client type, in one of five groups. #284,
+ * Clients SRS CLI 39, TDD 4.4. The template: deals and POCs are judged by copies taken from it.
+ * Its line, type and group never change, and none is deleted.
+ */
+export interface ClientsChecklistItemTable {
+  id: Generated<string>;
+  line_id: ColumnType<string, string, never>;
+  client_type_id: ColumnType<string, string, never>;
+  grp: ColumnType<string, string, never>;
+  /** Reworded on the setup screen (#284). */
+  label: string;
+  /** Moved up and down its group on the setup screen (#284). */
+  sort: number;
+  /** Only a qualification criterion, and then only for a deal with a POC. */
+  poc_only: ColumnType<boolean, boolean | undefined, boolean>;
+  retired_on: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
+/**
+ * A deal's or a POC's own copy of one checklist item, taken when it came to apply. #284, Clients
+ * SRS CLI 40, TDD 4.4. Written by the database alone, as a deal first leaves Discovery or a POC
+ * is made; the application only reads it.
+ */
+export interface ClientsCheckTable {
+  id: ColumnType<string, never, never>;
+  /** A deal's criteria and pre-POC gates; null on a POC's. */
+  opportunity_id: ColumnType<string | null, never, never>;
+  /** A POC's phase checks; null on a deal's. */
+  poc_id: ColumnType<string | null, never, never>;
+  source_item_id: ColumnType<string, never, never>;
+  grp: ColumnType<string, never, never>;
+  label: ColumnType<string, never, never>;
+  poc_only: ColumnType<boolean, never, never>;
+  sort: ColumnType<number, never, never>;
+  copied_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * One tick or untick of a check, by whom and when. #284, Clients SRS CLI 41, TDD 4.4. The latest
+ * is the check's state. Written once, never changed or deleted (NFR CLI REC 01).
+ */
+export interface ClientsTickTable {
+  id: Generated<string>;
+  check_id: ColumnType<string, string, never>;
+  ticked: ColumnType<boolean, boolean, never>;
+  ticked_by: ColumnType<string, string, never>;
+  ticked_at: ColumnType<Date, never, never>;
+}
+
 /** A column that may be null, and is left null when an insert leaves it out. */
 type Nullable<Read, Write = Read> = ColumnType<Read | null, Write | null | undefined, Write | null>;
 
@@ -1029,6 +1081,12 @@ export interface Database {
   clients_poc_action: ClientsPocActionTable;
   /** #286. */
   clients_poc_usage: ClientsPocUsageTable;
+  /** #284. */
+  clients_checklist_item: ClientsChecklistItemTable;
+  /** #284. */
+  clients_check: ClientsCheckTable;
+  /** #284. */
+  clients_tick: ClientsTickTable;
   /** #276. */
   clients_client_product: ClientsClientProductTable;
   /** #276. */

@@ -1,22 +1,30 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ApiError,
+  addChecklistItem,
   addClientType,
   addReason,
   deleteReason,
   addProduct,
   addProductLine,
+  type ChecklistGroup,
+  changeChecklistItem,
   type ClientType,
   type ClientsProduct,
   type ClientsProductLine,
+  copyChecklist,
   isNotSignedIn,
+  moveChecklistItem,
   productLines,
   renameSetupThing,
   retireOrRestore,
+  retireOrRestoreChecklistItem,
   retireOrRestoreReason,
   rewordReason,
+  type SetupChecklistItem,
   type SetupReason,
   type SetupThing,
+  setupChecklist,
   setupClientTypes,
   setupReasons,
 } from '../../api';
@@ -28,8 +36,8 @@ import { Dialog, Field, InfoTip, useAddress, useSending } from './ui';
 
 /**
  * Setup, for a BD manager: a menu of its sections down the side, and the one chosen beside it.
- * Products and lines, client types, and the lost and exit reasons; checklists join the menu when
- * they are built. #293, #276, #279, Clients SRS CLI 07, CLI 08, CLI 54, CLI 104.
+ * Products and lines, client types, the checklists, and the lost and exit reasons. #293, #276,
+ * #284, #279, Clients SRS CLI 07, CLI 08, CLI 39 to CLI 42, CLI 54, CLI 104.
  *
  * Drawn only where `/api/clients/me` said this person may set up; every change is refused by the
  * server to anybody else, whatever is drawn.
@@ -40,9 +48,11 @@ export function SetupView({ onSignedOut }: { onSignedOut: () => void }) {
   const current: SetupSection =
     address === 'clients/setup/client-types'
       ? 'client-types'
-      : address === 'clients/setup/reasons'
-        ? 'reasons'
-        : 'products';
+      : address === 'clients/setup/checklists'
+        ? 'checklists'
+        : address === 'clients/setup/reasons'
+          ? 'reasons'
+          : 'products';
 
   return (
     <div className="clients-setup">
@@ -74,6 +84,8 @@ export function SetupView({ onSignedOut }: { onSignedOut: () => void }) {
 
       {current === 'client-types' ? (
         <ClientTypesSection onSignedOut={onSignedOut} />
+      ) : current === 'checklists' ? (
+        <ChecklistsSection onSignedOut={onSignedOut} />
       ) : current === 'reasons' ? (
         <ReasonsSection onSignedOut={onSignedOut} />
       ) : (
@@ -97,7 +109,7 @@ const SECTIONS: readonly {
 }[] = [
   { id: 'products', label: 'Products', icon: 'list', built: true },
   { id: 'client-types', label: 'Client types', icon: 'people', built: true },
-  { id: 'checklists', label: 'Checklists', icon: 'checklist', built: false },
+  { id: 'checklists', label: 'Checklists', icon: 'checklist', built: true },
   { id: 'reasons', label: 'Lost and exit reasons', icon: 'exit-reasons', built: true },
 ];
 
@@ -1477,5 +1489,505 @@ function AddReasonDialog({
         </footer>
       </form>
     </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ checklists, #284 */
+
+const CHECKLIST_GROUPS: readonly { group: ChecklistGroup; title: string; tip: string }[] = [
+  {
+    group: 'QUALIFICATION',
+    title: 'Qualification criteria',
+    tip: 'Every one ticked before a deal goes to Negotiation. One for POC deals only is not asked of a deal that will have no POC.',
+  },
+  {
+    group: 'PRE_POC',
+    title: 'Pre-POC gates',
+    tip: 'Every one ticked before a deal with a POC is signed, which starts the POC.',
+  },
+  { group: 'FOUNDATION', title: 'Foundation', tip: 'Checks for the first phase of the POC.' },
+  { group: 'DEEPENING', title: 'Deepening', tip: 'Checks for the second phase of the POC.' },
+  { group: 'CONVERTING', title: 'Converting', tip: 'Checks for the last phase of the POC.' },
+];
+
+/**
+ * The checklists, one per product line and client type (CLI 39, CLI 42): pick the two, and its
+ * five groups are below, each item reworded, moved up or down, marked for POC deals only, retired
+ * or restored where it stands. Nothing is deleted. A deal or POC is given a copy of the checklist
+ * as it comes to apply, so a change here reaches only those copied after it (CLI 40).
+ *
+ * One with no items is a checklist nobody has written, which every gate passes (CLI 43); it can
+ * be filled with a copy of another, then changed on its own (the user, 24 November 2026).
+ */
+function ChecklistsSection({ onSignedOut }: { onSignedOut: () => void }) {
+  const [lines, setLines] = useState<ClientsProductLine[] | undefined>(undefined);
+  const [types, setTypes] = useState<ClientType[] | undefined>(undefined);
+  const [lineId, setLineId] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const [items, setItems] = useState<SetupChecklistItem[] | undefined>(undefined);
+  const [problem, setProblem] = useState<Problem | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<ChecklistGroup | null>(null);
+
+  const failed = useCallback(
+    (error: unknown) => {
+      if (isNotSignedIn(error)) {
+        onSignedOut();
+        return;
+      }
+      setProblem(problemFrom(error));
+    },
+    [onSignedOut],
+  );
+
+  useEffect(() => {
+    Promise.all([productLines(), setupClientTypes()])
+      .then(([foundLines, foundTypes]) => {
+        setLines(foundLines);
+        setTypes(foundTypes);
+        setLineId((foundLines.find((line) => line.retiredOn === null) ?? foundLines[0])?.id ?? '');
+        setTypeId((foundTypes.find((type) => type.retiredOn === null) ?? foundTypes[0])?.id ?? '');
+      })
+      .catch(failed);
+  }, [failed]);
+
+  const load = useCallback(() => {
+    if (lineId === '' || typeId === '') return;
+    setupChecklist(lineId, typeId)
+      .then((found) => {
+        setItems(found);
+        setProblem(undefined);
+      })
+      .catch(failed);
+  }, [lineId, typeId, failed]);
+
+  useEffect(load, [load]);
+
+  const act = useCallback(
+    async (change: () => Promise<void>): Promise<boolean> => {
+      setBusy(true);
+      setProblem(undefined);
+      try {
+        await change();
+        load();
+        return true;
+      } catch (error: unknown) {
+        failed(error);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, failed],
+  );
+
+  const lineName = lines?.find((line) => line.id === lineId)?.name ?? '';
+  const typeName = types?.find((type) => type.id === typeId)?.name ?? '';
+
+  return (
+    <section className="clients-setup-body">
+      <header className="clients-setup-head">
+        <h2>
+          Checklists
+          <InfoTip text="One for each product line and client type. A deal or POC is given its own copy as it comes to apply, so a change here reaches only deals and POCs copied after it." />
+        </h2>
+      </header>
+
+      {lines === undefined || types === undefined ? null : (
+        <div className="clients-checklist-pick">
+          <label>
+            Product line
+            <select
+              value={lineId}
+              disabled={busy}
+              onChange={(event) => {
+                setItems(undefined);
+                setAdding(null);
+                setLineId(event.target.value);
+              }}
+            >
+              {lines.map((line) => (
+                <option key={line.id} value={line.id}>
+                  {line.name}
+                  {line.retiredOn === null ? '' : ' (retired)'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Client type
+            <select
+              value={typeId}
+              disabled={busy}
+              onChange={(event) => {
+                setItems(undefined);
+                setAdding(null);
+                setTypeId(event.target.value);
+              }}
+            >
+              {types.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.name}
+                  {type.retiredOn === null ? '' : ' (retired)'}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {problem === undefined ? null : <Notice problem={problem} />}
+
+      {items === undefined ||
+      lines === undefined ||
+      types === undefined ||
+      items.length > 0 ? null : (
+        <CopyChecklist
+          lines={lines}
+          types={types}
+          into={{ lineId, clientTypeId: typeId }}
+          name={`${lineName} for ${typeName}`}
+          busy={busy}
+          act={act}
+        />
+      )}
+
+      {items === undefined
+        ? null
+        : CHECKLIST_GROUPS.map((list) => {
+            const inGroup = items.filter((item) => item.group === list.group);
+            const live = inGroup.filter((item) => item.retiredOn === null);
+
+            return (
+              <div key={list.group} className="clients-reason-list">
+                <header className="clients-reason-list-head">
+                  <h3>
+                    {list.title}
+                    <InfoTip text={list.tip} />
+                  </h3>
+                  <button
+                    type="button"
+                    disabled={busy || adding !== null}
+                    onClick={() => {
+                      setAdding(list.group);
+                    }}
+                  >
+                    <Icon name="plus" />
+                    Add an item
+                  </button>
+                </header>
+                <div className="clients-line is-open">
+                  {inGroup.length === 0 && adding !== list.group ? (
+                    <p className="clients-product muted">Nothing in this part yet.</p>
+                  ) : null}
+                  {inGroup.map((item) => (
+                    <ChecklistItemRow
+                      key={item.id}
+                      item={item}
+                      first={live[0]?.id === item.id}
+                      last={live[live.length - 1]?.id === item.id}
+                      busy={busy}
+                      act={act}
+                      reload={load}
+                      onSignedOut={onSignedOut}
+                    />
+                  ))}
+                  {adding === list.group ? (
+                    <AddChecklistItem
+                      into={{ lineId, clientTypeId: typeId }}
+                      group={list.group}
+                      onAdded={load}
+                      onClose={() => {
+                        setAdding(null);
+                      }}
+                      onSignedOut={onSignedOut}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+    </section>
+  );
+}
+
+/**
+ * One item: its words, edited where they stand; for a qualification criterion, whether it is for
+ * POC deals only; and on the right, up, down, and retire or restore. A retired item keeps its
+ * place, greyed, and moves no more until it is restored.
+ */
+function ChecklistItemRow({
+  item,
+  first,
+  last,
+  busy,
+  act,
+  reload,
+  onSignedOut,
+}: {
+  item: SetupChecklistItem;
+  first: boolean;
+  last: boolean;
+  busy: boolean;
+  act: Act;
+  reload: () => void;
+  onSignedOut: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const retired = item.retiredOn !== null;
+  const pocOnlyId = useId();
+
+  return (
+    <div className="clients-product clients-checklist-item">
+      {editing ? (
+        <InlineName
+          thing="client-types"
+          id={item.id}
+          name={item.label}
+          label={`Words of the item ${item.label}`}
+          isLine={false}
+          maxLength={200}
+          save={(label) => changeChecklistItem(item.id, { label })}
+          onSaved={() => {
+            reload();
+            setEditing(false);
+          }}
+          onCancel={() => {
+            setEditing(false);
+          }}
+          onSignedOut={onSignedOut}
+        />
+      ) : (
+        <span className="clients-setup-name">
+          <span>{item.label}</span>
+          <EditButton
+            className="clients-edit-name"
+            label={`Edit the words of ${item.label}`}
+            disabled={busy}
+            onClick={() => {
+              setEditing(true);
+            }}
+          />
+          {item.retiredOn === null ? null : (
+            <span className="clients-retired">Retired {day(item.retiredOn)}</span>
+          )}
+        </span>
+      )}
+
+      {editing ? null : (
+        <span className="clients-setup-buttons">
+          {item.group === 'QUALIFICATION' && !retired ? (
+            <span className="clients-checklist-poc-only">
+              <input
+                id={pocOnlyId}
+                type="checkbox"
+                checked={item.pocOnly}
+                disabled={busy}
+                onChange={() => {
+                  void act(() => changeChecklistItem(item.id, { pocOnly: !item.pocOnly }));
+                }}
+              />
+              <label htmlFor={pocOnlyId}>POC deals only</label>
+            </span>
+          ) : null}
+          {retired ? null : (
+            <>
+              <button
+                type="button"
+                className="iconic"
+                title="Move up"
+                aria-label={`Move ${item.label} up`}
+                disabled={busy || first}
+                onClick={() => {
+                  void act(() => moveChecklistItem(item.id, 'UP'));
+                }}
+              >
+                <Icon name="up" />
+              </button>
+              <button
+                type="button"
+                className="iconic"
+                title="Move down"
+                aria-label={`Move ${item.label} down`}
+                disabled={busy || last}
+                onClick={() => {
+                  void act(() => moveChecklistItem(item.id, 'DOWN'));
+                }}
+              >
+                <Icon name="down" />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void act(() => retireOrRestoreChecklistItem(item.id, retired ? 'restore' : 'retire'));
+            }}
+          >
+            {retired ? 'Restore' : 'Retire'}
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A new item, written where it will go: at the end of its group. */
+function AddChecklistItem({
+  into,
+  group,
+  onAdded,
+  onClose,
+  onSignedOut,
+}: {
+  into: { lineId: string; clientTypeId: string };
+  group: ChecklistGroup;
+  onAdded: () => void;
+  onClose: () => void;
+  onSignedOut: () => void;
+}) {
+  const [label, setLabel] = useState('');
+  const [pocOnly, setPocOnly] = useState(false);
+  const sending = useSending(() => {
+    onAdded();
+    onClose();
+  }, onSignedOut);
+  const other = sending.other(['label']);
+  const pocOnlyId = useId();
+
+  return (
+    <form
+      className="clients-product clients-checklist-add"
+      onSubmit={(event) => {
+        event.preventDefault();
+        sending.send(() => addChecklistItem({ ...into, group, label, pocOnly }));
+      }}
+    >
+      <Field label="New item" error={sending.errorFor('label')}>
+        {({ id, describedBy }) => (
+          <input
+            id={id}
+            value={label}
+            maxLength={200}
+            autoFocus
+            autoComplete="off"
+            aria-describedby={describedBy}
+            aria-invalid={sending.errorFor('label') === undefined ? undefined : true}
+            disabled={sending.busy}
+            onChange={(event) => {
+              setLabel(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                onClose();
+              }
+            }}
+          />
+        )}
+      </Field>
+      <span className="clients-setup-buttons">
+        {group === 'QUALIFICATION' ? (
+          <span className="clients-checklist-poc-only">
+            <input
+              id={pocOnlyId}
+              type="checkbox"
+              checked={pocOnly}
+              disabled={sending.busy}
+              onChange={() => {
+                setPocOnly((was) => !was);
+              }}
+            />
+            <label htmlFor={pocOnlyId}>POC deals only</label>
+          </span>
+        ) : null}
+        <button type="button" disabled={sending.busy} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="primary" disabled={sending.busy || label.trim() === ''}>
+          {sending.busy ? 'Adding…' : 'Add'}
+        </button>
+      </span>
+      {other === undefined ? null : <Notice problem={other} />}
+    </form>
+  );
+}
+
+/**
+ * An empty checklist: what that means, and filling it with a copy of another to change on its
+ * own (the user, 24 November 2026), say Microfinance institution from Broker.
+ */
+function CopyChecklist({
+  lines,
+  types,
+  into,
+  name,
+  busy,
+  act,
+}: {
+  lines: readonly ClientsProductLine[];
+  types: readonly ClientType[];
+  into: { lineId: string; clientTypeId: string };
+  name: string;
+  busy: boolean;
+  act: Act;
+}) {
+  const [fromLine, setFromLine] = useState(into.lineId);
+  const [fromType, setFromType] = useState(
+    types.find((type) => type.id !== into.clientTypeId)?.id ?? '',
+  );
+
+  return (
+    <div className="clients-checklist-empty">
+      <p>
+        <strong>{name} has no checklist,</strong> so every gate passes for its deals and nothing is
+        ticked on its POCs. Add items below, or start from a copy of another checklist.
+      </p>
+      <form
+        className="clients-checklist-pick"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void act(() => copyChecklist(into, { lineId: fromLine, clientTypeId: fromType }));
+        }}
+      >
+        <label>
+          Copy the line
+          <select
+            value={fromLine}
+            disabled={busy}
+            onChange={(event) => {
+              setFromLine(event.target.value);
+            }}
+          >
+            {lines.map((line) => (
+              <option key={line.id} value={line.id}>
+                {line.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          for
+          <select
+            value={fromType}
+            disabled={busy}
+            onChange={(event) => {
+              setFromType(event.target.value);
+            }}
+          >
+            {types.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={busy || fromType === ''}>
+          <Icon name="copy" />
+          Copy it here
+        </button>
+      </form>
+    </div>
   );
 }

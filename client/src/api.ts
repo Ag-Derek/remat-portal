@@ -3453,6 +3453,10 @@ export interface Deal {
   waitingOn: { on: WaitingOnWhat; note: string | null } | null;
   statedInterest: string | null;
   createdAt: string;
+  /** The qualification criteria still to tick before Negotiation (#284). Empty with no checklist. */
+  openCriteria: string[];
+  /** The pre-POC gates still to tick before a deal with a POC is signed (#284). */
+  openGates: string[];
   /** What the person reading may do. The server's answer; it refuses the rest. */
   may: {
     /** Its figures and words: its owner's or a BD manager's, while it is open. */
@@ -4254,5 +4258,145 @@ export async function recordPocUsage(
 export async function movePocLead(id: string, employeeId: string): Promise<PocPage> {
   return request<PocPage>('POST', `/api/clients/pocs/${encodeURIComponent(id)}/lead`, {
     employeeId,
+  });
+}
+
+/* --------------------------------------------------------------- checklists, #284 */
+
+/** The five groups a checklist falls into, in the order a deal and its POC meet them. */
+export type ChecklistGroup =
+  'QUALIFICATION' | 'PRE_POC' | 'FOUNDATION' | 'DEEPENING' | 'CONVERTING';
+
+/** One tick or untick of a check: what it was set to, by whom, and when. */
+export interface CheckTick {
+  ticked: boolean;
+  by: { id: string; name: string };
+  at: string;
+}
+
+/** A deal's or a POC's own copy of one checklist item, and whether it is ticked now. */
+export interface Check {
+  id: string;
+  group: ChecklistGroup;
+  label: string;
+  /** A qualification criterion that applies only to a deal with a POC. */
+  pocOnly: boolean;
+  sort: number;
+  ticked: boolean;
+  /** Its latest tick or untick; null if nobody has touched it. */
+  latest: CheckTick | null;
+}
+
+/** A deal's criteria and pre-POC gates, or a POC's phase checks. */
+export interface Checklist {
+  on: 'DEAL' | 'POC';
+  id: string;
+  checks: Check[];
+  may: { tick: boolean };
+}
+
+export async function dealChecklist(dealId: string): Promise<Checklist> {
+  return request<Checklist>(
+    'GET',
+    `/api/clients/opportunities/${encodeURIComponent(dealId)}/checks`,
+  );
+}
+
+export async function pocChecklist(pocId: string): Promise<Checklist> {
+  return request<Checklist>('GET', `/api/clients/pocs/${encodeURIComponent(pocId)}/checks`);
+}
+
+/** Ticks or unticks a check, answering with its whole checklist as it now stands. */
+export async function tickCheck(checkId: string, ticked: boolean): Promise<Checklist> {
+  return request<Checklist>('POST', `/api/clients/checks/${encodeURIComponent(checkId)}/tick`, {
+    ticked,
+  });
+}
+
+/** Every tick and untick of a check, the latest first. */
+export async function checkTicks(checkId: string): Promise<CheckTick[]> {
+  const { ticks } = await request<{ ticks: CheckTick[] }>(
+    'GET',
+    `/api/clients/checks/${encodeURIComponent(checkId)}/ticks`,
+  );
+  return ticks;
+}
+
+/* ----------------------------------------------------- the checklist editor, #284 */
+
+/** One item of a checklist, as setup keeps it. */
+export interface SetupChecklistItem {
+  id: string;
+  lineId: string;
+  clientTypeId: string;
+  group: ChecklistGroup;
+  label: string;
+  sort: number;
+  pocOnly: boolean;
+  /** The day it stopped being copied onto new deals and POCs, or null while it is. */
+  retiredOn: string | null;
+}
+
+/** One checklist's items, group by group, retired ones included. A BD manager's. */
+export async function setupChecklist(
+  lineId: string,
+  clientTypeId: string,
+): Promise<SetupChecklistItem[]> {
+  const query = new URLSearchParams({ lineId, clientTypeId }).toString();
+  const { items } = await request<{ items: SetupChecklistItem[] }>(
+    'GET',
+    `/api/clients/setup/checklists?${query}`,
+  );
+  return items;
+}
+
+export async function addChecklistItem(item: {
+  lineId: string;
+  clientTypeId: string;
+  group: ChecklistGroup;
+  label: string;
+  pocOnly: boolean;
+}): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/checklists/items', item);
+}
+
+export async function changeChecklistItem(
+  id: string,
+  change: { label?: string; pocOnly?: boolean },
+): Promise<void> {
+  await request<unknown>(
+    'PATCH',
+    `/api/clients/setup/checklists/items/${encodeURIComponent(id)}`,
+    change,
+  );
+}
+
+export async function moveChecklistItem(id: string, direction: 'UP' | 'DOWN'): Promise<void> {
+  await request<unknown>(
+    'POST',
+    `/api/clients/setup/checklists/items/${encodeURIComponent(id)}/move`,
+    { direction },
+  );
+}
+
+export async function retireOrRestoreChecklistItem(
+  id: string,
+  act: 'retire' | 'restore',
+): Promise<void> {
+  await request<unknown>(
+    'POST',
+    `/api/clients/setup/checklists/items/${encodeURIComponent(id)}/${act}`,
+  );
+}
+
+/** Fills an empty checklist with a copy of another's. */
+export async function copyChecklist(
+  into: { lineId: string; clientTypeId: string },
+  from: { lineId: string; clientTypeId: string },
+): Promise<void> {
+  await request<unknown>('POST', '/api/clients/setup/checklists/copy', {
+    ...into,
+    fromLineId: from.lineId,
+    fromClientTypeId: from.clientTypeId,
   });
 }

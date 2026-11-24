@@ -10431,3 +10431,171 @@ button.linkish.file-name {
     margin-left: 0;
   }
 }
+
+/* ------------------------------------------------------- checklists, #284
+   A deal's criteria and gates, in a dialog from its row; a POC's phase checks, on its page. Each
+   group says how many of its checks are ticked; each check, who last touched it and when. */
+
+.clients-checklist {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.clients-checklist-group {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.clients-checklist-group > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.clients-checklist-group h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.clients-checklist-group .tag.is-done {
+  color: var(--go-ink);
+  background: color-mix(in srgb, var(--go) 12%, var(--card));
+}
+
+.clients-checklist-group > p {
+  margin: 0;
+}
+
+.clients-checklist-group ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clients-checklist-group li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
+}
+
+.clients-checklist-group li > input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.15rem 0 0;
+  accent-color: var(--go);
+}
+
+.clients-checklist-group li > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clients-checklist-group label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.clients-checklist-group li.is-ticked label {
+  color: var(--ink-soft);
+}
+
+.clients-checklist-group small {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.clients-check-poc-only {
+  font-size: 0.75rem;
+}
+
+.clients-check-history-toggle {
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+}
+
+.clients-check-history {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+/* #284. The checklist editor: the line and type it is for, side by side, then its five groups. */
+.clients-checklist-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.clients-checklist-pick label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.clients-checklist-pick select {
+  min-width: 12rem;
+  max-width: 100%;
+}
+
+.clients-checklist-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clients-checklist-empty {
+  margin-bottom: var(--gap-lg);
+  padding: 1rem 1.1rem;
+  background: var(--card);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.clients-checklist-empty > p {
+  max-width: 40rem;
+  margin: 0 0 0.75rem;
+}
+
+.clients-checklist-empty .clients-checklist-pick {
+  margin-bottom: 0;
+}
+
+.clients-checklist-item .clients-setup-name {
+  flex: 1 1 20rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clients-checklist-poc-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+}
+
+.clients-checklist-add {
+  align-items: flex-end;
+  border-top: 1px dashed var(--line);
+}
+
+.clients-checklist-add .clients-field {
+  flex: 1 1 20rem;
+  margin: 0;
+}
+
+.clients-checklist-add .notice {
+  flex-basis: 100%;
+}

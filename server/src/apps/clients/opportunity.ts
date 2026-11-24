@@ -85,6 +85,18 @@ export interface Opportunity {
   /** In the client's own words (CLI 17). Null where they have said nothing yet. */
   statedInterest: string | null;
   createdAt: Date;
+  /**
+   * The qualification criteria still to tick before it may go to Negotiation or beyond (CLI 22,
+   * #284), in their order. From its own checklist once it has one; before it leaves Discovery,
+   * from the checklist it will be given. A criterion for POC deals only is left out once it is
+   * known there will be no POC. Empty on a line with no checklist (CLI 43).
+   */
+  openCriteria: string[];
+  /**
+   * The pre-POC gates still to tick before it may be signed with a POC, which starts the POC (CLI
+   * 23, #284, #285), worked out as {@link openCriteria} is. Only a deal with a POC is held to them.
+   */
+  openGates: string[];
 }
 
 /**

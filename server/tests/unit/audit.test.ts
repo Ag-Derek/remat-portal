@@ -125,6 +125,8 @@ describe('the entities an entry can be about', () => {
       'clients_next_step',
       /* #285. A POC made as its contract is signed, and who moves its CS lead. */
       'clients_poc',
+      /* #284. Changing a checklist changes what every deal and POC after it is judged by. */
+      'clients_checklist_item',
     ]);
   });
 });

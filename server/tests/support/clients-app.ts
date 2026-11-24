@@ -28,6 +28,9 @@ import { ClientsActivityRepository } from '../../src/apps/clients/activity.db.js
 import { ActivityService } from '../../src/apps/clients/activity.service.js';
 import { ClientsDocumentRepository } from '../../src/apps/clients/document.db.js';
 import { DocumentService } from '../../src/apps/clients/document.service.js';
+import { ClientsCheckRepository } from '../../src/apps/clients/checklist.db.js';
+import { ClientsChecklistItemRepository } from '../../src/apps/clients/checklist-item.db.js';
+import { ChecklistService } from '../../src/apps/clients/checklist.service.js';
 import { ClientsPocRepository } from '../../src/apps/clients/poc.db.js';
 import { PocService } from '../../src/apps/clients/poc.service.js';
 import { StageForPoc } from '../../src/apps/clients/stage-for-poc.js';
@@ -107,6 +110,7 @@ export async function startClientsApp(
       new ClientsProductRepository(db),
       clientRecords,
       new ClientsReasonRepository(db),
+      new ClientsChecklistItemRepository(db),
     ),
     clients: new ClientService(
       guard,
@@ -146,6 +150,7 @@ export async function startClientsApp(
       storage,
       new SignatureScanner(),
     ),
+    checklists: new ChecklistService(guard, grants, new ClientsCheckRepository(db)),
   });
 
   app.use('/api', router);

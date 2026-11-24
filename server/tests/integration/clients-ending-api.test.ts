@@ -13,6 +13,7 @@ import { ClientsReasonRepository } from '../../src/apps/clients/reason.db.js';
 import { ClientsRoleRepository } from '../../src/apps/clients/role.db.js';
 import { StageForPoc } from '../../src/apps/clients/stage-for-poc.js';
 import { type Asker, type ClientsApp, startClientsApp } from '../support/clients-app.js';
+import { tickEveryCheck } from '../support/clients-checks.js';
 import { intoItsPoc as intoAPoc } from '../support/clients-poc.js';
 import { recordingDenials } from '../support/recording-denials.js';
 
@@ -241,6 +242,9 @@ describe('marking a deal lost', () => {
     await app.send('PATCH', `/api/clients/opportunities/${signed.id}`, associate, {
       hasPoc: false,
     });
+    /* #284. Past its qualification criteria, which Cloud9's line has. */
+    await moved(signed.id, 'QUALIFICATION');
+    await tickEveryCheck(admin, signed.id);
     await moved(signed.id, 'CONTRACT_SIGNED');
     expect(await lost(associate, signed.id, { reasonId: lostFor['Not a fit'] })).toMatchObject({
       stage: 'CONTRACT_SIGNED',
@@ -281,6 +285,8 @@ describe('marking a deal lost', () => {
 
     const won = await aDeal(associate, 'Cloud9');
     await app.send('PATCH', `/api/clients/opportunities/${won.id}`, associate, { hasPoc: false });
+    await moved(won.id, 'QUALIFICATION');
+    await tickEveryCheck(admin, won.id);
     await moved(won.id, 'CONTRACT_SIGNED');
     await moved(won.id, 'LIVE');
     expect(

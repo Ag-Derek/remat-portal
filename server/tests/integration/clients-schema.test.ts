@@ -38,6 +38,9 @@ const TABLES = [
   'clients_poc_health',
   'clients_poc_action',
   'clients_poc_usage',
+  'clients_checklist_item',
+  'clients_check',
+  'clients_tick',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -1733,6 +1736,479 @@ describe('a lost or exit reason', () => {
   });
 });
 
+/* ------------------------------------------------------- a checklist item, #284 */
+
+describe('a checklist item', () => {
+  /* On the Symphony line, for banks, unless told otherwise. */
+  const ITEM = `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort)
+                SELECT l.id, t.id, $1, $2, $3
+                  FROM clients_product_line l, clients_client_type t
+                 WHERE l.name = 'Symphony' AND t.name = $4
+                RETURNING id`;
+
+  function anItem(group: string, label: string, type = 'Bank', sort = 1): Promise<string | null> {
+    return refusedBy(ITEM, [group, label, sort, type]);
+  }
+
+  /* CLI 39, TDD 4.4. */
+  it('is in one of the five groups, and says something', async () => {
+    for (const group of ['QUALIFICATION', 'PRE_POC', 'FOUNDATION', 'DEEPENING', 'CONVERTING']) {
+      expect(await anItem(group, `Something for ${group}`)).toBeNull();
+    }
+
+    expect(await anItem('MIDPOINT', 'Day 60 review held')).toBe(
+      'clients_checklist_item_group_known',
+    );
+    expect(await anItem('PRE_POC', '  ')).toBe('clients_checklist_item_labelled');
+  });
+
+  /* CLI 39: per product line and client type. */
+  it('is named once in its group of a checklist, ignoring case and spaces', async () => {
+    expect(await anItem('PRE_POC', 'Signed agreement')).toBeNull();
+
+    expect(await anItem('PRE_POC', ' signed AGREEMENT ')).toBe('uq_clients_checklist_item_label');
+    expect(await anItem('FOUNDATION', 'Signed agreement')).toBeNull();
+    expect(await anItem('PRE_POC', 'Signed agreement', 'Broker')).toBeNull();
+  });
+
+  /* CLI 41. */
+  it('is for POC deals only if it is a qualification criterion, and is not unless said', async () => {
+    const POC_ONLY = `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort, poc_only)
+                      SELECT l.id, t.id, $1, 'Committed to three reviews', 9, true
+                        FROM clients_product_line l, clients_client_type t
+                       WHERE l.name = 'Dura Capital' AND t.name = 'Bank'`;
+
+    expect(await refusedBy(POC_ONLY, ['QUALIFICATION'])).toBeNull();
+    for (const group of ['PRE_POC', 'FOUNDATION', 'DEEPENING', 'CONVERTING']) {
+      expect(await refusedBy(POC_ONLY, [group])).toBe('clients_checklist_item_poc_only_qualifies');
+    }
+
+    const added = await admin.query<{ id: string }>(ITEM, [
+      'QUALIFICATION',
+      'Pain point',
+      1,
+      'Bank',
+    ]);
+    const { rows } = await admin.query<{ poc_only: boolean }>(
+      `SELECT poc_only FROM clients_checklist_item WHERE id = $1`,
+      [added.rows[0].id],
+    );
+    expect(rows[0].poc_only).toBe(false);
+  });
+
+  it('names a line and a client type that exist', async () => {
+    expect(
+      await refusedBy(
+        `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort)
+         SELECT -1, id, 'PRE_POC', 'Signed agreement', 1 FROM clients_client_type
+          WHERE name = 'Bank'`,
+      ),
+    ).toBe('clients_checklist_item_line_id_fkey');
+    expect(
+      await refusedBy(
+        `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort)
+         SELECT id, -1, 'PRE_POC', 'Signed agreement', 1 FROM clients_product_line
+          WHERE name = 'Symphony'`,
+      ),
+    ).toBe('clients_checklist_item_client_type_id_fkey');
+  });
+
+  /* NFR CLI AUD 01. */
+  it('is audited', async () => {
+    const { rows } = await admin.query<{ id: string }>(ITEM, [
+      'PRE_POC',
+      'Signed agreement',
+      1,
+      'Bank',
+    ]);
+
+    const audit = await admin.query<{ action: string }>(
+      `SELECT action FROM audit_log WHERE entity = 'clients_checklist_item' AND entity_id = $1`,
+      [rows[0].id],
+    );
+    expect(audit.rows.map((row) => row.action)).toEqual(['CREATE']);
+  });
+});
+
+describe('the checklists as migrated', () => {
+  /** Each checklist's labels, by line, client type and group, in order. */
+  async function checklists(): Promise<Record<string, Record<string, string[]>>> {
+    const { rows } = await admin.query<{ checklist: string; grp: string; label: string }>(
+      `SELECT l.name || ' / ' || t.name AS checklist, i.grp, i.label
+         FROM clients_checklist_item i
+         JOIN clients_product_line l ON l.id = i.line_id
+         JOIN clients_client_type t ON t.id = i.client_type_id
+        WHERE i.retired_on IS NULL
+        ORDER BY checklist, i.grp, i.sort`,
+    );
+    const byChecklist: Record<string, Record<string, string[]>> = {};
+    for (const { checklist, grp, label } of rows) {
+      ((byChecklist[checklist] ??= {})[grp] ??= []).push(label);
+    }
+    return byChecklist;
+  }
+
+  /* TDD migration 6: the Symphony line, for banks and brokerages; the rest follow brokerages. */
+  it('are on the Symphony line, for every client type, and on no other line', async () => {
+    expect(Object.keys(await checklists()).sort()).toEqual([
+      'Symphony / Bank',
+      'Symphony / Broker',
+      'Symphony / DFI',
+      'Symphony / Digital lender',
+      'Symphony / Microfinance institution',
+    ]);
+  });
+
+  it('give a bank the bank SOP, in the five groups', async () => {
+    const bank = (await checklists())['Symphony / Bank'];
+
+    expect(bank.QUALIFICATION).toEqual([
+      'All three stakeholders identified (decision maker, COO, IT contact), each committed to three review meetings',
+      'Stated interest captured verbatim for each stakeholder',
+      'Point person identified',
+      'Finance or procurement contact identified',
+      'Integration pre-configuration started, at least 4 weeks before the start',
+      'A defined pain point documented for each stakeholder',
+    ]);
+    expect(bank.PRE_POC).toHaveLength(8);
+    expect(bank.PRE_POC).toContain('Client Intelligence Document on file');
+    expect(bank.FOUNDATION).toHaveLength(5);
+    expect(bank.DEEPENING).toHaveLength(6);
+    expect(bank.CONVERTING).toEqual([
+      'Teams or Slack live',
+      'Workflow embedded',
+      'Compliance satisfaction rated',
+    ]);
+  });
+
+  it('give a brokerage the brokerage SOP, and the other institutions the same', async () => {
+    const all = await checklists();
+    const broker = all['Symphony / Broker'];
+
+    expect(broker.QUALIFICATION).toEqual([
+      'Decision maker (MD or Head of Trading) committed to three review meetings',
+      'Stated interest captured verbatim',
+      'Point person identified',
+      'Finance or procurement contact identified',
+      'Integration pre-configuration started, at least 4 weeks before the start',
+    ]);
+    expect(broker.PRE_POC).toEqual(
+      expect.arrayContaining(['Configuration Sheet filed', 'Client Intelligence Document on file']),
+    );
+    expect(broker.FOUNDATION).toContain('Cloud9 Mobile installed');
+    expect(broker.CONVERTING).toContain('Messaging upsell started');
+
+    for (const type of ['Microfinance institution', 'Digital lender', 'DFI']) {
+      expect(all[`Symphony / ${type}`]).toEqual(broker);
+    }
+  });
+
+  /* CLI 41, SRS §17: the review meetings and the POC set-up. */
+  it('hold a deal without a POC to neither the review meetings nor the set-up', async () => {
+    const { rows } = await admin.query<{ type: string; label: string }>(
+      `SELECT t.name AS type, i.label
+         FROM clients_checklist_item i JOIN clients_client_type t ON t.id = i.client_type_id
+        WHERE i.poc_only
+        ORDER BY t.name, i.sort`,
+    );
+    const byType: Record<string, string[]> = {};
+    for (const { type, label } of rows) (byType[type] ??= []).push(label);
+
+    const broker = [
+      'Decision maker (MD or Head of Trading) committed to three review meetings',
+      'Integration pre-configuration started, at least 4 weeks before the start',
+    ];
+    expect(byType).toEqual({
+      Bank: [
+        'All three stakeholders identified (decision maker, COO, IT contact), each committed to three review meetings',
+        'Integration pre-configuration started, at least 4 weeks before the start',
+      ],
+      Broker: broker,
+      DFI: broker,
+      'Digital lender': broker,
+      'Microfinance institution': broker,
+    });
+  });
+
+  /* A qualification criterion blocks Negotiation, so signing can't be one. */
+  it('ask for no signed contract, which only comes after Negotiation', async () => {
+    const { rows } = await admin.query(
+      `SELECT label FROM clients_checklist_item
+        WHERE grp IN ('QUALIFICATION', 'PRE_POC') AND label ILIKE '%sign%'`,
+    );
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("a deal's and a POC's checks", () => {
+  let client: string;
+
+  beforeEach(async () => {
+    client = await aClient(ama);
+  });
+
+  /** An open deal at the bank for a Symphony product, which has the bank checklist. */
+  async function aSymphonyDeal(product = 'Federation'): Promise<string> {
+    return (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = $3 RETURNING id`,
+        [client, ama, product],
+      )
+    ).rows[0].id;
+  }
+
+  function moveTo(deal: string, stage: string): Promise<unknown> {
+    return admin.query('UPDATE clients_opportunity SET stage = $2 WHERE id = $1', [deal, stage]);
+  }
+
+  /** The checks on a deal or a POC, group by group, in order. */
+  async function checksOf(
+    owner: 'opportunity_id' | 'poc_id',
+    id: string,
+  ): Promise<{ grp: string; label: string; poc_only: boolean }[]> {
+    const { rows } = await admin.query<{ grp: string; label: string; poc_only: boolean }>(
+      `SELECT grp, label, poc_only FROM clients_check WHERE ${owner} = $1
+        ORDER BY array_position(
+                   ARRAY['QUALIFICATION','PRE_POC','FOUNDATION','DEEPENING','CONVERTING'], grp::text),
+                 sort`,
+      [id],
+    );
+    return rows;
+  }
+
+  function countsOf(checks: { grp: string }[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const { grp } of checks) counts[grp] = (counts[grp] ?? 0) + 1;
+    return counts;
+  }
+
+  async function copiedAt(deal: string): Promise<Date | null> {
+    const { rows } = await admin.query<{ at: Date | null }>(
+      'SELECT checklist_copied_at AS at FROM clients_opportunity WHERE id = $1',
+      [deal],
+    );
+    return rows[0].at;
+  }
+
+  /* CLI 40, the user (23 November 2026): the criteria and the gates, the first time the deal
+     leaves Discovery, for wherever it goes; and by the database, whoever moves it. */
+  it('are copied onto a deal as it first leaves Discovery, even skipping Qualification', async () => {
+    const deal = await aSymphonyDeal();
+    expect(await checksOf('opportunity_id', deal)).toEqual([]);
+    expect(await copiedAt(deal)).toBeNull();
+
+    await admin.query('SET LOCAL ROLE lms_app');
+    await moveTo(deal, 'PROPOSAL');
+    await admin.query('RESET ROLE');
+
+    const checks = await checksOf('opportunity_id', deal);
+    expect(countsOf(checks)).toEqual({ QUALIFICATION: 6, PRE_POC: 8 });
+    expect(checks[0]).toEqual({
+      grp: 'QUALIFICATION',
+      label:
+        'All three stakeholders identified (decision maker, COO, IT contact), each committed to three review meetings',
+      poc_only: true,
+    });
+    expect(checks.filter((check) => check.poc_only)).toHaveLength(2);
+    expect(await copiedAt(deal)).not.toBeNull();
+  });
+
+  /* CLI 40: later edits don't change it, nor does going back to Discovery and out again. */
+  it('are kept as copied, whatever the checklist says afterwards', async () => {
+    const deal = await aSymphonyDeal();
+    await moveTo(deal, 'QUALIFICATION');
+    const copied = await checksOf('opportunity_id', deal);
+
+    await admin.query(
+      `UPDATE clients_checklist_item SET label = 'Point person named and briefed'
+        WHERE label = 'Point person identified'`,
+    );
+    await admin.query(
+      `UPDATE clients_checklist_item SET retired_on = CURRENT_DATE WHERE label = 'Pricing shared'`,
+    );
+    await admin.query(
+      `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort)
+       SELECT l.id, t.id, 'QUALIFICATION', 'Budget confirmed', 7
+         FROM clients_product_line l, clients_client_type t
+        WHERE l.name = 'Symphony' AND t.name = 'Bank'`,
+    );
+    await moveTo(deal, 'DISCOVERY');
+    await moveTo(deal, 'QUALIFICATION');
+
+    expect(await checksOf('opportunity_id', deal)).toEqual(copied);
+  });
+
+  /* CLI 43. */
+  it('leave a deal on a line with no checklist with none, and it stays that way', async () => {
+    const deal = await aDeal(client, ama);
+    await moveTo(deal, 'QUALIFICATION');
+
+    expect(await checksOf('opportunity_id', deal)).toEqual([]);
+    expect(await copiedAt(deal)).not.toBeNull();
+
+    await admin.query(
+      `INSERT INTO clients_checklist_item (line_id, client_type_id, grp, label, sort)
+       SELECT p.line_id, c.type_id, 'QUALIFICATION', 'Budget confirmed', 1
+         FROM clients_product p, clients_client c
+        WHERE p.name = 'CreditStudio' AND c.id = $1`,
+      [client],
+    );
+    await moveTo(deal, 'DISCOVERY');
+    await moveTo(deal, 'PROPOSAL');
+
+    expect(await checksOf('opportunity_id', deal)).toEqual([]);
+  });
+
+  it('leave out an item retired before the copy', async () => {
+    await admin.query(
+      `UPDATE clients_checklist_item SET retired_on = CURRENT_DATE WHERE label = 'Pricing shared'`,
+    );
+    const deal = await aSymphonyDeal();
+    await moveTo(deal, 'QUALIFICATION');
+
+    const labels = (await checksOf('opportunity_id', deal)).map((check) => check.label);
+    expect(labels).toHaveLength(13);
+    expect(labels).not.toContain('Pricing shared');
+  });
+
+  /* CLI 40: a POC's phase checks, as it is made; the criteria and gates stay on the deal. */
+  it('are copied onto a POC as it is made, its three phases only', async () => {
+    const deal = await aSymphonyDeal();
+    const poc = await aPocFor(deal);
+
+    const checks = await checksOf('poc_id', poc);
+    expect(countsOf(checks)).toEqual({ FOUNDATION: 5, DEEPENING: 6, CONVERTING: 3 });
+    expect(checks[0].label).toBe('Kickoff delivered');
+  });
+
+  it("are one deal's or one POC's, and each group the right one's", async () => {
+    const deal = await aSymphonyDeal();
+    const poc = await aPocFor(deal);
+    /* The bank's, which the POC already has a copy of. */
+    const { rows } = await admin.query<{ id: string }>(
+      `SELECT i.id FROM clients_checklist_item i
+         JOIN clients_client_type t ON t.id = i.client_type_id
+        WHERE i.label = 'Kickoff delivered' AND t.name = 'Bank'`,
+    );
+    const CHECK = `INSERT INTO clients_check
+                     (opportunity_id, poc_id, source_item_id, grp, label, poc_only, sort)
+                   VALUES ($1, $2, $3, $4, 'Something', $5, 1)`;
+
+    expect(await refusedBy(CHECK, [null, null, rows[0].id, 'FOUNDATION', false])).toBe(
+      'clients_check_one_owner',
+    );
+    expect(await refusedBy(CHECK, [deal, poc, rows[0].id, 'QUALIFICATION', false])).toBe(
+      'clients_check_one_owner',
+    );
+    expect(await refusedBy(CHECK, [deal, null, rows[0].id, 'FOUNDATION', false])).toBe(
+      'clients_check_group_fits_owner',
+    );
+    expect(await refusedBy(CHECK, [null, poc, rows[0].id, 'PRE_POC', false])).toBe(
+      'clients_check_group_fits_owner',
+    );
+    expect(await refusedBy(CHECK, [deal, null, rows[0].id, 'PRE_POC', true])).toBe(
+      'clients_check_poc_only_qualifies',
+    );
+    expect(await refusedBy(CHECK, [null, poc, rows[0].id, 'FOUNDATION', false])).toBe(
+      'uq_clients_check_poc_item',
+    );
+  });
+
+  /* The copies are the database's to write: the application may only read them. */
+  it('are written by the database alone', async () => {
+    const deal = await aSymphonyDeal();
+    const { rows } = await admin.query<{ id: string }>(
+      `SELECT id FROM clients_checklist_item WHERE label = 'Point person identified' LIMIT 1`,
+    );
+
+    await admin.query('SET LOCAL ROLE lms_app');
+    const refusal = await refusedBy(
+      `INSERT INTO clients_check (opportunity_id, source_item_id, grp, label, poc_only, sort)
+       VALUES ($1, $2, 'QUALIFICATION', 'Point person identified', false, 1)`,
+      [deal, rows[0].id],
+    );
+    await admin.query('RESET ROLE');
+    expect(refusal).toMatch(/permission denied/);
+
+    const made = await admin.query<{ at: Date | null }>(
+      `INSERT INTO clients_opportunity (client_id, product_id, owner_id, checklist_copied_at)
+       SELECT $1, id, $2, now() FROM clients_product WHERE name = 'Messaging'
+       RETURNING checklist_copied_at AS at`,
+      [client, ama],
+    );
+    expect(made.rows[0].at).toBeNull();
+  });
+});
+
+describe('a tick', () => {
+  const TICK = `INSERT INTO clients_tick (check_id, ticked, ticked_by) VALUES ($1, $2, $3)
+                RETURNING id`;
+  let deal: string;
+  let check: string;
+
+  beforeEach(async () => {
+    const client = await aClient(ama);
+    deal = (
+      await admin.query<{ id: string }>(
+        `INSERT INTO clients_opportunity (client_id, product_id, owner_id)
+         SELECT $1, id, $2 FROM clients_product WHERE name = 'Federation' RETURNING id`,
+        [client, ama],
+      )
+    ).rows[0].id;
+    await admin.query(`UPDATE clients_opportunity SET stage = 'QUALIFICATION' WHERE id = $1`, [
+      deal,
+    ]);
+    check = (
+      await admin.query<{ id: string }>(
+        'SELECT id FROM clients_check WHERE opportunity_id = $1 ORDER BY id LIMIT 1',
+        [deal],
+      )
+    ).rows[0].id;
+  });
+
+  /* CLI 41, the user (23 November 2026): every row a change, starting from unticked. */
+  it('changes the check every time, starting from unticked', async () => {
+    expect(await refusedBy(TICK, [check, false, ama])).toBe('clients_tick_changes');
+    expect(await refusedBy(TICK, [check, true, ama])).toBeNull();
+    expect(await refusedBy(TICK, [check, true, kofi])).toBe('clients_tick_changes');
+    expect(await refusedBy(TICK, [check, false, kofi])).toBeNull();
+  });
+
+  /* The user, 23 November 2026: kept as they ended. */
+  it('is refused once the deal has ended', async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `INSERT INTO clients_reason (applies_to, label) VALUES ('LOST', 'Went elsewhere') RETURNING id`,
+    );
+    await admin.query(
+      `UPDATE clients_opportunity SET outcome = 'LOST', ended_on = CURRENT_DATE, reason_id = $2
+        WHERE id = $1`,
+      [deal, rows[0].id],
+    );
+
+    expect(await refusedBy(TICK, [check, true, ama])).toBe('clients_tick_while_open');
+  });
+
+  /* NFR CLI REC 01. */
+  it('is never changed or deleted, by the application or anybody', async () => {
+    const { rows } = await admin.query<{ id: string }>(TICK, [check, true, ama]);
+
+    expect(
+      await refusedBy('UPDATE clients_tick SET ticked = false WHERE id = $1', [rows[0].id]),
+    ).not.toBeNull();
+    expect(await refusedBy('DELETE FROM clients_tick WHERE id = $1', [rows[0].id])).not.toBeNull();
+  });
+
+  /* The lock on the check is the database's; the application ticks with what it holds. */
+  it('is written by the application role', async () => {
+    await admin.query('SET LOCAL ROLE lms_app');
+    const refusal = await refusedBy(TICK, [check, true, ama]);
+    await admin.query('RESET ROLE');
+
+    expect(refusal).toBeNull();
+  });
+});
+
 /* -------------------------------------------------------------- an activity, #280 */
 
 describe('an activity', () => {
@@ -2933,7 +3409,8 @@ describe('the application role', () => {
     ).toBe(false);
   });
 
-  it('reads and appends to every table', async () => {
+  /* #284: but for the checks, which only the database copies. */
+  it('reads every table, and appends to every one but the checks', async () => {
     const { rows } = await admin.query<{ table: string }>(
       `SELECT t AS table FROM unnest($1::text[]) AS t
         WHERE NOT has_table_privilege('lms_app', t, 'SELECT')
@@ -2941,7 +3418,11 @@ describe('the application role', () => {
       [TABLES],
     );
 
-    expect(rows).toEqual([]);
+    expect(rows).toEqual([{ table: 'clients_check' }]);
+    expect(
+      (await admin.query(`SELECT has_table_privilege('lms_app', 'clients_check', 'SELECT') AS s`))
+        .rows[0].s,
+    ).toBe(true);
   });
 
   /* A grant is ended and nothing else; a line or product is renamed and retired, and a product
@@ -2970,6 +3451,12 @@ describe('the application role', () => {
       { table_name: 'clients_activity', column_name: 'opportunity_id' },
       { table_name: 'clients_activity', column_name: 'outcome' },
       { table_name: 'clients_activity', column_name: 'with_whom' },
+      /* #284, CLI 42. A checklist item reworded, moved, marked for POC deals only, retired; never
+         its checklist or group. */
+      { table_name: 'clients_checklist_item', column_name: 'label' },
+      { table_name: 'clients_checklist_item', column_name: 'poc_only' },
+      { table_name: 'clients_checklist_item', column_name: 'retired_on' },
+      { table_name: 'clients_checklist_item', column_name: 'sort' },
       { table_name: 'clients_client', column_name: 'name' },
       { table_name: 'clients_client', column_name: 'owner_id' },
       { table_name: 'clients_client', column_name: 'type_id' },

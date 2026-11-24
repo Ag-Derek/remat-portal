@@ -506,6 +506,8 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   PocDecides: 409,
   /** Moving it to Contract signed first is the fix. */
   LiveAfterSigning: 409,
+  /** #284, CLI 22. GATE_OPEN: ticking the criteria it names is the fix. */
+  GateOpen: 409,
   /** Looking again is the fix. */
   StageMovedMeanwhile: 409,
   /** #279, CLI 52. POC_DECIDES for marking lost: its POC converting or exiting is the fix. */
@@ -547,6 +549,12 @@ const REFUSED_BY_A_RULE: Readonly<Record<string, number>> = {
   NoActionAsked: 409,
   /** #287. A POC is extended once; converting or exiting it is the fix. */
   ExtendedAlready: 409,
+  /** #284, CLI 41. Ticked already, or not ticked already: nothing to do. */
+  TickUnchanged: 409,
+  /** #284, CLI 42. Its part of the checklist says that already; other words are the fix. */
+  ChecklistItemLabelTaken: 409,
+  /** #284. Copying fills an empty checklist; adding item by item is the fix. */
+  ChecklistNotEmpty: 409,
   /** NOTE_REQUIRED. The note box is the fix, so 400, as RefusalNeedsAComment is. */
   MovingBackNeedsANote: 400,
 };

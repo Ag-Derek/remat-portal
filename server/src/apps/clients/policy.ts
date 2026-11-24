@@ -69,9 +69,10 @@ export interface PocSubject {
 }
 
 /**
- * A checklist item to tick or untick (CLI 41). A qualification criterion sits on a deal and is
- * its owner's; a pre-POC or phase check sits on a POC and is its CS lead's or the owner of any
- * deal the POC covers (TDD 11, `/checks/{id}/tick`).
+ * A checklist item to tick or untick (CLI 41). A qualification criterion or pre-POC gate sits on
+ * a deal and is its owner's (the gates moved there with #285, since signing starts the POC); a
+ * phase check sits on a POC and is its CS lead's or the owner of any deal the POC covers (TDD 11,
+ * `/checks/{id}/tick`).
  */
 export type CheckSubject =
   | { id: string; on: 'DEAL'; owner: Named }

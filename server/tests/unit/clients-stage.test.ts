@@ -15,8 +15,20 @@ import { problemFor } from '../../src/core/http/problems.js';
  * database holds the same ladder (clients-schema.test.ts), and the API test drives both.
  */
 
-function at(stage: Stage, hasPoc: boolean | null = null): DealOnTheLadder {
-  return { stage, hasPoc, outcome: 'OPEN', product: { name: 'CreditStudio' } };
+function at(
+  stage: Stage,
+  hasPoc: boolean | null = null,
+  openCriteria: readonly string[] = [],
+  openGates: readonly string[] = [],
+): DealOnTheLadder {
+  return {
+    stage,
+    hasPoc,
+    outcome: 'OPEN',
+    product: { name: 'CreditStudio' },
+    openCriteria,
+    openGates,
+  };
 }
 
 /** The name of what refuses a move, or null where it may be made. */
@@ -92,6 +104,97 @@ describe('moving a deal by hand', () => {
 
   it('is refused to where the deal is already', () => {
     expect(refusal(at('PROPOSAL'), 'PROPOSAL', 'again')).toBe('AlreadyAtStage');
+  });
+
+  /* CLI 22, CLI 43, CLI 44, #284. */
+  describe('past the qualification criteria', () => {
+    const open = ['Point person identified', 'Finance or procurement contact identified'];
+
+    it('goes to Negotiation or beyond only with none open, and names those that are', () => {
+      expect(refusal(at('PROPOSAL', null, open), 'QUALIFICATION', 'back')).toBeNull();
+      expect(refusal(at('QUALIFICATION', null, open), 'PROPOSAL')).toBeNull();
+      expect(refusal(at('PROPOSAL', null, open), 'NEGOTIATION')).toBe('GateOpen');
+      expect(refusal(at('PROPOSAL', false, open), 'CONTRACT_SIGNED')).toBe('GateOpen');
+
+      expect(
+        refusalOfMove(at('PROPOSAL', null, open), { toStage: 'NEGOTIATION', note: null }),
+      ).toMatchObject({
+        message:
+          'The CreditStudio deal goes to Negotiation once its qualification criteria are ' +
+          'ticked. Still to tick: Point person identified; Finance or procurement contact ' +
+          'identified.',
+        field: 'toStage',
+      });
+    });
+
+    /* The user, 24 November 2026: unticked after the gate, the next move waits for it. */
+    it('holds every forward move after Negotiation too', () => {
+      expect(refusal(at('NEGOTIATION', false, open), 'CONTRACT_SIGNED')).toBe('GateOpen');
+      expect(refusal(at('CONTRACT_SIGNED', false, open), 'LIVE')).toBe('GateOpen');
+      expect(refusal(at('NEGOTIATION', false, open), 'PROPOSAL', 'Rethinking')).toBeNull();
+    });
+
+    /* The user, 24 November 2026: at Discovery there is no checklist to tick yet. */
+    it('tells a deal skipping Qualification from Discovery to go there first', () => {
+      expect(
+        refusalOfMove(at('DISCOVERY', null, open), { toStage: 'NEGOTIATION', note: null })?.message,
+      ).toMatch(/Move it to Qualification first, which gives it its checklist to tick\.$/);
+    });
+
+    /* CLI 43: no checklist, so nothing open. */
+    it('passes a deal with nothing open', () => {
+      expect(refusal(at('DISCOVERY'), 'NEGOTIATION')).toBeNull();
+    });
+
+    it('is a 409 naming the stage, so the screen can say it beside the choice', () => {
+      expect(
+        problemFor(
+          refusalOfMove(at('PROPOSAL', null, open), { toStage: 'NEGOTIATION', note: null }),
+        ).status,
+      ).toBe(409);
+    });
+  });
+
+  /* CLI 23, #284, #285: signing a deal with a POC starts it, so its gates come first. */
+  describe('past the pre-POC gates', () => {
+    const gates = ['Metrics agreed', 'User list final'];
+
+    it('signs a deal with a POC only with none open, and names those that are', () => {
+      expect(refusal(at('NEGOTIATION', true, [], gates), 'CONTRACT_SIGNED')).toBe('GateOpen');
+      expect(
+        refusalOfMove(at('NEGOTIATION', true, [], gates), {
+          toStage: 'CONTRACT_SIGNED',
+          note: null,
+        })?.message,
+      ).toBe(
+        'The CreditStudio deal goes to Contract signed once its pre-POC gates are ticked, since ' +
+          'signing starts its POC. Still to tick: Metrics agreed; User list final.',
+      );
+      expect(refusal(at('NEGOTIATION', true), 'CONTRACT_SIGNED')).toBeNull();
+    });
+
+    it('asks nothing of a deal without a POC, nor holds any stage before signing', () => {
+      expect(refusal(at('NEGOTIATION', false, [], gates), 'CONTRACT_SIGNED')).toBeNull();
+      expect(refusal(at('PROPOSAL', true, [], gates), 'NEGOTIATION')).toBeNull();
+    });
+
+    /* The user, 24 November 2026: one refusal naming both, so everything is seen at once. */
+    it('names the criteria and the gates together where both are open', () => {
+      expect(
+        refusalOfMove(at('NEGOTIATION', true, ['Point person identified'], gates), {
+          toStage: 'CONTRACT_SIGNED',
+          note: null,
+        }),
+      ).toMatchObject({
+        name: 'GateOpen',
+        message:
+          'The CreditStudio deal goes to Contract signed once its qualification criteria and ' +
+          'pre-POC gates are ticked. Criteria still to tick: Point person identified. Gates still ' +
+          'to tick: Metrics agreed; User list final.',
+        criteria: ['Point person identified'],
+        gates,
+      });
+    });
   });
 
   /* Each is a refusal the person can act on, not a fault (problems.ts). */
