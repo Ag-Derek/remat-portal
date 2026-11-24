@@ -31,6 +31,15 @@ import { CompanyCalendar } from './core/calendar/company-calendar.js';
 import { ClientsDocumentRepository } from './apps/clients/document.db.js';
 import { ClientsProductRepository } from './apps/clients/product.db.js';
 import { ClientsLeavers, summaryOfLeaversSwept } from './apps/clients/leavers.js';
+import { ClientsNotificationRunRepository } from './apps/clients/notification-run.db.js';
+import { ClientsReminderRepository } from './apps/clients/reminders.db.js';
+import { ClientsPocAlertRepository } from './apps/clients/poc-alerts.db.js';
+import { ClientsStandings } from './apps/clients/standing.js';
+import { clientsLinks } from './apps/clients/email.js';
+import {
+  ClientsDailyNotifications,
+  summaryOfNotificationRun,
+} from './apps/clients/notifications.job.js';
 import { AttachmentLinkRepository } from './apps/leave/leave-request/attachment-link.db.js';
 import { LeaveDecisionRepository } from './apps/leave/leave-request/leave-decision.db.js';
 import { LeaveRequestDraftRepository } from './apps/leave/leave-request/draft.db.js';
@@ -615,6 +624,40 @@ const clientsLeaversTimer = every(HOUR_MS, () =>
   ),
 );
 
+/* #290. The clients morning notifications at 07:30, every day. Asked every minute so they go at
+   07:30 rather than within the hour after; the job runs once a day and does nothing the other
+   times it is asked. Not in production until Clients goes live. */
+const clientsNotifications = new ClientsDailyNotifications(guard, {
+  runs: new ClientsNotificationRunRepository(db),
+  calendar: new CompanyCalendar(db),
+  reminders: new ClientsReminderRepository(db),
+  pocs: new ClientsPocRepository(db),
+  pocAlerts: new ClientsPocAlertRepository(db),
+  employees,
+  grants: clientsRoles,
+  standings: new ClientsStandings(clientsRoles, employees),
+  outbox,
+  /* POC alerts go into the outbox's table with their flags, in one transaction, so the outbox
+     is not there to nudge its sender itself. */
+  nudgeOutbox: () => {
+    setImmediate(() => {
+      void drainOutbox();
+    });
+  },
+  links: clientsLinks(appUrlFrom(process.env)),
+});
+const clientsNotificationTimer = every(MINUTE_MS, () =>
+  runJob('clients-notifications', async () => {
+    if (!CLIENTS_IS_OPEN) {
+      return undefined;
+    }
+
+    const run = await clientsNotifications.run(theSystem('the clients morning notifications'));
+
+    return run === undefined ? undefined : summaryOfNotificationRun(run);
+  }),
+);
+
 /* FR 59. Every minute, the shortest backoff. */
 const deliveryTimer = every(MINUTE_MS, () =>
   runJob('notification-retry', async () => {
@@ -684,6 +727,7 @@ function shutDown(signal: string): void {
   clearInterval(reminderTimer);
   clearInterval(leaverTimer);
   clearInterval(clientsLeaversTimer);
+  clearInterval(clientsNotificationTimer);
   clearInterval(deliveryTimer);
   clearInterval(directoryEmailTimer);
   clearInterval(outboxTimer);

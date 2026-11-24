@@ -19,10 +19,9 @@ import {
   asksSomething,
   dayOf,
   daysToDecision,
-  decisionFlagsOf,
   ExtendedAlready,
   extendedDecisionDateOf,
-  flagsOf,
+  pocFlagsOf,
   HealthUnchanged,
   InvalidPocLead,
   NoActionAsked,
@@ -38,7 +37,6 @@ import {
   readNewLead,
   readUsage,
   targetChecksOf,
-  usageFlagsOf,
   readReview,
 } from './poc.js';
 import type { ClientsPocRepository } from './poc.db.js';
@@ -336,8 +334,6 @@ function viewOf(
         running && poc.extension === null && clientsPolicy.updatePoc(actor, access, poc).allowed,
     },
     asks: running ? askOf(poc) : null,
-    flags: running
-      ? [...flagsOf(poc, now), ...usageFlagsOf(poc, today), ...decisionFlagsOf(poc, today)]
-      : [],
+    flags: running ? pocFlagsOf(poc, now, today) : [],
   };
 }

@@ -69,3 +69,20 @@ describe("the company's working days", () => {
     expect(await new CompanyCalendar(db).addWorkingDays('2026-11-20', 1)).toBe('2026-11-21');
   });
 });
+
+describe("the company's week around a day", () => {
+  /* #290: the morning reminders look back to the last working day as well as forward. */
+  it('holds the holidays on both sides of it', async () => {
+    await holiday('2026-11-13');
+    await holiday('2026-11-20');
+    await holiday('2026-11-26');
+
+    const week = await new CompanyCalendar(db).weekAround('2026-11-20');
+
+    expect([...week.holidays].filter((day) => day >= '2026-11-01').sort()).toEqual([
+      '2026-11-13',
+      '2026-11-20',
+      '2026-11-26',
+    ]);
+  });
+});

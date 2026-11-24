@@ -191,7 +191,7 @@ describe('the columns', () => {
      the rule gives and the date it is due, the day it was done and the day the renewal runs
      to, the day an item was retired, and the day a reminder was for. A permit expires on the
      day printed on it, and a zone would move that day for whoever read it. Compliance TDD 6. */
-  it('the forty two dates there are today are the ones expected', async () => {
+  it('the forty four dates there are today are the ones expected', async () => {
     const dates = (await temporalColumns())
       .filter((column) => column.data_type === 'date')
       .map((column) => `${column.table_name}.${column.column_name}`);
@@ -211,11 +211,15 @@ describe('the columns', () => {
       'clients_client_type.retired_on',
       /** #279. The day a next step falls due, an exit's debrief the first. */
       'clients_next_step.due_on',
+      /** #290. A day the morning notifications ran for. */
+      'clients_notification_run.run_on',
       /** #278. The day a deal was won, lost or exited. */
       'clients_opportunity.ended_on',
       /** #285. The day a POC started, its contract signed, and the day it is to be decided by. */
       'clients_poc.decision_on',
       'clients_poc.started_on',
+      /** #290. The morning a POC flag was told on. */
+      'clients_poc_alert.alerted_on',
       /** #286. The day a POC's usage counts are for. */
       'clients_poc_usage.measured_on',
       /** #293. The day a product or a line stopped taking new deals. */
