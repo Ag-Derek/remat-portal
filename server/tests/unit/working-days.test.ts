@@ -3,6 +3,7 @@ import {
   addWorkingDays,
   isWorkingDay,
   nextWorkingDay,
+  previousWorkingDay,
   type WorkingWeek,
 } from '../../src/core/calendar/working-days.js';
 
@@ -58,6 +59,26 @@ describe('the next working day', () => {
 
   it('is refused for a week with no working day, rather than searched for forever', () => {
     expect(() => nextWorkingDay('2026-11-16', week([], []))).toThrow(/no working day/);
+  });
+});
+
+describe('the previous working day', () => {
+  it('is yesterday on a Tuesday', () => {
+    expect(previousWorkingDay('2026-11-17', week())).toBe('2026-11-16');
+  });
+
+  it('is the Friday before, from a Monday or a weekend', () => {
+    expect(previousWorkingDay('2026-11-23', week())).toBe('2026-11-20');
+    expect(previousWorkingDay('2026-11-22', week())).toBe('2026-11-20');
+    expect(previousWorkingDay('2026-11-21', week())).toBe('2026-11-20');
+  });
+
+  it('skips public holidays', () => {
+    expect(previousWorkingDay('2026-11-23', week(['2026-11-20', '2026-11-19']))).toBe('2026-11-18');
+  });
+
+  it('refuses a week with no working day', () => {
+    expect(() => previousWorkingDay('2026-11-23', week([], []))).toThrow(/no previous working day/);
   });
 });
 

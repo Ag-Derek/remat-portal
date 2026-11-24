@@ -41,6 +41,8 @@ const TABLES = [
   'clients_checklist_item',
   'clients_check',
   'clients_tick',
+  'clients_notification_run',
+  'clients_poc_alert',
 ];
 
 /** A client nobody else in a test has, owned by `owner`. */
@@ -3384,6 +3386,69 @@ describe('a note on a client', () => {
       { action: 'CREATE', entity_id: rows[0].id },
       { action: 'UPDATE', entity_id: rows[0].id },
     ]);
+  });
+});
+
+/* ------------------------------------------------------- the notifications' days */
+
+describe('a day the morning notifications ran for', () => {
+  const RAN = 'INSERT INTO clients_notification_run (run_on) VALUES ($1)';
+
+  /* #290. Once a day, so a second run of the same day is told it has run. */
+  it('is written once', async () => {
+    expect(await refusedBy(RAN, ['2026-11-24'])).toBeNull();
+    expect(await refusedBy(RAN, ['2026-11-24'])).toBe('clients_notification_run_pkey');
+    expect(await refusedBy(RAN, ['2026-11-25'])).toBeNull();
+  });
+
+  /* A day removed would be a day sent again. */
+  it('is never changed or deleted once written', async () => {
+    await admin.query(RAN, ['2026-11-24']);
+
+    for (const statement of [
+      `UPDATE clients_notification_run SET run_on = '2026-11-23' WHERE run_on = '2026-11-24'`,
+      `DELETE FROM clients_notification_run WHERE run_on = '2026-11-24'`,
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement)).rejects.toThrow(
+        /clients_notification_run are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
+  });
+});
+
+describe('a POC flag the morning alerts told', () => {
+  const TOLD = `INSERT INTO clients_poc_alert (poc_id, flag, since, recipient_id, alerted_on)
+                VALUES ($1, $2, $3, $4, '2026-11-27')`;
+
+  /* #290. Once per POC, flag, moment and person; the same flag from a new moment is another. */
+  it('is written once per POC, flag, the moment it was flagged from and person', async () => {
+    const poc = await aPocFor(await aDeal(await aClient(ama), ama));
+    const at = '2026-11-27T00:00:00Z';
+
+    expect(await refusedBy(TOLD, [poc, 'PAST_DECISION', at, ama])).toBeNull();
+    expect(await refusedBy(TOLD, [poc, 'PAST_DECISION', at, ama])).toBe('clients_poc_alert_pkey');
+    expect(await refusedBy(TOLD, [poc, 'PAST_DECISION', at, kofi])).toBeNull();
+    expect(await refusedBy(TOLD, [poc, 'PAST_DECISION', '2026-12-28T00:00:00Z', ama])).toBeNull();
+    expect(await refusedBy(TOLD, [poc, 'NO_USAGE', at, ama])).toBeNull();
+    expect(await refusedBy(TOLD, [poc, 'SOMETHING', at, ama])).toBe('clients_poc_alert_flag_known');
+  });
+
+  it('is never changed or deleted once written', async () => {
+    const poc = await aPocFor(await aDeal(await aClient(ama), ama));
+    await admin.query(TOLD, [poc, 'PAST_DECISION', '2026-11-27T00:00:00Z', ama]);
+
+    for (const statement of [
+      `UPDATE clients_poc_alert SET alerted_on = '2026-11-30' WHERE poc_id = $1`,
+      'DELETE FROM clients_poc_alert WHERE poc_id = $1',
+    ]) {
+      await admin.query('SAVEPOINT attempt');
+      await expect(admin.query(statement, [poc])).rejects.toThrow(
+        /clients_poc_alert are never (changed once written|deleted)/,
+      );
+      await admin.query('ROLLBACK TO SAVEPOINT attempt');
+    }
   });
 });
 

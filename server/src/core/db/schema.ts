@@ -1005,6 +1005,28 @@ export interface ClientsPocUsageTable {
 }
 
 /**
+ * A day the clients morning notifications ran for. #290. One row a day, written by the system
+ * when the run has finished; never changed or deleted.
+ */
+export interface ClientsNotificationRunTable {
+  run_on: ColumnType<string, string, never>;
+  ran_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * A POC flag the morning alerts have told somebody about, once per POC, flag, the moment it was
+ * flagged from and person. #290. Written by the system with the email; never changed or deleted.
+ */
+export interface ClientsPocAlertTable {
+  poc_id: ColumnType<string, string, never>;
+  flag: ColumnType<string, string, never>;
+  since: ColumnType<Date, Date, never>;
+  recipient_id: ColumnType<string, string, never>;
+  alerted_on: ColumnType<string, string, never>;
+  alerted_at: ColumnType<Date, never, never>;
+}
+
+/**
  * One item of a checklist, kept per product line and client type, in one of five groups. #284,
  * Clients SRS CLI 39, TDD 4.4. The template: deals and POCs are judged by copies taken from it.
  * Its line, type and group never change, and none is deleted.
@@ -1081,6 +1103,10 @@ export interface Database {
   clients_poc_action: ClientsPocActionTable;
   /** #286. */
   clients_poc_usage: ClientsPocUsageTable;
+  /** #290. */
+  clients_notification_run: ClientsNotificationRunTable;
+  /** #290. */
+  clients_poc_alert: ClientsPocAlertTable;
   /** #284. */
   clients_checklist_item: ClientsChecklistItemTable;
   /** #284. */

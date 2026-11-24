@@ -388,6 +388,19 @@ export function usageFlagsOf(
   return poc.usage.percent < LOW_USAGE.belowPercent ? [{ kind: 'LOW_USAGE', since }] : [];
 }
 
+/**
+ * Every flag a running POC has at `now`, on `today`: what its health asked for and did not get,
+ * its usage from Day 63, and its decision date passed. The one list the screens show and the
+ * morning alerts are sent about (#290).
+ */
+export function pocFlagsOf(
+  poc: HealthNow & Pick<Poc, 'startedOn' | 'usage' | 'decisionOn'>,
+  now: Date,
+  today: CalendarDate,
+): PocFlag[] {
+  return [...flagsOf(poc, now), ...usageFlagsOf(poc, today), ...decisionFlagsOf(poc, today)];
+}
+
 /** Its counts on a day, as they are recorded: `{ measuredOn, enrolled, active }`. */
 export interface UsageRecorded {
   measuredOn: CalendarDate;

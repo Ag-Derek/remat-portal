@@ -7,7 +7,7 @@
  * company's calendar, and reading it is not leave's business.
  */
 
-import type { Kysely } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { CalendarDate } from './time.js';
 import { WorkPatternRepository } from './work-pattern/work-pattern.db.js';
@@ -26,6 +26,24 @@ export class CompanyCalendar {
   }
 
   /**
+   * The company's week for working out days on both sides of `day`: the default week, and every
+   * holiday from more than a year before it on. Clients' morning reminders (#290) look back to
+   * the last working day as well as forward to the next, and no search goes further than that.
+   */
+  async weekAround(day: CalendarDate): Promise<WorkingWeek> {
+    const [pattern, holidays] = await Promise.all([
+      this.patterns.findDefault(),
+      this.db
+        .selectFrom('holiday')
+        .select('holiday_date')
+        .where('holiday_date', '>=', sql<CalendarDate>`${day}::date - 400`)
+        .execute(),
+    ]);
+
+    return weekOf(pattern, holidays);
+  }
+
+  /**
    * The default week, and every holiday after `day`. Every one rather than a guessed window: the
    * calendar holds tens a year, and a window too short would count a holiday as a working day.
    */
@@ -39,13 +57,21 @@ export class CompanyCalendar {
         .execute(),
     ]);
 
-    if (pattern === undefined) {
-      throw new Error('There is no default work pattern, so no working day can be counted.');
-    }
-
-    return {
-      workingDays: pattern.workingDays,
-      holidays: new Set(holidays.map((holiday) => holiday.holiday_date)),
-    };
+    return weekOf(pattern, holidays);
   }
+}
+
+/** The week from the default pattern and the holidays read with it. */
+function weekOf(
+  pattern: Awaited<ReturnType<WorkPatternRepository['findDefault']>>,
+  holidays: readonly { holiday_date: CalendarDate }[],
+): WorkingWeek {
+  if (pattern === undefined) {
+    throw new Error('There is no default work pattern, so no working day can be counted.');
+  }
+
+  return {
+    workingDays: pattern.workingDays,
+    holidays: new Set(holidays.map((holiday) => holiday.holiday_date)),
+  };
 }

@@ -10,7 +10,7 @@
  * database. {@link CompanyCalendar} reads them for a caller that has only a date.
  */
 
-import { type CalendarDate, dayAfter, isCalendarDate, isoWeekdayOf } from './time.js';
+import { type CalendarDate, dayAfter, dayBefore, isCalendarDate, isoWeekdayOf } from './time.js';
 
 /** Which days the company works: a week, and the days it is closed anyway. */
 export interface WorkingWeek {
@@ -51,6 +51,26 @@ export function nextWorkingDay(day: CalendarDate, week: WorkingWeek): CalendarDa
   }
 
   return next;
+}
+
+/** The last working day before this one, whether or not this one is a working day. */
+export function previousWorkingDay(day: CalendarDate, week: WorkingWeek): CalendarDate {
+  if (week.workingDays.length === 0) {
+    throw new Error('A week with no working day has no previous working day.');
+  }
+
+  let previous = dayBefore(day);
+  for (let searched = 1; !isWorkingDay(previous, week); searched += 1) {
+    if (searched >= LONGEST_SEARCH_DAYS) {
+      throw new Error(
+        `No working day in the ${String(LONGEST_SEARCH_DAYS)} days before ${day}. Check the ` +
+          'default work pattern and the public holidays.',
+      );
+    }
+    previous = dayBefore(previous);
+  }
+
+  return previous;
 }
 
 /**
